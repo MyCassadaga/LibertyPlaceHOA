@@ -1,19 +1,23 @@
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 
 from ..api.dependencies import get_db, get_owner_for_user
 from ..auth.jwt import get_current_user, require_roles
-from ..models.models import Owner, OwnerUpdateRequest, User
+from ..models.models import LedgerEntry, Owner, OwnerUpdateRequest, User, Invoice, Payment
 from ..schemas.schemas import (
+    InvoiceRead,
+    LedgerEntryRead,
     OwnerCreate,
+    OwnerExport,
     OwnerRead,
     OwnerUpdate,
     OwnerUpdateRequestCreate,
     OwnerUpdateRequestRead,
     OwnerUpdateRequestReview,
+    PaymentRead,
 )
 from ..services.audit import audit_log
 
@@ -25,6 +29,10 @@ def _get_owner_or_404(db: Session, owner_id: int) -> Owner:
     if not owner:
         raise HTTPException(status_code=404, detail="Owner not found")
     return owner
+
+
+def _collect_owner_export(db: Session, owner: Owner) -> OwnerExport:
+    return _collect_owner_export(db, owner)
 
 
 @router.get("/", response_model=List[OwnerRead])
@@ -70,6 +78,56 @@ def get_owner(
         }:
             raise HTTPException(status_code=403, detail="Not allowed to view this owner")
     return owner
+
+
+@router.get("/{owner_id}/export", response_model=OwnerExport)
+def export_owner_data(
+    owner_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> OwnerExport:
+    owner = _get_owner_or_404(db, owner_id)
+    privileged_roles = {"BOARD", "TREASURER", "SECRETARY", "SYSADMIN", "AUDITOR"}
+
+    if user.role and user.role.name == "HOMEOWNER":
+        linked_owner = get_owner_for_user(db, user)
+        if not linked_owner or linked_owner.id != owner_id:
+            raise HTTPException(status_code=403, detail="Not allowed to export data for another owner")
+    elif not user.role or user.role.name not in privileged_roles:
+        raise HTTPException(status_code=403, detail="Role not permitted to export owner data")
+
+    invoices = (
+        db.query(Invoice)
+        .filter(Invoice.owner_id == owner.id)
+        .order_by(Invoice.created_at.asc())
+        .all()
+    )
+    payments = (
+        db.query(Payment)
+        .filter(Payment.owner_id == owner.id)
+        .order_by(Payment.date_received.asc())
+        .all()
+    )
+    ledger_entries = (
+        db.query(LedgerEntry)
+        .filter(LedgerEntry.owner_id == owner.id)
+        .order_by(LedgerEntry.timestamp.asc())
+        .all()
+    )
+    update_requests = (
+        db.query(OwnerUpdateRequest)
+        .filter(OwnerUpdateRequest.owner_id == owner.id)
+        .order_by(OwnerUpdateRequest.created_at.asc())
+        .all()
+    )
+
+    return OwnerExport(
+        owner=OwnerRead.from_orm(owner),
+        invoices=[InvoiceRead.from_orm(invoice) for invoice in invoices],
+        payments=[PaymentRead.from_orm(payment) for payment in payments],
+        ledger_entries=[LedgerEntryRead.from_orm(entry) for entry in ledger_entries],
+        update_requests=[OwnerUpdateRequestRead.from_orm(request) for request in update_requests],
+    )
 
 
 @router.put("/{owner_id}", response_model=OwnerRead)
@@ -200,3 +258,28 @@ def review_proposal(
         after=after,
     )
     return request
+
+
+@router.delete("/{owner_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_owner(
+    owner_id: int,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles("BOARD", "SYSADMIN")),
+) -> Response:
+    owner = _get_owner_or_404(db, owner_id)
+    export_snapshot = _collect_owner_export(db, owner)
+    audit_payload: Dict[str, object] = export_snapshot.dict()
+
+    db.delete(owner)
+    db.commit()
+
+    audit_log(
+        db_session=db,
+        actor_user_id=actor.id,
+        action="owner.delete",
+        target_entity_type="Owner",
+        target_entity_id=str(owner_id),
+        before=audit_payload,
+        after=None,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

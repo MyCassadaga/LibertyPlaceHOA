@@ -41,6 +41,27 @@ npm run dev
 
 The Vite dev server runs on `http://localhost:5173`.
 
+## One-Step Local Launch
+
+Once dependencies are installed, you can bring up both servers (and apply migrations) with:
+
+```bash
+python3 scripts/start_dev.py
+```
+
+This launcher runs Alembic migrations, starts `uvicorn` on port 8001, and kicks off the Vite dev server on port 5173. Press `Ctrl+C` to stop both processes together.
+
+### Seeding quick test data
+
+To add a contract for renewal reminder testing, use:
+
+```bash
+python3 scripts/add_contract.py --vendor "ACME Landscaping" --service "Landscaping" \
+  --start 2024-01-01 --end 2024-12-31 --notice-deadline 2024-12-01 --auto-renew
+```
+
+Adjust dates and fields as needed; the script writes directly to the dev database configured in `.env`.
+
 ## Default Roles & Access
 
 Roles are seeded at startup (`SYSADMIN`, `BOARD`, `TREASURER`, `SECRETARY`, `ARC`, `AUDITOR`, `ATTORNEY`, `HOMEOWNER`). RBAC gates routers and actions based on minimum privileges. All sensitive operations create audit log entries.

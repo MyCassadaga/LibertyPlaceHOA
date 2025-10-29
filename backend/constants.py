@@ -20,3 +20,27 @@ ROLE_PRIORITY = {
     "AUDITOR": 60,
     "SYSADMIN": 100,
 }
+
+DEFAULT_LATE_FEE_POLICY = {
+    "name": "default",
+    "grace_period_days": 5,
+    "dunning_schedule_days": [5, 15, 30],
+    "tiers": [
+        {
+            "sequence_order": 1,
+            "trigger_days_after_grace": 0,
+            "fee_type": "flat",
+            "fee_amount": 15.00,
+            "fee_percent": 0,
+            "description": "Initial late fee after grace period",
+        },
+        {
+            "sequence_order": 2,
+            "trigger_days_after_grace": 15,
+            "fee_type": "flat",
+            "fee_amount": 25.00,
+            "fee_percent": 0,
+            "description": "Second-tier late fee",
+        },
+    ],
+}

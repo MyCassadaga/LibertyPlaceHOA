@@ -20,7 +20,8 @@ const LoginPage: React.FC = () => {
       await login(email, password);
       navigate(from, { replace: true });
     } catch (err) {
-      setError('Invalid credentials');
+      const message = err instanceof Error ? err.message : 'Unable to sign in. Please try again.';
+      setError(message);
     }
   };
 

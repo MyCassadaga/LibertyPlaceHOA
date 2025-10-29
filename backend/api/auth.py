@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 from ..api.dependencies import get_db
 from ..auth.jwt import create_access_token, get_current_user, get_password_hash, require_roles, verify_password
 from ..models.models import Role, User
-from ..schemas.schemas import Token, UserCreate, UserRead
+from ..schemas.schemas import RoleRead, Token, UserCreate, UserRead
 from ..services.audit import audit_log
 
 router = APIRouter()
@@ -70,6 +70,6 @@ def read_current_user(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
-@router.get("/roles", response_model=List[str])
-def list_roles(db: Session = Depends(get_db)) -> List[str]:
-    return [role.name for role in db.query(Role).order_by(Role.name.asc()).all()]
+@router.get("/roles", response_model=List[RoleRead])
+def list_roles(db: Session = Depends(get_db)) -> List[Role]:
+    return db.query(Role).order_by(Role.name.asc()).all()

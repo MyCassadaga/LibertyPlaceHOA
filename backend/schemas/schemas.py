@@ -1,8 +1,8 @@
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, confloat, condecimal, conint
 
 
 class PermissionRead(BaseModel):
@@ -116,6 +116,7 @@ class InvoiceBase(BaseModel):
     amount: Decimal
     due_date: date
     notes: Optional[str]
+    original_amount: Optional[Decimal]
 
 
 class InvoiceCreate(InvoiceBase):
@@ -133,10 +134,14 @@ class InvoiceRead(BaseModel):
     owner_id: int
     lot: Optional[str]
     amount: Decimal
+    original_amount: Decimal
+    late_fee_total: Decimal
     due_date: date
     status: str
     late_fee_applied: bool
     notes: Optional[str]
+    last_late_fee_applied_at: Optional[datetime]
+    last_reminder_sent_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
 
@@ -155,6 +160,42 @@ class PaymentCreate(BaseModel):
 
 class LateFeePayload(BaseModel):
     fee_amount: Decimal
+
+
+class BillingPolicyRead(BaseModel):
+    name: str
+    grace_period_days: int
+    dunning_schedule_days: List[int]
+    tiers: List["LateFeeTierRead"]
+
+
+class BillingPolicyUpdate(BaseModel):
+    grace_period_days: conint(ge=0)
+    dunning_schedule_days: List[conint(ge=0)]
+    tiers: List["LateFeeTierUpdate"]
+
+
+class LateFeeTierRead(BaseModel):
+    id: int
+    sequence_order: int
+    trigger_days_after_grace: int
+    fee_type: str
+    fee_amount: Decimal
+    fee_percent: float
+    description: Optional[str]
+
+    class Config:
+        orm_mode = True
+
+
+class LateFeeTierUpdate(BaseModel):
+    id: Optional[int]
+    sequence_order: conint(ge=1)
+    trigger_days_after_grace: conint(ge=0)
+    fee_type: Literal["flat", "percent"]
+    fee_amount: condecimal(ge=0, max_digits=10, decimal_places=2) = Decimal("0")
+    fee_percent: confloat(ge=0, le=100) = 0
+    description: Optional[str]
 
 
 class PaymentRead(BaseModel):
@@ -243,6 +284,66 @@ class AnnouncementRead(BaseModel):
         orm_mode = True
 
 
+class EmailBroadcastRecipient(BaseModel):
+    owner_id: Optional[int]
+    owner_name: Optional[str]
+    lot: Optional[str]
+    email: EmailStr
+    contact_type: Optional[str]
+
+
+class EmailBroadcastCreate(BaseModel):
+    subject: str
+    body: str
+    segment: Literal["ALL_OWNERS", "DELINQUENT_OWNERS", "RENTAL_OWNERS"]
+
+
+class EmailBroadcastRead(BaseModel):
+    id: int
+    subject: str
+    body: str
+    segment: str
+    recipients: List[EmailBroadcastRecipient] = Field(alias="recipient_snapshot")
+    recipient_count: int
+    created_at: datetime
+    created_by_user_id: int
+
+    class Config:
+        orm_mode = True
+        allow_population_by_field_name = True
+
+
+class EmailBroadcastSegmentPreview(BaseModel):
+    key: str
+    label: str
+    description: str
+    recipient_count: int
+
+
+class ReminderRead(BaseModel):
+    id: int
+    reminder_type: str
+    title: str
+    description: Optional[str]
+    entity_type: str
+    entity_id: int
+    due_date: Optional[date]
+    context: Optional[Dict[str, Any]]
+    created_at: datetime
+    resolved_at: Optional[datetime]
+
+    class Config:
+        orm_mode = True
+
+
+class OwnerExport(BaseModel):
+    owner: OwnerRead
+    invoices: List[InvoiceRead]
+    payments: List[PaymentRead]
+    ledger_entries: List[LedgerEntryRead]
+    update_requests: List[OwnerUpdateRequestRead]
+
+
 class AuditLogRead(BaseModel):
     id: int
     timestamp: datetime
@@ -261,3 +362,7 @@ class BillingSummaryRead(BaseModel):
     total_balance: Decimal
     open_invoices: int
     owner_count: int
+
+
+BillingPolicyRead.update_forward_refs()
+BillingPolicyUpdate.update_forward_refs()

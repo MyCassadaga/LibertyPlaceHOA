@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import { fetchBillingSummary, fetchInvoices } from '../services/api';
-import { BillingSummary, Invoice } from '../types';
+import { fetchBillingSummary, fetchDashboardReminders, fetchInvoices } from '../services/api';
+import { BillingSummary, Invoice, Reminder } from '../types';
 
 const DashboardPage: React.FC = () => {
   const { user } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [remindersError, setRemindersError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -19,9 +21,21 @@ const DashboardPage: React.FC = () => {
           const data = await fetchInvoices();
           setInvoices(data);
         }
-        if (["BOARD", "TREASURER"].includes(user.role.name)) {
-          const data = await fetchBillingSummary();
-          setSummary(data);
+        if (['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY'].includes(user.role.name)) {
+          try {
+            const data = await fetchBillingSummary();
+            setSummary(data);
+          } catch (err) {
+            setSummary(null);
+          }
+          try {
+            const reminderData = await fetchDashboardReminders();
+            setReminders(reminderData);
+            setRemindersError(null);
+          } catch (err) {
+            setReminders([]);
+            setRemindersError('Unable to load renewal reminders.');
+          }
         }
       } finally {
         setLoading(false);
@@ -30,6 +44,11 @@ const DashboardPage: React.FC = () => {
 
     load();
   }, [user]);
+
+  const isBoardUser = useMemo(
+    () => !!user && ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY'].includes(user.role.name),
+    [user],
+  );
 
   if (!user) {
     return null;
@@ -43,6 +62,56 @@ const DashboardPage: React.FC = () => {
       </header>
 
       {loading && <p className="text-sm text-slate-500">Loading dashboard data…</p>}
+
+      {isBoardUser && (
+        <section className="rounded border border-slate-200 p-4">
+          <h3 className="mb-3 text-lg font-semibold text-slate-700">Contract Renewal Reminders</h3>
+          {remindersError && <p className="text-sm text-red-600">{remindersError}</p>}
+          {!remindersError && reminders.length === 0 && (
+            <p className="text-sm text-slate-500">No contract renewals require attention in the next 30 days.</p>
+          )}
+          {reminders.length > 0 && (
+            <ul className="space-y-3 text-sm">
+              {reminders.map((reminder) => {
+                const dueDate = reminder.due_date ? new Date(reminder.due_date) : null;
+                const vendorName =
+                  reminder.context && typeof reminder.context['vendor_name'] === 'string'
+                    ? (reminder.context['vendor_name'] as string)
+                    : undefined;
+                const serviceType =
+                  reminder.context && typeof reminder.context['service_type'] === 'string'
+                    ? (reminder.context['service_type'] as string)
+                    : undefined;
+                const formattedDue = dueDate ? dueDate.toLocaleDateString() : 'No deadline';
+                const daysRemaining =
+                  dueDate != null
+                    ? Math.max(0, Math.ceil((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+                    : null;
+                return (
+                  <li key={reminder.id} className="rounded border border-slate-200 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h4 className="font-semibold text-slate-700">
+                        {reminder.title}
+                        {serviceType ? <span className="ml-2 text-xs uppercase text-slate-400">{serviceType}</span> : null}
+                      </h4>
+                      <span className="text-xs font-medium text-primary-600">
+                        Due: {formattedDue}
+                        {daysRemaining != null ? ` • ${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining` : ''}
+                      </span>
+                    </div>
+                    {reminder.description && (
+                      <p className="mt-2 whitespace-pre-wrap text-slate-600">{reminder.description}</p>
+                    )}
+                    <p className="mt-2 text-xs text-slate-500">
+                      Vendor: {vendorName ?? 'Unknown'} • Created on {new Date(reminder.created_at).toLocaleString()}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+      )}
 
       {summary && (
         <section className="rounded border border-slate-200 p-4">

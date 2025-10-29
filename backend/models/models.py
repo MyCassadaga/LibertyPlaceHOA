@@ -59,6 +59,7 @@ class User(Base):
 
     role = relationship("Role", back_populates="users")
     audit_logs = relationship("AuditLog", back_populates="actor")
+    email_broadcasts = relationship("EmailBroadcast", back_populates="creator")
 
 
 class AuditLog(Base):
@@ -127,15 +128,20 @@ class Invoice(Base):
     owner_id = Column(Integer, ForeignKey("owners.id", ondelete="CASCADE"), nullable=False)
     lot = Column(String, nullable=True)
     amount = Column(Numeric(10, 2), nullable=False)
+    original_amount = Column(Numeric(10, 2), nullable=False)
+    late_fee_total = Column(Numeric(10, 2), nullable=False, default=0)
     due_date = Column(Date, nullable=False)
     status = Column(String, default="OPEN", nullable=False)
     late_fee_applied = Column(Boolean, default=False, nullable=False)
     notes = Column(Text, nullable=True)
+    last_late_fee_applied_at = Column(DateTime, nullable=True)
+    last_reminder_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     owner = relationship("Owner", back_populates="invoices")
     payments = relationship("Payment", back_populates="invoice")
+    late_fees = relationship("InvoiceLateFee", back_populates="invoice", cascade="all, delete-orphan")
 
 
 class Payment(Base):
@@ -168,6 +174,50 @@ class LedgerEntry(Base):
     owner = relationship("Owner", back_populates="ledger_entries")
 
 
+class BillingPolicy(Base):
+    __tablename__ = "billing_policies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False, unique=True)
+    grace_period_days = Column(Integer, nullable=False, default=5)
+    dunning_schedule_days = Column(JSON, nullable=False, default=[5, 15, 30])
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    tiers = relationship("LateFeeTier", back_populates="policy", cascade="all, delete-orphan", order_by="LateFeeTier.sequence_order")
+
+
+class LateFeeTier(Base):
+    __tablename__ = "late_fee_tiers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    policy_id = Column(Integer, ForeignKey("billing_policies.id", ondelete="CASCADE"), nullable=False)
+    sequence_order = Column(Integer, nullable=False)
+    trigger_days_after_grace = Column(Integer, nullable=False)
+    fee_type = Column(String, nullable=False, default="flat")  # flat|percent
+    fee_amount = Column(Numeric(10, 2), nullable=False, default=0)
+    fee_percent = Column(Float, nullable=False, default=0)  # stored as percentage e.g. 5 = 5%
+    description = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    policy = relationship("BillingPolicy", back_populates="tiers")
+    invoice_fees = relationship("InvoiceLateFee", back_populates="tier")
+
+
+class InvoiceLateFee(Base):
+    __tablename__ = "invoice_late_fees"
+
+    id = Column(Integer, primary_key=True, index=True)
+    invoice_id = Column(Integer, ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False)
+    tier_id = Column(Integer, ForeignKey("late_fee_tiers.id", ondelete="CASCADE"), nullable=False)
+    applied_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    fee_amount = Column(Numeric(10, 2), nullable=False)
+
+    invoice = relationship("Invoice", back_populates="late_fees")
+    tier = relationship("LateFeeTier", back_populates="invoice_fees")
+
+
 class Contract(Base):
     __tablename__ = "contracts"
 
@@ -197,3 +247,33 @@ class Announcement(Base):
     pdf_path = Column(String, nullable=True)
 
     creator = relationship("User", foreign_keys=[created_by_user_id])
+
+
+class EmailBroadcast(Base):
+    __tablename__ = "email_broadcasts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    segment = Column(String, nullable=False)
+    recipient_snapshot = Column(JSON, nullable=False, default=list)
+    recipient_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    creator = relationship("User", back_populates="email_broadcasts")
+
+
+class Reminder(Base):
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reminder_type = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    entity_type = Column(String, nullable=False)
+    entity_id = Column(Integer, nullable=False)
+    due_date = Column(Date, nullable=True)
+    context = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    resolved_at = Column(DateTime, nullable=True)

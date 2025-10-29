@@ -1,6 +1,20 @@
 import axios from 'axios';
 
-import { Announcement, BillingSummary, Contract, Invoice, Owner, User } from '../types';
+import {
+  Announcement,
+  BillingPolicy,
+  BillingPolicyUpdatePayload,
+  BillingSummary,
+  Contract,
+  EmailBroadcast,
+  EmailBroadcastSegment,
+  Invoice,
+  Owner,
+  Reminder,
+  Role,
+  RoleOption,
+  User,
+} from '../types';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:8000',
@@ -41,6 +55,16 @@ export const fetchInvoices = async (): Promise<Invoice[]> => {
 
 export const fetchBillingSummary = async (): Promise<BillingSummary> => {
   const { data } = await api.get<BillingSummary>('/billing/summary');
+  return data;
+};
+
+export const fetchBillingPolicy = async (): Promise<BillingPolicy> => {
+  const { data } = await api.get<BillingPolicy>('/billing/policy');
+  return data;
+};
+
+export const updateBillingPolicy = async (payload: BillingPolicyUpdatePayload): Promise<BillingPolicy> => {
+  const { data } = await api.put<BillingPolicy>('/billing/policy', payload);
   return data;
 };
 
@@ -86,6 +110,60 @@ export const createAnnouncement = async (payload: AnnouncementPayload): Promise<
 
 export const fetchAnnouncements = async (): Promise<Announcement[]> => {
   const { data } = await api.get<Announcement[]>('/communications/announcements');
+  return data;
+};
+
+export interface EmailBroadcastPayload {
+  subject: string;
+  body: string;
+  segment: string;
+}
+
+export const fetchBroadcastSegments = async (): Promise<EmailBroadcastSegment[]> => {
+  const { data } = await api.get<EmailBroadcastSegment[]>('/communications/broadcast-segments');
+  return data;
+};
+
+export const fetchEmailBroadcasts = async (): Promise<EmailBroadcast[]> => {
+  const { data } = await api.get<EmailBroadcast[]>('/communications/broadcasts');
+  return data;
+};
+
+export const createEmailBroadcast = async (payload: EmailBroadcastPayload): Promise<EmailBroadcast> => {
+  const { data } = await api.post<EmailBroadcast>('/communications/broadcasts', payload);
+  return data;
+};
+
+export const fetchDashboardReminders = async (): Promise<Reminder[]> => {
+  const { data } = await api.get<Reminder[]>('/dashboard/reminders');
+  return data;
+};
+
+export interface RegisterUserPayload {
+  email: string;
+  full_name?: string | null;
+  password: string;
+  role_id: number;
+}
+
+export const fetchRoles = async (): Promise<RoleOption[]> => {
+  const { data } = await api.get<(Role & { permissions?: unknown })[]>('/auth/roles');
+  return data.map((role) => ({
+    id: role.id,
+    name: role.name,
+    description: role.description ?? null,
+  }));
+};
+
+export const registerUser = async (payload: RegisterUserPayload): Promise<User> => {
+  const { data } = await api.post<User>('/auth/register', payload);
+  return data;
+};
+
+export const sendInvoiceReminder = async (invoiceId: number): Promise<Blob> => {
+  const { data } = await api.post<Blob>(`/billing/invoices/${invoiceId}/send-reminder`, null, {
+    responseType: 'blob',
+  });
   return data;
 };
 

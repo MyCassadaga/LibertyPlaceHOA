@@ -9,17 +9,19 @@ import CommunicationsPage from './pages/CommunicationsPage';
 import ContractsPage from './pages/ContractsPage';
 import DashboardPage from './pages/DashboardPage';
 import LoginPage from './pages/LoginPage';
+import AdminPage from './pages/AdminPage';
 import OwnerProfilePage from './pages/OwnerProfilePage';
 import OwnersPage from './pages/OwnersPage';
 
 const App: React.FC = () => {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  const loadingScreen = <div className="p-6 text-sm text-slate-500">Loading…</div>;
 
   return (
     <Routes>
       <Route
         path="/login"
-        element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />}
+        element={user ? <Navigate to="/dashboard" replace /> : loading ? loadingScreen : <LoginPage />}
       />
       <Route
         path="/"
@@ -54,6 +56,14 @@ const App: React.FC = () => {
           element={
             <RequireRole allowed={["BOARD", "SECRETARY", "SYSADMIN"]}>
               <CommunicationsPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="admin"
+          element={
+            <RequireRole allowed={["SYSADMIN"]}>
+              <AdminPage />
             </RequireRole>
           }
         />

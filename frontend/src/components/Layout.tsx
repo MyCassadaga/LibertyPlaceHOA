@@ -31,6 +31,9 @@ const Layout: React.FC = () => {
     if (["BOARD", "SECRETARY", "SYSADMIN"].includes(user.role.name)) {
       base.push({ label: 'Comms', to: '/communications' });
     }
+    if (user.role.name === 'SYSADMIN') {
+      base.push({ label: 'Admin', to: '/admin' });
+    }
     return base;
   }, [user]);
 
