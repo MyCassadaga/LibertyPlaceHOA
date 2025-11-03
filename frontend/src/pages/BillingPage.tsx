@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import { fetchBillingSummary, fetchInvoices } from '../services/api';
-import { BillingSummary, Invoice } from '../types';
+import { fetchBillingSummary, fetchInvoices, fetchMyOwnerRecord, fetchOwners } from '../services/api';
+import { BillingSummary, Invoice, Owner } from '../types';
+import { userHasAnyRole } from '../utils/roles';
 
 const BillingPage: React.FC = () => {
   const { user } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [ownerAddresses, setOwnerAddresses] = useState<Record<number, string>>({});
 
   useEffect(() => {
     const load = async () => {
@@ -17,10 +19,31 @@ const BillingPage: React.FC = () => {
       try {
         const invoiceData = await fetchInvoices();
         setInvoices(invoiceData);
-        if (["BOARD", "TREASURER", "SYSADMIN"].includes(user.role.name)) {
-          const summaryData = await fetchBillingSummary();
+
+        const addressMap: Record<number, string> = {};
+        if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN'])) {
+          const [summaryData, owners] = await Promise.all([
+            fetchBillingSummary(),
+            fetchOwners(),
+          ]);
           setSummary(summaryData);
+          owners.forEach((owner: Owner) => {
+            if (owner.property_address) {
+              addressMap[owner.id] = owner.property_address;
+            }
+          });
+        } else {
+          setSummary(null);
+          try {
+            const myOwner = await fetchMyOwnerRecord();
+            if (myOwner.property_address) {
+              addressMap[myOwner.id] = myOwner.property_address;
+            }
+          } catch (error) {
+            // ignore if homeowner record not available
+          }
         }
+        setOwnerAddresses(addressMap);
       } finally {
         setLoading(false);
       }
@@ -60,7 +83,7 @@ const BillingPage: React.FC = () => {
           <thead className="bg-slate-50">
             <tr>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Invoice</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Owner</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-600">Property</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Amount</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Due</th>
               <th className="px-3 py-2 text-left font-medium text-slate-600">Status</th>
@@ -70,7 +93,7 @@ const BillingPage: React.FC = () => {
             {invoices.map((invoice) => (
               <tr key={invoice.id}>
                 <td className="px-3 py-2">#{invoice.id}</td>
-                <td className="px-3 py-2">{invoice.lot ?? invoice.owner_id}</td>
+                <td className="px-3 py-2">{ownerAddresses[invoice.owner_id] ?? `Owner #${invoice.owner_id}`}</td>
                 <td className="px-3 py-2">${Number(invoice.amount).toFixed(2)}</td>
                 <td className="px-3 py-2">{new Date(invoice.due_date).toLocaleDateString()}</td>
                 <td className="px-3 py-2">{invoice.status}</td>

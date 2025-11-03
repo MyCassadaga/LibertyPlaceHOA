@@ -184,7 +184,9 @@ def auto_apply_late_fees(session: Session) -> List[int]:
 
     open_invoices: Sequence[Invoice] = (
         session.query(Invoice)
+        .join(Owner, Owner.id == Invoice.owner_id)
         .filter(Invoice.status == "OPEN")
+        .filter(Owner.is_archived.is_(False))
         .order_by(Invoice.due_date.asc())
         .all()
     )

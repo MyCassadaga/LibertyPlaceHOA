@@ -3,13 +3,14 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Iterable, List
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models.models import Invoice, LedgerEntry, Owner
+from ..models.models import ARCRequest, Invoice, LedgerEntry, Owner, Violation
 
 
 @dataclass
@@ -31,15 +32,16 @@ def generate_ar_aging_report(session: Session, as_of: date | None = None) -> Csv
     today = as_of or date.today()
     invoices = (
         session.query(Invoice)
+        .join(Owner, Owner.id == Invoice.owner_id)
         .filter(Invoice.status == "OPEN")
+        .filter(Owner.is_archived.is_(False))
         .order_by(Invoice.due_date.asc())
         .all()
     )
 
-    rows: List[List[str]] = []
     headers = [
         "Owner",
-        "Lot",
+        "Property Address",
         "Invoice ID",
         "Original Amount",
         "Amount Due",
@@ -47,8 +49,10 @@ def generate_ar_aging_report(session: Session, as_of: date | None = None) -> Csv
         "Days Past Due",
         "Aging Bucket",
     ]
+    rows: List[List[str]] = []
 
     for invoice in invoices:
+        owner = session.get(Owner, invoice.owner_id)
         days_past_due = (today - invoice.due_date).days
         if days_past_due < 0:
             bucket = "Current"
@@ -61,15 +65,13 @@ def generate_ar_aging_report(session: Session, as_of: date | None = None) -> Csv
         else:
             bucket = "90+"
 
-        owner = session.get(Owner, invoice.owner_id)
-        amount_due = Decimal(invoice.amount or 0)
         rows.append(
             [
                 owner.primary_name if owner else "Unknown",
-                owner.lot if owner else "",
+                owner.property_address if owner else "",
                 str(invoice.id),
                 f"{Decimal(invoice.original_amount or 0):.2f}",
-                f"{amount_due:.2f}",
+                f"{Decimal(invoice.amount or 0):.2f}",
                 invoice.due_date.isoformat(),
                 str(max(0, days_past_due)),
                 bucket,
@@ -84,13 +86,16 @@ def generate_ar_aging_report(session: Session, as_of: date | None = None) -> Csv
 def generate_cash_flow_report(session: Session, months: int = 12) -> CsvReport:
     entries = (
         session.query(LedgerEntry)
+        .join(Owner, Owner.id == LedgerEntry.owner_id)
+        .filter(Owner.is_archived.is_(False))
         .order_by(LedgerEntry.timestamp.asc())
         .all()
     )
 
     monthly_totals: dict[str, Decimal] = {}
     for entry in entries:
-        month_key = (entry.timestamp or datetime.utcnow()).strftime("%Y-%m")
+        timestamp = entry.timestamp or datetime.utcnow()
+        month_key = timestamp.strftime("%Y-%m")
         monthly_totals.setdefault(month_key, Decimal("0.00"))
         monthly_totals[month_key] += Decimal(entry.amount or 0)
 
@@ -100,4 +105,78 @@ def generate_cash_flow_report(session: Session, months: int = 12) -> CsvReport:
 
     csv_content = _render_csv(headers, rows)
     filename = f"cash-flow-{datetime.utcnow().date().isoformat()}.csv"
+    return CsvReport(filename=filename, content=csv_content)
+
+
+def generate_violations_summary_report(session: Session) -> CsvReport:
+    total = session.query(func.count(Violation.id)).scalar() or 0
+    open_statuses = {"NEW", "UNDER_REVIEW", "WARNING_SENT", "HEARING", "FINE_ACTIVE"}
+    open_count = (
+        session.query(func.count(Violation.id))
+        .filter(Violation.status.in_(open_statuses))
+        .scalar()
+        or 0
+    )
+
+    status_counts = (
+        session.query(Violation.status, func.count(Violation.id))
+        .group_by(Violation.status)
+        .all()
+    )
+    category_counts = (
+        session.query(Violation.category, func.count(Violation.id))
+        .group_by(Violation.category)
+        .all()
+    )
+
+    headers = ["Metric", "Value"]
+    rows: List[List[str]] = [
+        ["Total Violations", str(total)],
+        ["Open Violations", str(open_count)],
+    ]
+
+    for status, count in status_counts:
+        rows.append([f"Status: {status}", str(count)])
+
+    for category, count in category_counts:
+        rows.append([f"Category: {category}", str(count)])
+
+    csv_content = _render_csv(headers, rows)
+    filename = f"violations-summary-{datetime.utcnow().date().isoformat()}.csv"
+    return CsvReport(filename=filename, content=csv_content)
+
+
+def generate_arc_sla_report(session: Session) -> CsvReport:
+    requests = session.query(ARCRequest).all()
+    decision_durations: List[int] = []
+    completion_durations: List[int] = []
+    revision_count = 0
+
+    for arc_request in requests:
+        if arc_request.submitted_at and arc_request.final_decision_at:
+            decision_durations.append(
+                (arc_request.final_decision_at - arc_request.submitted_at).days
+            )
+        if arc_request.submitted_at and arc_request.completed_at:
+            completion_durations.append(
+                (arc_request.completed_at - arc_request.submitted_at).days
+            )
+        if arc_request.revision_requested_at:
+            revision_count += 1
+
+    def _average(values: List[int]) -> str:
+        if not values:
+            return "N/A"
+        return f"{sum(values) / len(values):.1f}"
+
+    headers = ["Metric", "Value"]
+    rows = [
+        ["Total Requests", str(len(requests))],
+        ["Avg Days to Decision", _average(decision_durations)],
+        ["Avg Days to Completion", _average(completion_durations)],
+        ["Requests with Revision", str(revision_count)],
+    ]
+
+    csv_content = _render_csv(headers, rows)
+    filename = f"arc-sla-{datetime.utcnow().date().isoformat()}.csv"
     return CsvReport(filename=filename, content=csv_content)

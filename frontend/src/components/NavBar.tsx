@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { useAuth } from '../hooks/useAuth';
+import { formatUserRoles } from '../utils/roles';
 
 const NavBar: React.FC = () => {
   const { user, logout } = useAuth();
@@ -21,7 +22,7 @@ const NavBar: React.FC = () => {
         {user && (
           <nav className="flex items-center gap-4 text-sm">
             <span className="rounded-full bg-primary-50 px-3 py-1 text-primary-600">
-              {user.role.name}
+              {formatUserRoles(user)}
             </span>
             <button
               onClick={handleLogout}

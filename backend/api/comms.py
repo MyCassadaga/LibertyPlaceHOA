@@ -55,7 +55,7 @@ def _owner_contacts(owner: Owner) -> List[Dict[str, Optional[str]]]:
             {
                 "owner_id": owner.id,
                 "owner_name": owner.primary_name,
-                "lot": owner.lot,
+                "property_address": owner.property_address,
                 "email": owner.primary_email,
                 "contact_type": "primary",
             }
@@ -65,7 +65,7 @@ def _owner_contacts(owner: Owner) -> List[Dict[str, Optional[str]]]:
             {
                 "owner_id": owner.id,
                 "owner_name": owner.primary_name,
-                "lot": owner.lot,
+                "property_address": owner.property_address,
                 "email": owner.secondary_email,
                 "contact_type": "secondary",
             }

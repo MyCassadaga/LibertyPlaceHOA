@@ -13,7 +13,11 @@ def generate_text_pdf_stub(filename: str, content: str) -> str:
 
 def generate_invoice_pdf(invoice, owner) -> str:
     # Placeholder: generate a PDF in production using reportlab/weasyprint
-    summary = f"Invoice #{invoice.id} for {owner.primary_name} Lot {owner.lot}\nAmount: {invoice.amount}\nDue: {invoice.due_date}"
+    address = owner.property_address or "Pending address"
+    summary = (
+        f"Invoice #{invoice.id} for {owner.primary_name} ({address})\n"
+        f"Amount: {invoice.amount}\nDue: {invoice.due_date}"
+    )
     return generate_text_pdf_stub(f"invoice_{invoice.id}.pdf", summary)
 
 
@@ -33,9 +37,8 @@ def generate_reminder_notice_pdf(
     today = date.today().isoformat()
     header = "Liberty Place HOA\nAccounts Receivable Reminder"
     address_line = owner.mailing_address or owner.property_address
-    status_line = (
-        f"Invoice #{invoice.id} for Lot {owner.lot} is {days_past_due} days past due."
-    )
+    address = owner.property_address or "Pending address"
+    status_line = f"Invoice #{invoice.id} for {address} is {days_past_due} days past due."
     grace_line = f"A {grace_period_days}-day grace period has elapsed." if grace_period_days else "Payment is now past due."
     amount_line = f"Current balance: ${invoice.amount}"
     next_notice_line = (
@@ -59,3 +62,20 @@ def generate_reminder_notice_pdf(
     )
     filename = f"invoice_{invoice.id}_reminder.pdf"
     return generate_text_pdf_stub(filename, contents)
+
+
+def generate_violation_notice_pdf(template_key: str, violation, owner, subject: str, body: str) -> str:
+    filename = f"violation_{violation.id}_{template_key.lower()}.pdf"
+    header = f"Liberty Place HOA - Covenant Compliance Notice\nTemplate: {template_key}"
+    content = "\n\n".join(
+        [
+            header,
+            f"Owner: {owner.primary_name} ({owner.property_address or 'Pending address'})",
+            f"Violation ID: {violation.id}",
+            f"Status: {violation.status}",
+            f"Subject: {subject}",
+            body,
+            "This notice is automatically generated for record keeping.",
+        ]
+    )
+    return generate_text_pdf_stub(filename, content)

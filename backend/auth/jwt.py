@@ -53,7 +53,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     except JWTError:
         raise credentials_exception
 
-    user = db.query(User).options(joinedload(User.role)).filter(User.id == int(user_id)).first()
+    user = (
+        db.query(User)
+        .options(joinedload(User.primary_role), joinedload(User.roles))
+        .filter(User.id == int(user_id))
+        .first()
+    )
     if user is None:
         raise credentials_exception
     return user
@@ -65,7 +70,7 @@ def require_roles(*allowed_roles: str):
     def role_checker(user: User = Depends(get_current_user)) -> User:
         if not allowed:
             return user
-        if user.role and user.role.name in allowed:
+        if user.has_any_role(*allowed):
             return user
         raise HTTPException(status_code=403, detail="Operation not permitted for your role")
 
@@ -76,8 +81,8 @@ def require_minimum_role(role_name: str):
     minimum = ROLE_PRIORITY.get(role_name, 0)
 
     def min_checker(user: User = Depends(get_current_user)) -> User:
-        user_role = user.role.name if user.role else None
-        if user_role and ROLE_PRIORITY.get(user_role, 0) >= minimum:
+        highest = user.highest_priority_role
+        if highest and ROLE_PRIORITY.get(highest.name, 0) >= minimum:
             return user
         raise HTTPException(status_code=403, detail="Insufficient privileges for this action")
 

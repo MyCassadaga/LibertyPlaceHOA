@@ -1,174 +1,471 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import type { AxiosError } from 'axios';
 
 import { useAuth } from '../hooks/useAuth';
-import { fetchMyOwnerRecord, submitOwnerUpdateProposal } from '../services/api';
-import { Owner } from '../types';
+import {
+  changePassword,
+  fetchMyOwnerRecord,
+  updateMyOwnerRecord,
+  updateUserProfile,
+} from '../services/api';
+import { Owner, OwnerSelfUpdatePayload } from '../types';
+import { formatUserRoles } from '../utils/roles';
 
-type EditableField = 'mailing_address' | 'primary_phone' | 'secondary_phone' | 'notes';
+type OwnerFormState = {
+  primary_name: string;
+  secondary_name: string;
+  property_address: string;
+  mailing_address: string;
+  primary_phone: string;
+  secondary_phone: string;
+  emergency_contact: string;
+  notes: string;
+};
 
-const editableFields: EditableField[] = ['mailing_address', 'primary_phone', 'secondary_phone', 'notes'];
+const createOwnerFormState = (record?: Owner | null): OwnerFormState => ({
+  primary_name: record?.primary_name ?? '',
+  secondary_name: record?.secondary_name ?? '',
+  property_address: record?.property_address ?? '',
+  mailing_address: record?.mailing_address ?? '',
+  primary_phone: record?.primary_phone ?? '',
+  secondary_phone: record?.secondary_phone ?? '',
+  emergency_contact: record?.emergency_contact ?? '',
+  notes: record?.notes ?? '',
+});
 
 const OwnerProfilePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const [owner, setOwner] = useState<Owner | null>(null);
-  const [formState, setFormState] = useState<Record<EditableField, string>>({
-    mailing_address: '',
-    primary_phone: '',
-    secondary_phone: '',
-    notes: '',
-  });
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [ownerMissing, setOwnerMissing] = useState(false);
+  const [ownerLoading, setOwnerLoading] = useState(false);
+
+  const [accountForm, setAccountForm] = useState({ full_name: '', email: '', current_password: '' });
+  const [accountStatus, setAccountStatus] = useState<string | null>(null);
+  const [accountError, setAccountError] = useState<string | null>(null);
+  const [accountSaving, setAccountSaving] = useState(false);
+
+  const [passwordForm, setPasswordForm] = useState({ current: '', next: '', confirm: '' });
+  const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+
+  const [ownerForm, setOwnerForm] = useState<OwnerFormState>(() => createOwnerFormState());
+  const [ownerStatus, setOwnerStatus] = useState<string | null>(null);
+  const [ownerError, setOwnerError] = useState<string | null>(null);
+  const [ownerSaving, setOwnerSaving] = useState(false);
 
   useEffect(() => {
-    const load = async () => {
+    if (!user) return;
+    setAccountForm({
+      full_name: user.full_name ?? '',
+      email: user.email,
+      current_password: '',
+    });
+  }, [user]);
+
+  useEffect(() => {
+    const loadOwner = async () => {
       if (!user) return;
-      if (user.role.name !== 'HOMEOWNER') {
-        setStatus('Owner profiles are read-only for board members. Use the Owners page to manage records.');
-        return;
-      }
+      setOwnerLoading(true);
+      setOwnerMissing(false);
+      setOwnerError(null);
       try {
         const record = await fetchMyOwnerRecord();
         setOwner(record);
-        setFormState({
-          mailing_address: record.mailing_address ?? '',
-          primary_phone: record.primary_phone ?? '',
-          secondary_phone: record.secondary_phone ?? '',
-          notes: record.notes ?? '',
-        });
+        setOwnerForm(createOwnerFormState(record));
       } catch (err) {
-        setError('Unable to load your owner record.');
+        const axiosError = err as AxiosError<{ detail?: string }>;
+        if (axiosError?.response?.status === 404) {
+          setOwner(null);
+          setOwnerMissing(true);
+        } else {
+          setOwnerError('Unable to load owner profile.');
+        }
+      } finally {
+        setOwnerLoading(false);
       }
     };
 
-    load();
+    void loadOwner();
   }, [user]);
 
-  const hasChanges = useMemo(() => {
-    if (!owner) return false;
-    return editableFields.some((field) => {
-      const originalValue = owner[field] ?? '';
-      const currentValue = formState[field] ?? '';
-      return originalValue !== currentValue;
-    });
-  }, [owner, formState]);
+  if (!user) {
+    return null;
+  }
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleAccountInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setAccountForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleOwnerInputChange = (
+    event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
+    const { name, value } = event.target;
+    setOwnerForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handlePasswordInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setPasswordForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleAccountSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!owner) return;
-    if (!hasChanges) {
-      setStatus('No changes to submit.');
+    if (!user) return;
+    setAccountStatus(null);
+    setAccountError(null);
+
+    const payload: { full_name?: string | null; email?: string; current_password?: string } = {};
+    const fullNameTrimmed = accountForm.full_name.trim();
+    const originalFullName = user.full_name ?? '';
+    if (fullNameTrimmed !== originalFullName) {
+      payload.full_name = fullNameTrimmed.length > 0 ? fullNameTrimmed : null;
+    }
+
+    const emailTrimmed = accountForm.email.trim();
+    if (emailTrimmed !== user.email) {
+      payload.email = emailTrimmed;
+      if (!accountForm.current_password) {
+        setAccountError('Enter your current password to change email.');
+        return;
+      }
+      payload.current_password = accountForm.current_password;
+    } else if (accountForm.current_password) {
+      payload.current_password = accountForm.current_password;
+    }
+
+    if (Object.keys(payload).length === 0) {
+      setAccountStatus('No changes to save.');
       return;
     }
+
+    setAccountSaving(true);
     try {
-      const proposedChanges: Record<string, string> = {};
-      editableFields.forEach((field) => {
-        const originalValue = owner[field] ?? '';
-        const currentValue = formState[field] ?? '';
-        if (originalValue !== currentValue) {
-          proposedChanges[field] = currentValue;
-        }
+      const updatedUser = await updateUserProfile(payload);
+      await refresh();
+      setAccountStatus('Account details updated.');
+      setAccountForm({
+        full_name: updatedUser.full_name ?? '',
+        email: updatedUser.email,
+        current_password: '',
       });
-      await submitOwnerUpdateProposal(owner.id, proposedChanges);
-      setStatus('Submitted update request for board review.');
-      setError(null);
+
+      if (owner && payload.email) {
+        try {
+          const updatedOwner = await updateMyOwnerRecord({ primary_email: payload.email });
+          setOwner(updatedOwner);
+          setOwnerForm(createOwnerFormState(updatedOwner));
+        } catch (syncError) {
+          console.error('Failed to sync owner email', syncError);
+        }
+      }
     } catch (err) {
-      setError('Unable to submit update request.');
+      const axiosError = err as { response?: { data?: { detail?: string } } };
+      const detail = axiosError.response?.data?.detail;
+      setAccountError(detail ?? 'Unable to update account settings.');
+    } finally {
+      setAccountSaving(false);
     }
   };
 
-  if (!user) return null;
+  const handlePasswordSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setPasswordStatus(null);
+    setPasswordError(null);
 
-  if (user.role.name !== 'HOMEOWNER') {
-    return (
-      <div>
-        <h2 className="text-xl font-semibold text-slate-700">Owner Profile</h2>
-        <p className="mt-4 text-sm text-slate-500">{status}</p>
-      </div>
-    );
-  }
+    if (passwordForm.next.length < 8) {
+      setPasswordError('New password must be at least 8 characters.');
+      return;
+    }
+    if (passwordForm.next !== passwordForm.confirm) {
+      setPasswordError('New password and confirmation do not match.');
+      return;
+    }
 
-  if (!owner) {
-    return <p className="text-sm text-slate-500">Loading owner profile…</p>;
-  }
+    setPasswordSaving(true);
+    try {
+      await changePassword({ current_password: passwordForm.current, new_password: passwordForm.next });
+      setPasswordStatus('Password updated successfully.');
+      setPasswordForm({ current: '', next: '', confirm: '' });
+    } catch (err) {
+      setPasswordError('Unable to update password. Check your current password and try again.');
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
+  const handleOwnerSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!owner) {
+      return;
+    }
+    setOwnerStatus(null);
+    setOwnerError(null);
+
+    const fields: (keyof OwnerFormState)[] = [
+      'primary_name',
+      'secondary_name',
+      'property_address',
+      'mailing_address',
+      'primary_phone',
+      'secondary_phone',
+      'emergency_contact',
+      'notes',
+    ];
+
+    const changes: Partial<OwnerSelfUpdatePayload> = {};
+
+    fields.forEach((field) => {
+      const currentValue = owner[field] ?? '';
+      const nextValue = ownerForm[field] ?? '';
+      if (currentValue !== nextValue) {
+        const trimmed = field === 'notes' ? nextValue : nextValue.trim();
+        changes[field] = trimmed.length > 0 ? trimmed : null;
+      }
+    });
+
+    if (Object.keys(changes).length === 0) {
+      setOwnerStatus('No changes to save.');
+      return;
+    }
+
+    setOwnerSaving(true);
+    try {
+      const updatedOwner = await updateMyOwnerRecord(changes as OwnerSelfUpdatePayload);
+      setOwner(updatedOwner);
+      setOwnerForm(createOwnerFormState(updatedOwner));
+      setOwnerStatus('Owner profile updated.');
+    } catch (err) {
+      setOwnerError('Unable to update owner profile.');
+    } finally {
+      setOwnerSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <header>
-        <h2 className="text-xl font-semibold text-slate-700">Your Owner Profile</h2>
-        <p className="text-sm text-slate-500">Lot {owner.lot} • {owner.property_address}</p>
-      </header>
-      <div className="rounded border border-slate-200 p-4">
-        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-sm">
-          <div>
-            <dt className="text-slate-500">Primary Owner</dt>
-            <dd className="font-medium text-slate-700">{owner.primary_name}</dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">Primary Email</dt>
-            <dd className="font-medium text-slate-700">{owner.primary_email ?? 'Not provided'}</dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">Secondary Owner</dt>
-            <dd className="font-medium text-slate-700">{owner.secondary_name ?? '—'}</dd>
-          </div>
-          <div>
-            <dt className="text-slate-500">Emergency Contact</dt>
-            <dd className="font-medium text-slate-700">{owner.emergency_contact ?? '—'}</dd>
-          </div>
-        </dl>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-4 rounded border border-slate-200 p-4">
-        <h3 className="text-lg font-semibold text-slate-700">Request Contact Updates</h3>
+      <header className="space-y-1">
+        <h2 className="text-xl font-semibold text-slate-700">Account &amp; Profile</h2>
         <p className="text-sm text-slate-500">
-          Submit changes for the board to review. Updates are not immediate until approved.
+          Signed in as {user.email} • Roles: {formatUserRoles(user)}
         </p>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Mailing Address</span>
-            <input
-              className="w-full rounded border border-slate-300 px-3 py-2"
-              value={formState.mailing_address ?? ''}
-              onChange={(event) => setFormState((prev) => ({ ...prev, mailing_address: event.target.value }))}
-            />
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Primary Phone</span>
-            <input
-              className="w-full rounded border border-slate-300 px-3 py-2"
-              value={formState.primary_phone ?? ''}
-              onChange={(event) => setFormState((prev) => ({ ...prev, primary_phone: event.target.value }))}
-            />
-          </label>
-          <label className="text-sm">
-            <span className="mb-1 block text-slate-600">Secondary Phone</span>
-            <input
-              className="w-full rounded border border-slate-300 px-3 py-2"
-              value={formState.secondary_phone ?? ''}
-              onChange={(event) => setFormState((prev) => ({ ...prev, secondary_phone: event.target.value }))}
-            />
-          </label>
-          <label className="sm:col-span-2 text-sm">
-            <span className="mb-1 block text-slate-600">Notes</span>
-            <textarea
-              className="w-full rounded border border-slate-300 px-3 py-2"
-              rows={3}
-              value={formState.notes ?? ''}
-              onChange={(event) => setFormState((prev) => ({ ...prev, notes: event.target.value }))}
-            />
-          </label>
-        </div>
-        {status && <p className="text-sm text-green-600">{status}</p>}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <button
-          type="submit"
-          className="rounded bg-primary-600 px-4 py-2 text-white hover:bg-primary-500 disabled:opacity-60"
-          disabled={!hasChanges}
-        >
-          Submit for Review
-        </button>
-      </form>
+      </header>
+
+      <section className="rounded border border-slate-200 p-4">
+        <h3 className="text-lg font-semibold text-slate-700">Account Details</h3>
+        <p className="mb-4 text-sm text-slate-500">
+          Update your name or email. Changing your email requires your current password.
+        </p>
+        <form className="space-y-4" onSubmit={handleAccountSubmit}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Full Name</span>
+              <input
+                name="full_name"
+                className="w-full rounded border border-slate-300 px-3 py-2"
+                value={accountForm.full_name}
+                onChange={handleAccountInputChange}
+                placeholder="Optional"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Email</span>
+              <input
+                name="email"
+                type="email"
+                className="w-full rounded border border-slate-300 px-3 py-2"
+                required
+                value={accountForm.email}
+                onChange={handleAccountInputChange}
+              />
+            </label>
+            <label className="sm:col-span-2 text-sm">
+              <span className="mb-1 block text-slate-600">Current Password</span>
+              <input
+                name="current_password"
+                type="password"
+                className="w-full rounded border border-slate-300 px-3 py-2"
+                value={accountForm.current_password}
+                onChange={handleAccountInputChange}
+                placeholder="Required when changing email"
+                minLength={8}
+              />
+            </label>
+          </div>
+          {accountStatus && <p className="text-sm text-green-600">{accountStatus}</p>}
+          {accountError && <p className="text-sm text-red-600">{accountError}</p>}
+          <button
+            type="submit"
+            className="rounded bg-primary-600 px-4 py-2 text-white hover:bg-primary-500 disabled:opacity-60"
+            disabled={accountSaving}
+          >
+            {accountSaving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded border border-slate-200 p-4">
+        <h3 className="text-lg font-semibold text-slate-700">Change Password</h3>
+        <p className="mb-4 text-sm text-slate-500">Choose a strong password of at least eight characters.</p>
+        <form className="space-y-4" onSubmit={handlePasswordSubmit}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Current Password</span>
+              <input
+                name="current"
+                type="password"
+                className="w-full rounded border border-slate-300 px-3 py-2"
+                value={passwordForm.current}
+                onChange={handlePasswordInputChange}
+                required
+                minLength={8}
+              />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">New Password</span>
+              <input
+                name="next"
+                type="password"
+                className="w-full rounded border border-slate-300 px-3 py-2"
+                value={passwordForm.next}
+                onChange={handlePasswordInputChange}
+                required
+                minLength={8}
+              />
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Confirm Password</span>
+              <input
+                name="confirm"
+                type="password"
+                className="w-full rounded border border-slate-300 px-3 py-2"
+                value={passwordForm.confirm}
+                onChange={handlePasswordInputChange}
+                required
+                minLength={8}
+              />
+            </label>
+          </div>
+          {passwordStatus && <p className="text-sm text-green-600">{passwordStatus}</p>}
+          {passwordError && <p className="text-sm text-red-600">{passwordError}</p>}
+          <button
+            type="submit"
+            className="rounded bg-primary-600 px-4 py-2 text-white hover:bg-primary-500 disabled:opacity-60"
+            disabled={passwordSaving}
+          >
+            {passwordSaving ? 'Updating…' : 'Update Password'}
+          </button>
+        </form>
+      </section>
+
+      <section className="rounded border border-slate-200 p-4">
+        <h3 className="text-lg font-semibold text-slate-700">Owner Contact Details</h3>
+        {ownerLoading ? (
+          <p className="text-sm text-slate-500">Loading owner profile…</p>
+        ) : owner ? (
+          <>
+            <p className="mb-4 text-sm text-slate-500">
+              Property address: {owner.property_address}
+            </p>
+            <form className="space-y-4" onSubmit={handleOwnerSubmit}>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="text-sm">
+                  <span className="mb-1 block text-slate-600">Primary Owner</span>
+                  <input
+                    name="primary_name"
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                    value={ownerForm.primary_name}
+                    onChange={handleOwnerInputChange}
+                    required
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-slate-600">Secondary Owner</span>
+                  <input
+                    name="secondary_name"
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                    value={ownerForm.secondary_name}
+                    onChange={handleOwnerInputChange}
+                  />
+                </label>
+                <label className="text-sm sm:col-span-2">
+                  <span className="mb-1 block text-slate-600">Property Address</span>
+                  <input
+                    name="property_address"
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                    value={ownerForm.property_address}
+                    onChange={handleOwnerInputChange}
+                    required
+                  />
+                </label>
+                <label className="text-sm sm:col-span-2">
+                  <span className="mb-1 block text-slate-600">Mailing Address</span>
+                  <input
+                    name="mailing_address"
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                    value={ownerForm.mailing_address}
+                    onChange={handleOwnerInputChange}
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-slate-600">Primary Phone</span>
+                  <input
+                    name="primary_phone"
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                    value={ownerForm.primary_phone}
+                    onChange={handleOwnerInputChange}
+                  />
+                </label>
+                <label className="text-sm">
+                  <span className="mb-1 block text-slate-600">Secondary Phone</span>
+                  <input
+                    name="secondary_phone"
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                    value={ownerForm.secondary_phone}
+                    onChange={handleOwnerInputChange}
+                  />
+                </label>
+                <label className="text-sm sm:col-span-2">
+                  <span className="mb-1 block text-slate-600">Emergency Contact</span>
+                  <input
+                    name="emergency_contact"
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                    value={ownerForm.emergency_contact}
+                    onChange={handleOwnerInputChange}
+                  />
+                </label>
+                <label className="text-sm sm:col-span-2">
+                  <span className="mb-1 block text-slate-600">Notes</span>
+                  <textarea
+                    name="notes"
+                    rows={3}
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                    value={ownerForm.notes}
+                    onChange={handleOwnerInputChange}
+                  />
+                </label>
+              </div>
+              {ownerStatus && <p className="text-sm text-green-600">{ownerStatus}</p>}
+              {ownerError && <p className="text-sm text-red-600">{ownerError}</p>}
+              <button
+                type="submit"
+                className="rounded bg-primary-600 px-4 py-2 text-white hover:bg-primary-500 disabled:opacity-60"
+                disabled={ownerSaving}
+              >
+                {ownerSaving ? 'Saving…' : 'Save Owner Details'}
+              </button>
+            </form>
+          </>
+        ) : ownerMissing ? (
+          <p className="text-sm text-slate-500">
+            No owner record is linked to this account yet. Create an owner record from the Owners page or contact the
+            board to attach this login to a lot.
+          </p>
+        ) : (
+          <p className="text-sm text-red-600">Owner profile unavailable.</p>
+        )}
+      </section>
     </div>
   );
 };

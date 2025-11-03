@@ -57,6 +57,7 @@ def main():
             hashed_password=hashed_password,
             role_id=sysadmin_role.id,
         )
+        user.roles.append(sysadmin_role)
         db.add(user)
         db.flush()
         print(f"Created SYSADMIN user with id {user.id}")

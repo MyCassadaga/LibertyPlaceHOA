@@ -1,22 +1,63 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import { fetchRoles, registerUser, RegisterUserPayload } from '../services/api';
-import { RoleOption } from '../types';
+import { fetchRoles, fetchUsers, registerUser, updateUserRoles, RegisterUserPayload } from '../services/api';
+import { RoleOption, User } from '../types';
+import { formatUserRoles } from '../utils/roles';
 
 const AdminPage: React.FC = () => {
   const { user } = useAuth();
   const [roles, setRoles] = useState<RoleOption[]>([]);
   const [loadingRoles, setLoadingRoles] = useState(true);
+  const [users, setUsers] = useState<User[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [usersError, setUsersError] = useState<string | null>(null);
+  const [roleEdits, setRoleEdits] = useState<Record<number, number[]>>({});
+  const [savingUserId, setSavingUserId] = useState<number | null>(null);
+  const [roleStatus, setRoleStatus] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+
   const [form, setForm] = useState<RegisterUserPayload>({
     email: '',
     full_name: '',
     password: '',
-    role_id: 0,
+    role_ids: [],
   });
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const normalizeRoleIds = useCallback((ids: number[]): number[] => {
+    return Array.from(new Set(ids)).sort((a, b) => a - b);
+  }, []);
+
+  const getRoleIdsForUser = useCallback(
+    (account: User): number[] => {
+      if (account.roles && account.roles.length > 0) {
+        return normalizeRoleIds(account.roles.map((role) => role.id));
+      }
+      if (account.primary_role) {
+        return normalizeRoleIds([account.primary_role.id]);
+      }
+      if (account.role) {
+        return normalizeRoleIds([account.role.id]);
+      }
+      return [];
+    },
+    [normalizeRoleIds],
+  );
+
+  const roleSetsEqual = useCallback(
+    (left: number[], right: number[]) => {
+      const normalizedLeft = normalizeRoleIds(left);
+      const normalizedRight = normalizeRoleIds(right);
+      if (normalizedLeft.length !== normalizedRight.length) {
+        return false;
+      }
+      return normalizedLeft.every((value, index) => value === normalizedRight[index]);
+    },
+    [normalizeRoleIds],
+  );
 
   useEffect(() => {
     const loadRoles = async () => {
@@ -24,10 +65,6 @@ const AdminPage: React.FC = () => {
         setLoadingRoles(true);
         const data = await fetchRoles();
         setRoles(data);
-        const defaultRole = data.find((role) => role.name !== 'SYSADMIN');
-        if (defaultRole) {
-          setForm((prev) => ({ ...prev, role_id: defaultRole.id }));
-        }
       } catch (err) {
         setError('Unable to load roles.');
       } finally {
@@ -37,26 +74,117 @@ const AdminPage: React.FC = () => {
     void loadRoles();
   }, []);
 
-  const roleOptions = useMemo(() => roles.filter((role) => role.name !== 'SYSADMIN'), [roles]);
-  const selectedRole = useMemo(
-    () => roleOptions.find((role) => role.id === form.role_id),
-    [roleOptions, form.role_id],
-  );
+  const defaultRoleId = useMemo(() => {
+    if (roles.length === 0) {
+      return 0;
+    }
+    const homeowner = roles.find((role) => role.name === 'HOMEOWNER');
+    return homeowner ? homeowner.id : roles[0].id;
+  }, [roles]);
 
-  const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  useEffect(() => {
+    if (!loadingRoles && roles.length > 0 && form.role_ids.length === 0 && defaultRoleId) {
+      setForm((prev) => ({ ...prev, role_ids: [defaultRoleId] }));
+    }
+  }, [loadingRoles, roles, defaultRoleId, form.role_ids.length]);
+
+  const loadUsers = useCallback(async () => {
+    try {
+      setLoadingUsers(true);
+      setUsersError(null);
+      const data = await fetchUsers();
+      setUsers(data);
+      const mapped: Record<number, number[]> = {};
+      data.forEach((account) => {
+        mapped[account.id] = getRoleIdsForUser(account);
+      });
+      setRoleEdits(mapped);
+    } catch (err) {
+      setUsersError('Unable to load user accounts.');
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, [getRoleIdsForUser]);
+
+  useEffect(() => {
+    void loadUsers();
+  }, [loadUsers]);
+
+  const handleTextChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
     setForm((prev) => ({
       ...prev,
-      [name]: name === 'role_id' ? Number(value) : value,
+      [name]: value,
     }));
+  };
+
+  const toggleCreateRole = (roleId: number) => {
+    setForm((prev) => {
+      const current = new Set(prev.role_ids);
+      if (current.has(roleId)) {
+        current.delete(roleId);
+      } else {
+        current.add(roleId);
+      }
+      return {
+        ...prev,
+        role_ids: Array.from(current).sort((a, b) => a - b),
+      };
+    });
+  };
+
+  const handleToggleUserRole = (userId: number, roleId: number) => {
+    setRoleEdits((prev) => {
+      const account = users.find((entry) => entry.id === userId);
+      const baseline = prev[userId] ?? (account ? getRoleIdsForUser(account) : []);
+      const current = new Set(baseline);
+      if (current.has(roleId)) {
+        current.delete(roleId);
+      } else {
+        current.add(roleId);
+      }
+      return {
+        ...prev,
+        [userId]: Array.from(current).sort((a, b) => a - b),
+      };
+    });
+  };
+
+  const handleSaveRoles = async (userId: number) => {
+    const selections = roleEdits[userId] ?? [];
+    if (selections.length === 0) {
+      setRoleError('Select at least one role before saving.');
+      return;
+    }
+    setRoleStatus(null);
+    setRoleError(null);
+    setSavingUserId(userId);
+    try {
+      const updated = await updateUserRoles(userId, selections);
+      setUsers((prev) => prev.map((entry) => (entry.id === userId ? updated : entry)));
+      setRoleEdits((prev) => ({
+        ...prev,
+        [userId]: getRoleIdsForUser(updated),
+      }));
+      setUsersError(null);
+      setRoleStatus(`Updated roles for ${updated.email}.`);
+    } catch (err) {
+      setRoleError('Unable to update roles. Ensure the account retains at least one role and a SYSADMIN remains active.');
+    } finally {
+      setSavingUserId(null);
+    }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
     setStatus(null);
-    if (!form.email || !form.password || !form.role_id) {
-      setError('Email, password, and role are required.');
+    if (!form.email || !form.password) {
+      setError('Email and password are required.');
+      return;
+    }
+    if (!form.role_ids || form.role_ids.length === 0) {
+      setError('Select at least one role for the new account.');
       return;
     }
     setSubmitting(true);
@@ -65,15 +193,16 @@ const AdminPage: React.FC = () => {
         email: form.email,
         full_name: form.full_name?.trim() ? form.full_name.trim() : undefined,
         password: form.password,
-        role_id: form.role_id,
+        role_ids: form.role_ids,
       });
       setStatus('User created successfully.');
-      setForm((prev) => ({
-        ...prev,
+      setForm({
         email: '',
         full_name: '',
         password: '',
-      }));
+        role_ids: defaultRoleId ? [defaultRoleId] : [],
+      });
+      await loadUsers();
     } catch (err) {
       setError('Unable to create user. Ensure the email is unique and you are authorized.');
     } finally {
@@ -106,7 +235,7 @@ const AdminPage: React.FC = () => {
               name="email"
               type="email"
               value={form.email}
-              onChange={handleChange}
+              onChange={handleTextChange}
               className="w-full rounded border border-slate-300 px-3 py-2"
               required
             />
@@ -119,7 +248,7 @@ const AdminPage: React.FC = () => {
               id="full_name"
               name="full_name"
               value={form.full_name ?? ''}
-              onChange={handleChange}
+              onChange={handleTextChange}
               className="w-full rounded border border-slate-300 px-3 py-2"
               placeholder="Optional"
             />
@@ -133,7 +262,7 @@ const AdminPage: React.FC = () => {
               name="password"
               type="password"
               value={form.password}
-              onChange={handleChange}
+              onChange={handleTextChange}
               className="w-full rounded border border-slate-300 px-3 py-2"
               required
               minLength={8}
@@ -144,42 +273,119 @@ const AdminPage: React.FC = () => {
             </p>
           </div>
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="role_id">
-              Role
-            </label>
-            <select
-              id="role_id"
-              name="role_id"
-              value={form.role_id}
-              onChange={handleChange}
-              className="w-full rounded border border-slate-300 px-3 py-2"
-              disabled={loadingRoles || roleOptions.length === 0}
-              required
-            >
-              {loadingRoles && <option value="">Loading roles…</option>}
-              {!loadingRoles &&
-                roleOptions.map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.name}
-                  </option>
-                ))}
-            </select>
-            {selectedRole?.description && (
-              <p className="mt-1 text-xs text-slate-500">{selectedRole.description}</p>
+            <span className="mb-1 block text-sm font-medium text-slate-600">Roles</span>
+            {loadingRoles ? (
+              <p className="text-xs text-slate-500">Loading roles…</p>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                {roles.map((role) => {
+                  const checked = form.role_ids.includes(role.id);
+                  return (
+                    <label key={role.id} className="inline-flex items-center gap-2 text-sm text-slate-600">
+                      <input
+                        type="checkbox"
+                        className="rounded border-slate-300"
+                        checked={checked}
+                        onChange={() => toggleCreateRole(role.id)}
+                      />
+                      {role.name}
+                    </label>
+                  );
+                })}
+              </div>
             )}
+            <p className="mt-1 text-xs text-slate-500">
+              Assign at least one role. Include HOMEOWNER to automatically create a property profile for this account.
+            </p>
           </div>
 
-          {status && <p className="text-sm text-green-600">{status}</p>}
-          {error && <p className="text-sm text-red-600">{error}</p>}
+      {status && <p className="text-sm text-green-600">{status}</p>}
+      {error && <p className="text-sm text-red-600">{error}</p>}
 
-          <button
-            type="submit"
-            className="rounded bg-primary-600 px-4 py-2 text-white hover:bg-primary-500 disabled:opacity-60"
-            disabled={submitting}
-          >
-            {submitting ? 'Creating…' : 'Create User'}
-          </button>
-        </form>
+      <button
+        type="submit"
+        className="rounded bg-primary-600 px-4 py-2 text-white hover:bg-primary-500 disabled:opacity-60"
+        disabled={submitting}
+      >
+        {submitting ? 'Creating…' : 'Create User'}
+      </button>
+    </form>
+  </section>
+
+      <section className="rounded border border-slate-200 p-4">
+        <h3 className="mb-2 text-lg font-semibold text-slate-700">Manage Existing Accounts</h3>
+        <p className="mb-4 text-sm text-slate-500">
+          Adjust role assignments for existing users. Accounts can hold multiple roles, including HOMEOWNER.
+        </p>
+        {roleStatus && <p className="text-sm text-green-600">{roleStatus}</p>}
+        {roleError && <p className="text-sm text-red-600">{roleError}</p>}
+        {usersError && <p className="text-sm text-red-600">{usersError}</p>}
+        {loadingUsers ? (
+          <p className="text-sm text-slate-500">Loading user directory…</p>
+        ) : users.length === 0 ? (
+          <p className="text-sm text-slate-500">No user accounts found.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600">Email</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600">Name</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600">Current Roles</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600">Assign Roles</th>
+                  <th className="px-3 py-2 text-left font-medium text-slate-600">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {users.map((account) => {
+                  const baseline = getRoleIdsForUser(account);
+                  const selected = roleEdits[account.id] ?? baseline;
+                  const hasChanges = !roleSetsEqual(selected, baseline);
+                  const disableSave = selected.length === 0 || !hasChanges || savingUserId === account.id;
+                  return (
+                    <tr key={account.id} className={!account.is_active ? 'bg-slate-100' : undefined}>
+                      <td className="px-3 py-2">{account.email}</td>
+                      <td className="px-3 py-2">{account.full_name ?? '—'}</td>
+                      <td className="px-3 py-2">{formatUserRoles(account)}</td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap gap-3">
+                          {roles.map((role) => {
+                            const checked = selected.includes(role.id);
+                            return (
+                              <label
+                                key={`${account.id}-${role.id}`}
+                                className="inline-flex items-center gap-2 text-xs text-slate-600"
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="rounded border-slate-300"
+                                  checked={checked}
+                                  disabled={savingUserId === account.id}
+                                  onChange={() => handleToggleUserRole(account.id, role.id)}
+                                />
+                                {role.name}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSaveRoles(account.id)}
+                          className="rounded border border-primary-600 px-3 py-1 text-primary-600 hover:bg-primary-50 disabled:cursor-not-allowed disabled:border-slate-300 disabled:text-slate-400"
+                          disabled={disableSave}
+                        >
+                          {savingUserId === account.id ? 'Saving…' : 'Save'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
     </div>
   );

@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { fetchBillingSummary, fetchDashboardReminders, fetchInvoices } from '../services/api';
 import { BillingSummary, Invoice, Reminder } from '../types';
+import { formatUserRoles, userHasAnyRole, userHasRole } from '../utils/roles';
 
 const DashboardPage: React.FC = () => {
   const { user } = useAuth();
@@ -17,11 +18,11 @@ const DashboardPage: React.FC = () => {
       if (!user) return;
       setLoading(true);
       try {
-        if (user.role.name === 'HOMEOWNER') {
+        if (userHasRole(user, 'HOMEOWNER')) {
           const data = await fetchInvoices();
           setInvoices(data);
         }
-        if (['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY'].includes(user.role.name)) {
+        if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY'])) {
           try {
             const data = await fetchBillingSummary();
             setSummary(data);
@@ -45,10 +46,7 @@ const DashboardPage: React.FC = () => {
     load();
   }, [user]);
 
-  const isBoardUser = useMemo(
-    () => !!user && ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY'].includes(user.role.name),
-    [user],
-  );
+  const isBoardUser = useMemo(() => !!user && userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY']), [user]);
 
   if (!user) {
     return null;
@@ -58,7 +56,7 @@ const DashboardPage: React.FC = () => {
     <div className="space-y-6">
       <header>
         <h2 className="text-xl font-semibold text-primary-600">Welcome back, {user.full_name || user.email}</h2>
-        <p className="text-sm text-slate-500">Role: {user.role.name}</p>
+        <p className="text-sm text-slate-500">Roles: {formatUserRoles(user)}</p>
       </header>
 
       {loading && <p className="text-sm text-slate-500">Loading dashboard data…</p>}
@@ -133,7 +131,7 @@ const DashboardPage: React.FC = () => {
         </section>
       )}
 
-      {user.role.name === 'HOMEOWNER' && (
+      {userHasRole(user, 'HOMEOWNER') && (
         <section className="rounded border border-slate-200 p-4">
           <h3 className="mb-3 text-lg font-semibold text-slate-700">Your Invoices</h3>
           {invoices.length === 0 ? (

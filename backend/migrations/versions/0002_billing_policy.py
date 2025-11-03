@@ -36,7 +36,9 @@ def upgrade() -> None:
         op.execute(
             "UPDATE invoices SET original_amount = amount WHERE original_amount = 0 OR original_amount IS NULL"
         )
-        op.alter_column("invoices", "original_amount", server_default=None)
+        bind = op.get_bind()
+        if bind.dialect.name != "sqlite":
+            op.alter_column("invoices", "original_amount", server_default=None)
 
     if "late_fee_total" not in invoice_columns:
         op.add_column(
@@ -44,7 +46,8 @@ def upgrade() -> None:
             sa.Column("late_fee_total", sa.Numeric(10, 2), nullable=False, server_default="0"),
         )
         op.execute("UPDATE invoices SET late_fee_total = 0 WHERE late_fee_total IS NULL")
-        op.alter_column("invoices", "late_fee_total", server_default="0")
+        if bind.dialect.name != "sqlite":
+            op.alter_column("invoices", "late_fee_total", server_default="0")
 
     if "last_late_fee_applied_at" not in invoice_columns:
         op.add_column(
@@ -96,7 +99,10 @@ def upgrade() -> None:
             constraint["name"] for constraint in inspector.get_unique_constraints("late_fee_tiers")
         }
 
-    if not is_sqlite and "uq_late_fee_tiers_policy_sequence" not in late_fee_tier_constraints:
+    if is_sqlite:
+        # SQLite doesn't support ALTER COLUMN DROP/SET DEFAULT; skip alterations already handled by server_default
+        pass
+    elif "uq_late_fee_tiers_policy_sequence" not in late_fee_tier_constraints:
         op.create_unique_constraint(
             "uq_late_fee_tiers_policy_sequence",
             "late_fee_tiers",

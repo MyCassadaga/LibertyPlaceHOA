@@ -65,12 +65,12 @@ def list_invoices(db: Session = Depends(get_db), user: User = Depends(get_curren
     if applied_invoice_ids:
         db.commit()
 
-    if user.role and user.role.name == "HOMEOWNER":
+    if user.has_role("HOMEOWNER"):
         owner = get_owner_for_user(db, user)
         if not owner:
             return []
         return db.query(Invoice).filter(Invoice.owner_id == owner.id).order_by(Invoice.due_date.desc()).all()
-    if user.role and user.role.name in {"BOARD", "TREASURER", "SYSADMIN", "AUDITOR"}:
+    if user.has_any_role("BOARD", "TREASURER", "SYSADMIN", "AUDITOR"):
         return db.query(Invoice).order_by(Invoice.due_date.desc()).all()
     raise HTTPException(status_code=403, detail="Role not permitted to view invoices")
 
@@ -84,6 +84,8 @@ def create_invoice(
     owner = db.get(Owner, payload.owner_id)
     if not owner:
         raise HTTPException(status_code=404, detail="Owner not found")
+    if owner.is_archived:
+        raise HTTPException(status_code=400, detail="Cannot create invoices for an archived owner.")
     payload_data = payload.dict()
     if not payload_data.get("original_amount"):
         payload_data["original_amount"] = payload_data["amount"]
@@ -143,6 +145,9 @@ def add_late_fee(
     invoice = db.get(Invoice, invoice_id)
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    owner = db.get(Owner, invoice.owner_id)
+    if owner and owner.is_archived:
+        raise HTTPException(status_code=400, detail="Cannot modify invoices for an archived owner.")
     before_amount = invoice.amount
     updated = apply_manual_late_fee(db, invoice, _as_decimal(payload.fee_amount))
     db.commit()
@@ -167,12 +172,14 @@ def record_payment_endpoint(
     owner = db.get(Owner, payload.owner_id)
     if not owner:
         raise HTTPException(status_code=404, detail="Owner not found")
+    if owner.is_archived:
+        raise HTTPException(status_code=400, detail="Cannot record payments for an archived owner.")
 
-    if user.role and user.role.name == "HOMEOWNER":
+    if user.has_role("HOMEOWNER"):
         owner_for_user = get_owner_for_user(db, user)
         if not owner_for_user or owner_for_user.id != payload.owner_id:
             raise HTTPException(status_code=403, detail="May only record payments for your own account")
-    elif user.role and user.role.name not in {"BOARD", "TREASURER", "SYSADMIN"}:
+    elif not user.has_any_role("BOARD", "TREASURER", "SYSADMIN"):
         raise HTTPException(status_code=403, detail="Role not permitted to record payments")
 
     payment = Payment(**payload.dict())
@@ -202,11 +209,11 @@ def get_owner_ledger(
     if not owner:
         raise HTTPException(status_code=404, detail="Owner not found")
 
-    if user.role and user.role.name == "HOMEOWNER":
+    if user.has_role("HOMEOWNER"):
         owner_for_user = get_owner_for_user(db, user)
         if not owner_for_user or owner_for_user.id != owner_id:
             raise HTTPException(status_code=403, detail="May only view your own ledger")
-    elif user.role and user.role.name not in {"BOARD", "TREASURER", "SYSADMIN", "AUDITOR"}:
+    elif not user.has_any_role("BOARD", "TREASURER", "SYSADMIN", "AUDITOR"):
         raise HTTPException(status_code=403, detail="Role not permitted to view ledgers")
 
     return (

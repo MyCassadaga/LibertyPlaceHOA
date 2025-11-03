@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../hooks/useAuth';
+import { userHasAnyRole, userHasRole } from '../utils/roles';
 import NavBar from './NavBar';
 
 interface NavItem {
@@ -15,26 +16,45 @@ const Layout: React.FC = () => {
 
   const navItems = useMemo<NavItem[]>(() => {
     if (!user) return [];
-    const base: NavItem[] = [
-      { label: 'Dashboard', to: '/dashboard' },
-      { label: 'Billing', to: '/billing' },
-    ];
-    if (user.role.name === 'HOMEOWNER') {
-      base.push({ label: 'Owner Profile', to: '/owner-profile' });
+    const entries = new Map<string, NavItem>();
+    const addItem = (label: string, to: string) => {
+      if (!entries.has(to)) {
+        entries.set(to, { label, to });
+      }
+    };
+
+    addItem('Dashboard', '/dashboard');
+    addItem('Billing', '/billing');
+    addItem('Account', '/owner-profile');
+
+    if (userHasRole(user, 'HOMEOWNER')) {
+      addItem('Violations', '/violations');
+      addItem('ARC Requests', '/arc');
     }
-    if (["BOARD", "TREASURER", "SYSADMIN", "SECRETARY"].includes(user.role.name)) {
-      base.push({ label: 'Owners', to: '/owners' });
+    if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY'])) {
+      addItem('Owners', '/owners');
     }
-    if (["BOARD", "TREASURER", "SYSADMIN", "ATTORNEY"].includes(user.role.name)) {
-      base.push({ label: 'Contracts', to: '/contracts' });
+    if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN', 'ATTORNEY'])) {
+      addItem('Contracts', '/contracts');
     }
-    if (["BOARD", "SECRETARY", "SYSADMIN"].includes(user.role.name)) {
-      base.push({ label: 'Comms', to: '/communications' });
+    if (userHasAnyRole(user, ['BOARD', 'SECRETARY', 'SYSADMIN'])) {
+      addItem('Comms', '/communications');
     }
-    if (user.role.name === 'SYSADMIN') {
-      base.push({ label: 'Admin', to: '/admin' });
+    if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY', 'ATTORNEY'])) {
+      addItem('Violations', '/violations');
     }
-    return base;
+    if (userHasAnyRole(user, ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY'])) {
+      addItem('ARC Requests', '/arc');
+    }
+    if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN'])) {
+      addItem('Reconciliation', '/reconciliation');
+      addItem('Reports', '/reports');
+    }
+    if (userHasRole(user, 'SYSADMIN')) {
+      addItem('Admin', '/admin');
+    }
+
+    return Array.from(entries.values());
   }, [user]);
 
   return (

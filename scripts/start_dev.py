@@ -84,10 +84,10 @@ async def _run_alembic(alembic_exe: Path, env: dict[str, str]) -> None:
     process = await asyncio.create_subprocess_exec(
         str(alembic_exe),
         "-c",
-        "alembic.ini",
+        "backend/alembic.ini",
         "upgrade",
         "head",
-        cwd=str(BACKEND_DIR),
+        cwd=str(ROOT),
         env=env,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,

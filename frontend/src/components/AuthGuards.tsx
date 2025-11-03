@@ -2,6 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 
 import { useAuth } from '../hooks/useAuth';
+import { userHasAnyRole } from '../utils/roles';
 
 export const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -32,7 +33,7 @@ export const RequireRole: React.FC<{ children: React.ReactNode; allowed: string[
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (!allowed.includes(user.role.name)) {
+  if (!userHasAnyRole(user, allowed)) {
     return <Navigate to="/dashboard" replace />;
   }
 

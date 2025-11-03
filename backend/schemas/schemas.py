@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, confloat, condecimal, conint
+from pydantic import BaseModel, EmailStr, Field, confloat, condecimal, conint, root_validator
 
 
 class PermissionRead(BaseModel):
@@ -27,15 +27,20 @@ class UserCreate(BaseModel):
     email: EmailStr
     full_name: Optional[str]
     password: str = Field(min_length=8)
-    role_id: int
+    role_ids: List[int] = Field(min_items=1)
 
 
 class UserRead(BaseModel):
     id: int
     email: EmailStr
     full_name: Optional[str]
-    role: RoleRead
+    role: Optional[RoleRead]
+    primary_role: Optional[RoleRead]
+    roles: List[RoleRead] = []
     created_at: datetime
+    is_active: bool
+    archived_at: Optional[datetime]
+    archived_reason: Optional[str]
 
     class Config:
         orm_mode = True
@@ -44,12 +49,30 @@ class UserRead(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    roles: List[str]
+    primary_role: Optional[str]
 
 
 class TokenPayload(BaseModel):
     sub: str
-    role: str
+    roles: List[str]
+    primary_role: Optional[str]
     exp: int
+
+
+class UserSelfUpdate(BaseModel):
+    full_name: Optional[str]
+    email: Optional[EmailStr]
+    current_password: Optional[str] = Field(default=None, min_length=8)
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=8)
+    new_password: str = Field(min_length=8)
+
+
+class UserRoleUpdate(BaseModel):
+    role_ids: List[int] = Field(min_items=1)
 
 
 class OwnerBase(BaseModel):
@@ -83,6 +106,12 @@ class OwnerRead(OwnerBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    is_archived: bool
+    archived_at: Optional[datetime]
+    archived_reason: Optional[str]
+    archived_by_user_id: Optional[int]
+    former_lot: Optional[str]
+    linked_users: List[UserRead] = []
 
     class Config:
         orm_mode = True
@@ -108,6 +137,32 @@ class OwnerUpdateRequestRead(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class OwnerSelfUpdate(BaseModel):
+    primary_name: Optional[str]
+    secondary_name: Optional[str]
+    property_address: Optional[str]
+    mailing_address: Optional[str]
+    primary_email: Optional[EmailStr]
+    secondary_email: Optional[EmailStr]
+    primary_phone: Optional[str]
+    secondary_phone: Optional[str]
+    emergency_contact: Optional[str]
+    notes: Optional[str]
+
+
+class OwnerArchiveRequest(BaseModel):
+    reason: Optional[str]
+
+
+class OwnerRestoreRequest(BaseModel):
+    reactivate_user: bool = False
+
+
+class OwnerLinkRequest(BaseModel):
+    user_id: int
+    link_type: Optional[str]
 
 
 class InvoiceBase(BaseModel):
@@ -287,7 +342,7 @@ class AnnouncementRead(BaseModel):
 class EmailBroadcastRecipient(BaseModel):
     owner_id: Optional[int]
     owner_name: Optional[str]
-    lot: Optional[str]
+    property_address: Optional[str]
     email: EmailStr
     contact_type: Optional[str]
 
@@ -336,12 +391,289 @@ class ReminderRead(BaseModel):
         orm_mode = True
 
 
+class FineScheduleRead(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    base_amount: Decimal
+    escalation_amount: Optional[Decimal]
+    escalation_days: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class ViolationNoticeRead(BaseModel):
+    id: int
+    violation_id: int
+    notice_type: str
+    template_key: str
+    subject: str
+    body: str
+    pdf_path: Optional[str]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class AppealCreate(BaseModel):
+    reason: str
+
+
+class AppealDecision(BaseModel):
+    status: Literal["APPROVED", "DENIED"]
+    decision_notes: Optional[str]
+
+
+class AppealRead(BaseModel):
+    id: int
+    violation_id: int
+    submitted_by_owner_id: int
+    status: str
+    reason: str
+    decision_notes: Optional[str]
+    submitted_at: datetime
+    decided_at: Optional[datetime]
+    reviewed_by_user_id: Optional[int]
+
+    class Config:
+        orm_mode = True
+
+
+class ViolationCreate(BaseModel):
+    owner_id: Optional[int]
+    user_id: Optional[int]
+    category: str
+    description: Optional[str]
+    location: Optional[str]
+    fine_schedule_id: Optional[int]
+    due_date: Optional[date]
+
+    @root_validator
+    def ensure_owner_or_user(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        owner_id = values.get("owner_id")
+        user_id = values.get("user_id")
+        if not owner_id and not user_id:
+            raise ValueError("Either owner_id or user_id must be provided.")
+        return values
+
+
+class ViolationUpdate(BaseModel):
+    category: Optional[str]
+    description: Optional[str]
+    location: Optional[str]
+    due_date: Optional[date]
+    hearing_date: Optional[date]
+    fine_amount: Optional[Decimal]
+    resolution_notes: Optional[str]
+
+
+class ViolationStatusUpdate(BaseModel):
+    target_status: Literal[
+        "NEW",
+        "UNDER_REVIEW",
+        "WARNING_SENT",
+        "HEARING",
+        "FINE_ACTIVE",
+        "RESOLVED",
+        "ARCHIVED",
+    ]
+    note: Optional[str]
+    hearing_date: Optional[date]
+    fine_amount: Optional[Decimal]
+
+
+class ViolationRead(BaseModel):
+    id: int
+    owner_id: int
+    reported_by_user_id: int
+    fine_schedule_id: Optional[int]
+    status: str
+    category: str
+    description: Optional[str]
+    location: Optional[str]
+    opened_at: datetime
+    updated_at: datetime
+    due_date: Optional[date]
+    hearing_date: Optional[date]
+    fine_amount: Optional[Decimal]
+    resolution_notes: Optional[str]
+    owner: OwnerRead
+    notices: List[ViolationNoticeRead] = []
+    appeals: List[AppealRead] = []
+
+    class Config:
+        orm_mode = True
+
+
+class ARCAttachmentRead(BaseModel):
+    id: int
+    arc_request_id: int
+    original_filename: str
+    stored_filename: str
+    content_type: Optional[str]
+    file_size: Optional[int]
+    uploaded_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class ARCConditionCreate(BaseModel):
+    text: str
+    condition_type: Literal["COMMENT", "REQUIREMENT"] = "COMMENT"
+
+
+class ARCConditionResolve(BaseModel):
+    status: Literal["OPEN", "RESOLVED"]
+
+
+class ARCConditionRead(BaseModel):
+    id: int
+    arc_request_id: int
+    condition_type: str
+    text: str
+    status: str
+    created_at: datetime
+    resolved_at: Optional[datetime]
+    created_by_user_id: int
+
+    class Config:
+        orm_mode = True
+
+
+class ARCInspectionCreate(BaseModel):
+    scheduled_date: Optional[date]
+    result: Optional[str]
+    notes: Optional[str]
+
+
+class ARCInspectionRead(BaseModel):
+    id: int
+    arc_request_id: int
+    inspector_user_id: Optional[int]
+    scheduled_date: Optional[date]
+    completed_at: Optional[datetime]
+    result: Optional[str]
+    notes: Optional[str]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class ARCRequestCreate(BaseModel):
+    title: str
+    project_type: Optional[str]
+    description: Optional[str]
+    owner_id: Optional[int]
+
+
+class ARCRequestUpdate(BaseModel):
+    title: Optional[str]
+    project_type: Optional[str]
+    description: Optional[str]
+
+
+class ARCRequestStatusUpdate(BaseModel):
+    target_status: Literal[
+        "DRAFT",
+        "SUBMITTED",
+        "IN_REVIEW",
+        "REVISION_REQUESTED",
+        "APPROVED",
+        "APPROVED_WITH_CONDITIONS",
+        "DENIED",
+        "COMPLETED",
+        "ARCHIVED",
+    ]
+    reviewer_user_id: Optional[int]
+    notes: Optional[str]
+
+
+class ARCRequestRead(BaseModel):
+    id: int
+    owner_id: int
+    submitted_by_user_id: int
+    reviewer_user_id: Optional[int]
+    title: str
+    project_type: Optional[str]
+    description: Optional[str]
+    status: str
+    submitted_at: Optional[datetime]
+    decision_notes: Optional[str]
+    final_decision_at: Optional[datetime]
+    final_decision_by_user_id: Optional[int]
+    revision_requested_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    archived_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+    owner: OwnerRead
+    attachments: List[ARCAttachmentRead]
+    conditions: List[ARCConditionRead]
+    inspections: List[ARCInspectionRead]
+
+    class Config:
+        orm_mode = True
+
+
+class BankTransactionRead(BaseModel):
+    id: int
+    reconciliation_id: Optional[int]
+    uploaded_by_user_id: int
+    transaction_date: Optional[date]
+    description: Optional[str]
+    reference: Optional[str]
+    amount: Decimal
+    status: str
+    matched_payment_id: Optional[int]
+    matched_invoice_id: Optional[int]
+    source_file: Optional[str]
+    uploaded_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class ReconciliationRead(BaseModel):
+    id: int
+    statement_date: Optional[date]
+    created_by_user_id: int
+    note: Optional[str]
+    total_transactions: int
+    matched_transactions: int
+    unmatched_transactions: int
+    matched_amount: Decimal
+    unmatched_amount: Decimal
+    created_at: datetime
+    transactions: List[BankTransactionRead] = []
+
+    class Config:
+        orm_mode = True
+
+
+class BankImportSummary(BaseModel):
+    reconciliation: ReconciliationRead
+
+
 class OwnerExport(BaseModel):
     owner: OwnerRead
     invoices: List[InvoiceRead]
     payments: List[PaymentRead]
     ledger_entries: List[LedgerEntryRead]
     update_requests: List[OwnerUpdateRequestRead]
+
+
+class ResidentRead(BaseModel):
+    user: Optional[UserRead]
+    owner: Optional[OwnerRead]
+
+    class Config:
+        orm_mode = True
 
 
 class AuditLogRead(BaseModel):

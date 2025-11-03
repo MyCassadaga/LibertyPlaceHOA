@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.jwt import get_current_user
 from ..config import SessionLocal
-from ..models.models import Owner, User
+from ..models.models import Owner, OwnerUserLink, User
 
 
 def get_db() -> Generator[Session, None, None]:
@@ -18,6 +18,16 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def get_owner_for_user(db: Session, user: User) -> Optional[Owner]:
+    link = (
+        db.query(Owner)
+        .join(OwnerUserLink, OwnerUserLink.owner_id == Owner.id)
+        .filter(OwnerUserLink.user_id == user.id)
+        .filter(Owner.is_archived.is_(False))
+        .order_by(OwnerUserLink.created_at.asc())
+        .first()
+    )
+    if link:
+        return link
     if not user.email:
         return None
     email = user.email.lower()
@@ -29,6 +39,7 @@ def get_owner_for_user(db: Session, user: User) -> Optional[Owner]:
                 func.lower(Owner.secondary_email) == email,
             )
         )
+        .filter(Owner.is_archived.is_(False))
         .first()
     )
 

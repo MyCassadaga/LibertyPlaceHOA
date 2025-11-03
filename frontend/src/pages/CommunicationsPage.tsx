@@ -256,7 +256,7 @@ const CommunicationsPage: React.FC = () => {
                         <p className="font-medium text-slate-700">{recipient.email}</p>
                         <p className="text-slate-500">
                           {recipient.owner_name ?? 'Unassigned'}
-                          {recipient.lot ? ` • Lot ${recipient.lot}` : ''}
+                          {recipient.property_address ? ` • ${recipient.property_address}` : ''}
                           {recipient.contact_type ? ` (${recipient.contact_type})` : ''}
                         </p>
                       </li>

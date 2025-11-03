@@ -12,6 +12,10 @@ import LoginPage from './pages/LoginPage';
 import AdminPage from './pages/AdminPage';
 import OwnerProfilePage from './pages/OwnerProfilePage';
 import OwnersPage from './pages/OwnersPage';
+import ViolationsPage from './pages/ViolationsPage';
+import ReportsPage from './pages/ReportsPage';
+import ReconciliationPage from './pages/ReconciliationPage';
+import ARCPage from './pages/ARCPage';
 
 const App: React.FC = () => {
   const { user, loading } = useAuth();
@@ -56,6 +60,38 @@ const App: React.FC = () => {
           element={
             <RequireRole allowed={["BOARD", "SECRETARY", "SYSADMIN"]}>
               <CommunicationsPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="violations"
+          element={
+            <RequireRole allowed={["BOARD", "TREASURER", "SYSADMIN", "SECRETARY", "ATTORNEY", "HOMEOWNER"]}>
+              <ViolationsPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="arc"
+          element={
+            <RequireRole allowed={["ARC", "BOARD", "SYSADMIN", "SECRETARY", "HOMEOWNER"]}>
+              <ARCPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="reports"
+          element={
+            <RequireRole allowed={["BOARD", "TREASURER", "SYSADMIN"]}>
+              <ReportsPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="reconciliation"
+          element={
+            <RequireRole allowed={["BOARD", "TREASURER", "SYSADMIN"]}>
+              <ReconciliationPage />
             </RequireRole>
           }
         />
