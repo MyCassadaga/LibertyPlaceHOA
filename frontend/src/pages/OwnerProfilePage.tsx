@@ -1,14 +1,18 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { AxiosError } from 'axios';
+import QRCode from 'react-qr-code';
 
 import { useAuth } from '../hooks/useAuth';
 import {
   changePassword,
   fetchMyOwnerRecord,
+  startTwoFactorSetup,
+  enableTwoFactor,
+  disableTwoFactor,
   updateMyOwnerRecord,
   updateUserProfile,
 } from '../services/api';
-import { Owner, OwnerSelfUpdatePayload } from '../types';
+import { Owner, OwnerSelfUpdatePayload, TwoFactorSetupResponse } from '../types';
 import { formatUserRoles } from '../utils/roles';
 
 type OwnerFormState = {
@@ -48,6 +52,13 @@ const OwnerProfilePage: React.FC = () => {
   const [passwordStatus, setPasswordStatus] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSaving, setPasswordSaving] = useState(false);
+
+  const [twoFactorSetup, setTwoFactorSetup] = useState<TwoFactorSetupResponse | null>(null);
+  const [twoFactorOtp, setTwoFactorOtp] = useState('');
+  const [twoFactorDisableOtp, setTwoFactorDisableOtp] = useState('');
+  const [twoFactorStatus, setTwoFactorStatus] = useState<string | null>(null);
+  const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
+  const [twoFactorLoading, setTwoFactorLoading] = useState(false);
 
   const [ownerForm, setOwnerForm] = useState<OwnerFormState>(() => createOwnerFormState());
   const [ownerStatus, setOwnerStatus] = useState<string | null>(null);
@@ -93,6 +104,13 @@ const OwnerProfilePage: React.FC = () => {
     return null;
   }
 
+  const formattedTwoFactorSecret = useMemo(() => {
+    if (!twoFactorSetup?.secret) {
+      return '';
+    }
+    return twoFactorSetup.secret.replace(/(.{4})/g, '$1 ').trim();
+  }, [twoFactorSetup]);
+
   const handleAccountInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
     setAccountForm((prev) => ({ ...prev, [name]: value }));
@@ -108,6 +126,75 @@ const OwnerProfilePage: React.FC = () => {
   const handlePasswordInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
     setPasswordForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleStartTwoFactor = async () => {
+    setTwoFactorStatus(null);
+    setTwoFactorError(null);
+    setTwoFactorLoading(true);
+    try {
+      const setup = await startTwoFactorSetup();
+      setTwoFactorSetup(setup);
+      setTwoFactorStatus('Scan the QR link or enter the secret in your authenticator, then enter the 6-digit code to enable.');
+    } catch (err) {
+      console.error('2FA setup failed', err);
+      setTwoFactorError('Unable to generate a two-factor setup code.');
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleEnableTwoFactor = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!twoFactorOtp.trim()) {
+      setTwoFactorError('Enter the 6-digit code from your authenticator app.');
+      return;
+    }
+    if (!/^\d{6}$/.test(twoFactorOtp.trim())) {
+      setTwoFactorError('Two-factor codes must be exactly 6 digits.');
+      return;
+    }
+    setTwoFactorLoading(true);
+    setTwoFactorStatus(null);
+    setTwoFactorError(null);
+    try {
+      await enableTwoFactor(twoFactorOtp.trim());
+      await refresh();
+      setTwoFactorSetup(null);
+      setTwoFactorOtp('');
+      setTwoFactorStatus('Two-factor authentication enabled.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to enable two-factor authentication.';
+      setTwoFactorError(message);
+    } finally {
+      setTwoFactorLoading(false);
+    }
+  };
+
+  const handleDisableTwoFactor = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!twoFactorDisableOtp.trim()) {
+      setTwoFactorError('Enter your current 2FA code to disable.');
+      return;
+    }
+    if (!/^\d{6}$/.test(twoFactorDisableOtp.trim())) {
+      setTwoFactorError('Two-factor codes must be exactly 6 digits.');
+      return;
+    }
+    setTwoFactorLoading(true);
+    setTwoFactorStatus(null);
+    setTwoFactorError(null);
+    try {
+      await disableTwoFactor(twoFactorDisableOtp.trim());
+      await refresh();
+      setTwoFactorDisableOtp('');
+      setTwoFactorStatus('Two-factor authentication disabled.');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to disable two-factor authentication.';
+      setTwoFactorError(message);
+    } finally {
+      setTwoFactorLoading(false);
+    }
   };
 
   const handleAccountSubmit = async (event: React.FormEvent) => {
@@ -357,6 +444,113 @@ const OwnerProfilePage: React.FC = () => {
             {passwordSaving ? 'Updating…' : 'Update Password'}
           </button>
         </form>
+      </section>
+
+      <section className="rounded border border-slate-200 p-4">
+        <h3 className="text-lg font-semibold text-slate-700">Two-Factor Authentication</h3>
+        <p className="mb-3 text-sm text-slate-500">
+          Protect your account with a rotating 6-digit code from an authenticator app in addition to your password.
+        </p>
+        {twoFactorStatus && <p className="text-sm text-emerald-600">{twoFactorStatus}</p>}
+        {twoFactorError && <p className="text-sm text-red-600">{twoFactorError}</p>}
+        {user.two_factor_enabled ? (
+          <form className="mt-4 space-y-3" onSubmit={handleDisableTwoFactor}>
+            <label className="text-sm text-slate-600" htmlFor="disable-otp">
+              Enter your current 2FA code to disable
+            </label>
+            <input
+              id="disable-otp"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              className="w-full rounded border border-slate-300 px-3 py-2"
+              placeholder="123456"
+              value={twoFactorDisableOtp}
+              onChange={(event) => setTwoFactorDisableOtp(event.target.value)}
+              required
+            />
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                className="rounded bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-60"
+                disabled={twoFactorLoading}
+              >
+                {twoFactorLoading ? 'Disabling…' : 'Disable 2FA'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-4">
+            {twoFactorSetup ? (
+              <div className="space-y-3 rounded border border-slate-200 p-3">
+                <p className="text-sm text-slate-600">
+                  Scan the QR link or enter the secret below into Google Authenticator, 1Password, or a compatible app.
+                </p>
+                <div className="flex flex-col items-center gap-3">
+                  <QRCode value={twoFactorSetup.otpauth_url} size={168} />
+                  <p className="w-full rounded bg-slate-100 px-3 py-2 font-mono text-sm text-center tracking-widest">
+                    {formattedTwoFactorSecret}
+                  </p>
+                </div>
+                <a
+                  href={twoFactorSetup.otpauth_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-semibold text-primary-600 hover:text-primary-500"
+                >
+                  Open in authenticator app
+                </a>
+                <form className="space-y-3" onSubmit={handleEnableTwoFactor}>
+                  <label className="text-sm text-slate-600" htmlFor="enable-otp">
+                    Enter the current 6-digit code from your authenticator
+                  </label>
+                  <input
+                    id="enable-otp"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    className="w-full rounded border border-slate-300 px-3 py-2"
+                    placeholder="123456"
+                    value={twoFactorOtp}
+                    onChange={(event) => setTwoFactorOtp(event.target.value)}
+                    required
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      className="rounded border border-slate-300 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                      onClick={() => {
+                        setTwoFactorSetup(null);
+                        setTwoFactorOtp('');
+                      }}
+                      disabled={twoFactorLoading}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="rounded bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
+                      disabled={twoFactorLoading}
+                    >
+                      {twoFactorLoading ? 'Verifying…' : 'Enable 2FA'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="rounded bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
+                onClick={handleStartTwoFactor}
+                disabled={twoFactorLoading}
+              >
+                {twoFactorLoading ? 'Preparing…' : 'Generate Setup Code'}
+              </button>
+            )}
+          </div>
+        )}
       </section>
 
       <section className="rounded border border-slate-200 p-4">

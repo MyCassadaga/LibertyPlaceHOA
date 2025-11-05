@@ -1,29 +1,78 @@
 from datetime import date
 from pathlib import Path
-from tempfile import gettempdir
-from typing import Optional
+from textwrap import wrap
+from typing import Iterable, Optional
+
+from reportlab.lib.pagesizes import LETTER
+from reportlab.pdfgen import canvas
+
+from ..config import settings
+
+MARGIN_X = 72  # 1 inch
+MARGIN_Y = 72
+MAX_CHARS_PER_LINE = 90
 
 
-def generate_text_pdf_stub(filename: str, content: str) -> str:
-    """Writes the provided content to a .pdf placeholder file and returns the path."""
-    output_path = Path(gettempdir()) / filename
-    output_path.write_text(content)
-    return str(output_path)
+def _output_path(filename: str) -> Path:
+    base = Path(settings.pdf_output_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    return base / filename
+
+
+def _write_pdf(filename: str, lines: Iterable[str]) -> str:
+    path = _output_path(filename)
+    pdf_canvas = canvas.Canvas(str(path), pagesize=LETTER)
+    width, height = LETTER
+    text_stream = pdf_canvas.beginText(MARGIN_X, height - MARGIN_Y)
+    text_stream.setFont("Helvetica", 12)
+
+    for line in lines:
+        if line is None:
+            line = ""
+        normalized = str(line)
+        if normalized.strip() == "":
+            text_stream.textLine("")
+            continue
+        wrapped_lines = wrap(normalized, MAX_CHARS_PER_LINE) or [normalized]
+        for chunk in wrapped_lines:
+            text_stream.textLine(chunk)
+        text_stream.textLine("")
+
+    pdf_canvas.drawText(text_stream)
+    pdf_canvas.showPage()
+    pdf_canvas.save()
+    return str(path)
 
 
 def generate_invoice_pdf(invoice, owner) -> str:
-    # Placeholder: generate a PDF in production using reportlab/weasyprint
-    address = owner.property_address or "Pending address"
-    summary = (
-        f"Invoice #{invoice.id} for {owner.primary_name} ({address})\n"
-        f"Amount: {invoice.amount}\nDue: {invoice.due_date}"
-    )
-    return generate_text_pdf_stub(f"invoice_{invoice.id}.pdf", summary)
+    address = owner.property_address or owner.mailing_address or "Pending address"
+    lines = [
+        "Liberty Place HOA",
+        "Official Invoice",
+        "",
+        f"Invoice #: {invoice.id}",
+        f"Bill To: {owner.primary_name}",
+        f"Property Address: {address}",
+        "",
+        f"Amount Due: ${invoice.amount}",
+        f"Due Date: {invoice.due_date}",
+        "",
+        "Please remit payment via the HOA portal or mail a check to the association office.",
+    ]
+    return _write_pdf(f"invoice_{invoice.id}.pdf", lines)
 
 
 def generate_announcement_packet(announcement_subject: str, announcement_body: str) -> str:
-    packet_content = f"Subject: {announcement_subject}\n\n{announcement_body}"
-    return generate_text_pdf_stub("announcement_packet.pdf", packet_content)
+    lines = [
+        "Liberty Place HOA",
+        "Community Announcement",
+        "",
+        f"Subject: {announcement_subject}",
+        "",
+    ]
+    body_lines = announcement_body.splitlines() or [announcement_body]
+    lines.extend(body_lines)
+    return _write_pdf("announcement_packet.pdf", lines)
 
 
 def generate_reminder_notice_pdf(
@@ -35,47 +84,52 @@ def generate_reminder_notice_pdf(
     next_notice_in_days: Optional[int],
 ) -> str:
     today = date.today().isoformat()
-    header = "Liberty Place HOA\nAccounts Receivable Reminder"
-    address_line = owner.mailing_address or owner.property_address
-    address = owner.property_address or "Pending address"
-    status_line = f"Invoice #{invoice.id} for {address} is {days_past_due} days past due."
-    grace_line = f"A {grace_period_days}-day grace period has elapsed." if grace_period_days else "Payment is now past due."
-    amount_line = f"Current balance: ${invoice.amount}"
+    address_line = owner.mailing_address or owner.property_address or "Address pending"
     next_notice_line = (
         f"Next reminder scheduled in {next_notice_in_days} days."
         if next_notice_in_days
         else "No further reminders scheduled in the current cadence."
     )
-    closing = f"Prepared by {actor.full_name or actor.email} on {today}"
-    contents = "\n\n".join(
-        [
-            header,
-            owner.primary_name,
-            address_line or "",
-            status_line,
-            grace_line,
-            amount_line,
-            next_notice_line,
-            "Please remit payment to the HOA office or via the portal.",
-            closing,
-        ]
-    )
+    lines = [
+        "Liberty Place HOA",
+        "Accounts Receivable Reminder",
+        "",
+        f"Owner: {owner.primary_name}",
+        f"Mailing Address: {address_line}",
+        "",
+        f"Invoice #{invoice.id} is {days_past_due} days past due.",
+        (
+            f"The {grace_period_days}-day grace period has elapsed."
+            if grace_period_days
+            else "Payment is now past due."
+        ),
+        f"Current balance: ${invoice.amount}",
+        next_notice_line,
+        "",
+        "Please remit payment to the HOA office or via the Resident Portal.",
+        f"Prepared by {actor.full_name or actor.email} on {today}",
+    ]
     filename = f"invoice_{invoice.id}_reminder.pdf"
-    return generate_text_pdf_stub(filename, contents)
+    return _write_pdf(filename, lines)
 
 
 def generate_violation_notice_pdf(template_key: str, violation, owner, subject: str, body: str) -> str:
+    lines = [
+        "Liberty Place HOA",
+        "Covenant Compliance Notice",
+        "",
+        f"Template: {template_key}",
+        f"Owner: {owner.primary_name}",
+        f"Property: {owner.property_address or owner.mailing_address or 'Pending address'}",
+        "",
+        f"Violation ID: {violation.id}",
+        f"Current Status: {violation.status}",
+        "",
+        f"Subject: {subject}",
+        "",
+    ]
+    lines.extend(body.splitlines() or [body])
+    lines.append("")
+    lines.append("This notice is automatically generated for association records.")
     filename = f"violation_{violation.id}_{template_key.lower()}.pdf"
-    header = f"Liberty Place HOA - Covenant Compliance Notice\nTemplate: {template_key}"
-    content = "\n\n".join(
-        [
-            header,
-            f"Owner: {owner.primary_name} ({owner.property_address or 'Pending address'})",
-            f"Violation ID: {violation.id}",
-            f"Status: {violation.status}",
-            f"Subject: {subject}",
-            body,
-            "This notice is automatically generated for record keeping.",
-        ]
-    )
-    return generate_text_pdf_stub(filename, content)
+    return _write_pdf(filename, lines)

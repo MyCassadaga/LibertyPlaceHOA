@@ -41,6 +41,7 @@ class UserRead(BaseModel):
     is_active: bool
     archived_at: Optional[datetime]
     archived_reason: Optional[str]
+    two_factor_enabled: bool = False
 
     class Config:
         orm_mode = True
@@ -48,9 +49,12 @@ class UserRead(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     roles: List[str]
     primary_role: Optional[str]
+    expires_in: int
+    refresh_expires_in: int
 
 
 class TokenPayload(BaseModel):
@@ -58,6 +62,7 @@ class TokenPayload(BaseModel):
     roles: List[str]
     primary_role: Optional[str]
     exp: int
+    type: str
 
 
 class UserSelfUpdate(BaseModel):
@@ -73,6 +78,19 @@ class PasswordChange(BaseModel):
 
 class UserRoleUpdate(BaseModel):
     role_ids: List[int] = Field(min_items=1)
+
+
+class TwoFactorSetupResponse(BaseModel):
+    secret: str
+    otpauth_url: str
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    otp: str = Field(min_length=6, max_length=6)
+
+
+class TokenRefreshRequest(BaseModel):
+    refresh_token: str
 
 
 class OwnerBase(BaseModel):

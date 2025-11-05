@@ -82,7 +82,7 @@ const App: React.FC = () => {
         <Route
           path="reports"
           element={
-            <RequireRole allowed={["BOARD", "TREASURER", "SYSADMIN"]}>
+            <RequireRole allowed={["BOARD", "SYSADMIN"]}>
               <ReportsPage />
             </RequireRole>
           }

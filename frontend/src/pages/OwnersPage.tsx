@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
+import Badge from '../components/Badge';
 import {
   archiveOwner,
   fetchOwnerById,
@@ -143,6 +144,7 @@ const OwnersPage: React.FC = () => {
     const payload: OwnerUpdatePayload = {
       primary_name: trim(ownerForm.primary_name),
       secondary_name: trim(ownerForm.secondary_name),
+      lot: trim(ownerForm.lot),
       property_address: trim(ownerForm.property_address),
       mailing_address: trim(ownerForm.mailing_address),
       primary_email: trim(ownerForm.primary_email),
@@ -379,7 +381,10 @@ const OwnersPage: React.FC = () => {
                 return (
                   <tr key={owner.id} className="bg-slate-50">
                     <td className="px-3 py-2">
-                      <div className="font-medium text-slate-700">{formatProperty(owner)}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-slate-700">{formatProperty(owner)}</span>
+                        <Badge tone="warning">Archived</Badge>
+                      </div>
                       <div className="text-xs text-slate-500">{formatOwnerId(owner)}</div>
                     </td>
                     <td className="px-3 py-2">
@@ -447,21 +452,17 @@ const OwnersPage: React.FC = () => {
                   <td className="px-3 py-2">{formatUserRoles(user)}</td>
                   <td className="px-3 py-2">
                     {owner ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">
-                        {formatOwnerId(owner)}
-                      </span>
+                      <Badge tone="success">{formatOwnerId(owner)}</Badge>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700">
-                        Unlinked
-                      </span>
+                      <Badge tone="warning">Unlinked</Badge>
                     )}
                   </td>
                   <td className="px-3 py-2">
                     {user.is_active ? (
-                      <span className="text-xs font-semibold text-emerald-600">Active</span>
+                      <Badge tone="success">Active</Badge>
                     ) : (
-                      <div className="flex flex-col text-xs text-slate-500">
-                        <span className="font-semibold text-slate-600">Inactive</span>
+                      <div className="flex flex-col gap-1 text-xs text-slate-500">
+                        <Badge tone="danger">Inactive</Badge>
                         {user.archived_reason && <span>{user.archived_reason}</span>}
                       </div>
                     )}
@@ -525,16 +526,6 @@ const OwnersPage: React.FC = () => {
                     className="w-full rounded border border-slate-300 px-3 py-2"
                     value={ownerForm.secondary_name ?? ''}
                     onChange={(e) => handleOwnerFieldChange('secondary_name', e.target.value)}
-                  />
-                </label>
-                <label className="text-sm">
-                  <span className="mb-1 block text-slate-600">Property Address</span>
-                  <input
-                    className="w-full rounded border border-slate-300 px-3 py-2"
-                    value={ownerForm.property_address ?? ''}
-                    onChange={(e) => handleOwnerFieldChange('property_address', e.target.value)}
-                    required
-                    placeholder="123 Main St"
                   />
                 </label>
                 <label className="text-sm">

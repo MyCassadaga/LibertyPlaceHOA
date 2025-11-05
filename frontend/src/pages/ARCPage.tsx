@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
+import Badge from '../components/Badge';
+import FilePreview from '../components/FilePreview';
+import Timeline, { TimelineEvent } from '../components/Timeline';
 import {
   addARCCondition,
   createARCInspection,
@@ -242,6 +245,70 @@ const ARCPage: React.FC = () => {
     return list;
   }, [selected, isHomeowner]);
 
+  const timelineEvents = useMemo<TimelineEvent[]>(() => {
+    if (!selected) return [];
+    const events: TimelineEvent[] = [];
+    const push = (timestamp?: string | null, label?: string, description?: string, meta?: string) => {
+      if (!timestamp || !label) return;
+      events.push({ timestamp, label, description, meta });
+    };
+
+    push(selected.created_at, 'Request created', selected.description ?? undefined);
+    push(selected.submitted_at, 'Submitted for review');
+    push(
+      selected.revision_requested_at,
+      'Revision requested',
+      selected.decision_notes ?? undefined,
+    );
+
+    if (selected.final_decision_at) {
+      let decisionLabel = 'Final decision recorded';
+      if (selected.status === 'APPROVED' || selected.status === 'APPROVED_WITH_CONDITIONS') {
+        decisionLabel = 'Final decision: Approved';
+      } else if (selected.status === 'DENIED') {
+        decisionLabel = 'Final decision: Denied';
+      }
+      push(selected.final_decision_at, decisionLabel, selected.decision_notes ?? undefined);
+    }
+
+    push(selected.completed_at, 'Project completed');
+    push(selected.archived_at, 'Request archived');
+
+    selected.conditions.forEach((condition) => {
+      push(
+        condition.created_at,
+        condition.condition_type === 'REQUIREMENT' ? 'Requirement added' : 'Comment added',
+        condition.text,
+        `Status: ${condition.status}`,
+      );
+      if (condition.resolved_at) {
+        push(condition.resolved_at, 'Condition resolved', condition.text);
+      }
+    });
+
+    selected.inspections.forEach((inspection) => {
+      const metaParts: string[] = [];
+      if (inspection.scheduled_date) {
+        metaParts.push(`Scheduled: ${new Date(inspection.scheduled_date).toLocaleDateString()}`);
+      }
+      if (inspection.result) {
+        metaParts.push(`Result: ${inspection.result}`);
+      }
+      push(
+        inspection.created_at,
+        inspection.result ? 'Inspection result recorded' : 'Inspection logged',
+        inspection.notes ?? undefined,
+        metaParts.join(' • ') || undefined,
+      );
+    });
+
+    if (selected.updated_at && selected.updated_at !== selected.created_at) {
+      push(selected.updated_at, 'Last updated');
+    }
+
+    return events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [selected]);
+
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
@@ -392,8 +459,13 @@ const ARCPage: React.FC = () => {
               <header className="flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-600">{selected.title}</h3>
-                  <p className="text-xs text-slate-500">
-                    {selected.owner.property_address || `Owner #${selected.owner.id}`} • Created {new Date(selected.created_at).toLocaleDateString()}
+                  <p className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span>
+                      {selected.owner.property_address || `Owner #${selected.owner.id}`} • Created{' '}
+                      {new Date(selected.created_at).toLocaleDateString()}
+                    </span>
+                    {selected.owner.is_archived && <Badge tone="warning">Owner Archived</Badge>}
+                    {selected.owner.is_rental && <Badge tone="info">Rental</Badge>}
                   </p>
                 </div>
                 <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_BADGE[selected.status]}`}>
@@ -410,6 +482,13 @@ const ARCPage: React.FC = () => {
               {selected.decision_notes && (
                 <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600">Decision Notes: {selected.decision_notes}</p>
               )}
+
+              <section className="mt-4">
+                <h4 className="text-xs font-semibold uppercase text-slate-500">Timeline</h4>
+                <div className="mt-2">
+                  <Timeline events={timelineEvents} />
+                </div>
+              </section>
 
               {allowedTransitions.length > 0 && (
                 <form className="mt-4 space-y-3 rounded border border-slate-200 p-3" onSubmit={handleTransition}>
@@ -481,16 +560,18 @@ const ARCPage: React.FC = () => {
                 {selected.attachments.length === 0 ? (
                   <p className="mt-2 text-xs text-slate-500">No files uploaded.</p>
                 ) : (
-                  <ul className="mt-2 space-y-2 text-xs">
+                  <div className="mt-2 space-y-3">
                     {selected.attachments.map((attachment: ARCAttachment) => (
-                      <li key={attachment.id} className="rounded border border-slate-200 p-2">
-                        <span className="font-semibold text-slate-600">{attachment.original_filename}</span>
-                        <span className="ml-2 text-slate-500">
-                          {new Date(attachment.uploaded_at).toLocaleString()}
-                        </span>
-                      </li>
+                      <FilePreview
+                        key={attachment.id}
+                        name={attachment.original_filename}
+                        storedPath={attachment.stored_filename}
+                        uploadedAt={attachment.uploaded_at}
+                        contentType={attachment.content_type}
+                        sizeBytes={attachment.file_size}
+                      />
                     ))}
-                  </ul>
+                  </div>
                 )}
               </section>
 

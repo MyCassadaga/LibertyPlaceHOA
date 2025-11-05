@@ -9,6 +9,7 @@ const LoginPage: React.FC = () => {
   const { login, loading } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const from = (location.state as { from?: Location })?.from?.pathname || '/dashboard';
@@ -17,7 +18,12 @@ const LoginPage: React.FC = () => {
     event.preventDefault();
     try {
       setError(null);
-      await login(email, password);
+      const trimmedOtp = otp.trim();
+      if (trimmedOtp && !/^\d{6}$/.test(trimmedOtp)) {
+        setError('Two-factor codes must be exactly 6 digits.');
+        return;
+      }
+      await login(email, password, trimmedOtp || undefined);
       navigate(from, { replace: true });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to sign in. Please try again.';
@@ -56,6 +62,21 @@ const LoginPage: React.FC = () => {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               required
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="otp">
+              Two-Factor Code (if enabled)
+            </label>
+            <input
+              id="otp"
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              className="w-full rounded border border-slate-300 px-3 py-2 focus:border-primary-500 focus:outline-none"
+              value={otp}
+              onChange={(event) => setOtp(event.target.value)}
+              placeholder="123456"
             />
           </div>
           {error && <p className="text-sm text-red-600">{error}</p>}

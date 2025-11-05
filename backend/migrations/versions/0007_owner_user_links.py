@@ -29,11 +29,7 @@ def upgrade() -> None:
             sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
             sa.Column("link_type", sa.String(), nullable=True),
             sa.Column("created_at", sa.DateTime(), nullable=False, default=datetime.utcnow, server_default=sa.func.now()),
-        )
-        op.create_unique_constraint(
-            "uq_owner_user_links_owner_user",
-            "owner_user_links",
-            ["owner_id", "user_id"],
+            sa.UniqueConstraint("owner_id", "user_id", name="uq_owner_user_links_owner_user"),
         )
         op.create_index("ix_owner_user_links_owner_id", "owner_user_links", ["owner_id"], unique=False)
         op.create_index("ix_owner_user_links_user_id", "owner_user_links", ["user_id"], unique=False)

@@ -9,24 +9,34 @@ import React, {
 } from 'react';
 import type { AxiosError } from 'axios';
 
-import { fetchCurrentUser, login as apiLogin, setAuthToken } from '../services/api';
+import {
+  fetchCurrentUser,
+  login as apiLogin,
+  refreshSession,
+  setAuthToken,
+} from '../services/api';
 import { User } from '../types';
 
-const STORAGE_KEY = 'hoa.token';
+const ACCESS_STORAGE_KEY = 'hoa.token';
+const REFRESH_STORAGE_KEY = 'hoa.refresh';
 
-const readStoredToken = (): string | null => {
+const readStoredTokens = (): { access: string | null; refresh: string | null } => {
   if (typeof window === 'undefined') {
-    return null;
+    return { access: null, refresh: null };
   }
-  const stored = window.localStorage.getItem(STORAGE_KEY);
-  return stored && stored !== 'null' ? stored : null;
+  const access = window.localStorage.getItem(ACCESS_STORAGE_KEY);
+  const refresh = window.localStorage.getItem(REFRESH_STORAGE_KEY);
+  return {
+    access: access && access !== 'null' ? access : null,
+    refresh: refresh && refresh !== 'null' ? refresh : null,
+  };
 };
 
 type AuthContextValue = {
   user: User | null;
   token: string | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, otp?: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
 };
@@ -35,23 +45,64 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => readStoredToken());
-  const [loading, setLoading] = useState<boolean>(() => !!readStoredToken());
+  const stored = readStoredTokens();
+  const [token, setToken] = useState<string | null>(() => stored.access);
+  const [refreshToken, setRefreshToken] = useState<string | null>(() => stored.refresh);
+  const [loading, setLoading] = useState<boolean>(() => !!stored.access || !!stored.refresh);
   const hasBootstrapped = useRef(false);
 
   useEffect(() => {
     setAuthToken(token);
     if (typeof window !== 'undefined') {
       if (token) {
-        window.localStorage.setItem(STORAGE_KEY, token);
+        window.localStorage.setItem(ACCESS_STORAGE_KEY, token);
       } else {
-        window.localStorage.removeItem(STORAGE_KEY);
+        window.localStorage.removeItem(ACCESS_STORAGE_KEY);
+      }
+      if (refreshToken) {
+        window.localStorage.setItem(REFRESH_STORAGE_KEY, refreshToken);
+      } else {
+        window.localStorage.removeItem(REFRESH_STORAGE_KEY);
       }
     }
-  }, [token]);
+  }, [token, refreshToken]);
+
+  const persistTokens = useCallback((access: string | null, refreshValue: string | null) => {
+    setToken(access);
+    setRefreshToken(refreshValue);
+    setAuthToken(access);
+    if (typeof window !== 'undefined') {
+      if (access) {
+        window.localStorage.setItem(ACCESS_STORAGE_KEY, access);
+      } else {
+        window.localStorage.removeItem(ACCESS_STORAGE_KEY);
+      }
+      if (refreshValue) {
+        window.localStorage.setItem(REFRESH_STORAGE_KEY, refreshValue);
+      } else {
+        window.localStorage.removeItem(REFRESH_STORAGE_KEY);
+      }
+    }
+  }, []);
+
+  const attemptServerRefresh = useCallback(async () => {
+    if (!refreshToken) {
+      return false;
+    }
+    try {
+      const refreshed = await refreshSession({ refresh_token: refreshToken });
+      persistTokens(refreshed.access_token, refreshed.refresh_token);
+      return true;
+    } catch (error) {
+      console.error('Failed to refresh session', error);
+      persistTokens(null, null);
+      setUser(null);
+      return false;
+    }
+  }, [refreshToken, persistTokens]);
 
   const refresh = useCallback(async () => {
-    if (!token) {
+    if (!token && !refreshToken) {
       setUser(null);
       setLoading(false);
       return;
@@ -61,27 +112,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const me = await fetchCurrentUser();
       setUser(me);
     } catch (error) {
-      console.error('Failed to refresh user', error);
-      setUser(null);
-      setToken(null);
-      setAuthToken(null);
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(STORAGE_KEY);
+      console.warn('Access token invalid, attempting refresh');
+      const refreshed = await attemptServerRefresh();
+      if (refreshed) {
+        try {
+          const me = await fetchCurrentUser();
+          setUser(me);
+        } catch (fetchError) {
+          console.error('Failed to load user after refresh', fetchError);
+          setUser(null);
+        }
+      } else {
+        setUser(null);
       }
     }
     setLoading(false);
-  }, [token]);
+  }, [token, refreshToken, attemptServerRefresh]);
 
-  const handleLogin = useCallback(async (email: string, password: string) => {
+  const handleLogin = useCallback(async (email: string, password: string, otp?: string) => {
     setLoading(true);
     setUser(null);
     try {
-      const tokenResponse = await apiLogin(email, password);
-      setToken(tokenResponse.access_token);
-      setAuthToken(tokenResponse.access_token);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(STORAGE_KEY, tokenResponse.access_token);
-      }
+      const tokenResponse = await apiLogin(email, password, otp);
+      persistTokens(tokenResponse.access_token, tokenResponse.refresh_token);
       const me = await fetchCurrentUser();
       setUser(me);
     } catch (error) {
@@ -92,39 +145,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status === 401
           ? detail ?? 'Invalid credentials'
           : detail ?? 'Unable to sign in. Please try again.';
-      setToken(null);
+      persistTokens(null, null);
       setUser(null);
-      setAuthToken(null);
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem(STORAGE_KEY);
-      }
       throw new Error(message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [persistTokens]);
 
   const logout = useCallback(() => {
-    setToken(null);
+    persistTokens(null, null);
     setLoading(false);
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(STORAGE_KEY);
-    }
     setUser(null);
-    setAuthToken(null);
-  }, []);
+  }, [persistTokens]);
 
   useEffect(() => {
     if (hasBootstrapped.current) {
       return;
     }
     hasBootstrapped.current = true;
-    if (token) {
+    if (token || refreshToken) {
       void refresh();
     } else {
       setLoading(false);
     }
-  }, [token, refresh]);
+  }, [token, refreshToken, refresh]);
 
   const value = useMemo(
     () => ({ user, token, loading, login: handleLogin, logout, refresh }),

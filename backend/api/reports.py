@@ -36,7 +36,7 @@ def _audit_report_access(session: Session, actor: User, action: str) -> None:
 @router.get("/reports/ar-aging")
 def export_ar_aging(
     db: Session = Depends(get_db),
-    actor: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+    actor: User = Depends(require_roles("BOARD", "SYSADMIN")),
 ) -> Response:
     report = generate_ar_aging_report(db)
     _audit_report_access(db, actor, "reports.ar_aging")
@@ -46,7 +46,7 @@ def export_ar_aging(
 @router.get("/reports/cash-flow")
 def export_cash_flow(
     db: Session = Depends(get_db),
-    actor: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+    actor: User = Depends(require_roles("BOARD", "SYSADMIN")),
 ) -> Response:
     report = generate_cash_flow_report(db)
     _audit_report_access(db, actor, "reports.cash_flow")
@@ -56,7 +56,7 @@ def export_cash_flow(
 @router.get("/reports/violations-summary")
 def export_violations_summary(
     db: Session = Depends(get_db),
-    actor: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+    actor: User = Depends(require_roles("BOARD", "SYSADMIN")),
 ) -> Response:
     report = generate_violations_summary_report(db)
     _audit_report_access(db, actor, "reports.violations_summary")
@@ -66,7 +66,7 @@ def export_violations_summary(
 @router.get("/reports/arc-sla")
 def export_arc_sla(
     db: Session = Depends(get_db),
-    actor: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+    actor: User = Depends(require_roles("BOARD", "SYSADMIN")),
 ) -> Response:
     report = generate_arc_sla_report(db)
     _audit_report_access(db, actor, "reports.arc_sla")
@@ -77,7 +77,7 @@ def export_arc_sla(
 @router.get("/reports/ar-aging.csv")
 def export_ar_aging_legacy(
     db: Session = Depends(get_db),
-    actor: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+    actor: User = Depends(require_roles("BOARD", "SYSADMIN")),
 ) -> Response:
     report = generate_ar_aging_report(db)
     _audit_report_access(db, actor, "reports.ar_aging")
@@ -87,7 +87,7 @@ def export_ar_aging_legacy(
 @router.get("/reports/cash-flow.csv")
 def export_cash_flow_legacy(
     db: Session = Depends(get_db),
-    actor: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+    actor: User = Depends(require_roles("BOARD", "SYSADMIN")),
 ) -> Response:
     report = generate_cash_flow_report(db)
     _audit_report_access(db, actor, "reports.cash_flow")

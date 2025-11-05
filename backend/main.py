@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, joinedload
@@ -9,6 +11,9 @@ from decimal import Decimal
 from .constants import DEFAULT_LATE_FEE_POLICY, DEFAULT_ROLES
 from .models.models import BillingPolicy, LateFeeTier, Owner, OwnerUserLink, Permission, Role, User
 from .services.reminders import generate_contract_renewal_reminders
+from .services.backup import perform_sqlite_backup
+
+logger = logging.getLogger(__name__)
 
 
 def ensure_homeowner_owner_records(session: Session) -> None:
@@ -160,3 +165,14 @@ app.include_router(reports.router, tags=["reports"])
 app.include_router(violations.router, prefix="/violations", tags=["violations"])
 app.include_router(arc.router, tags=["arc"])
 app.include_router(banking.router, tags=["banking"])
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    """Create a SQLite backup when the application stops."""
+    try:
+        backup_path = perform_sqlite_backup()
+        if backup_path:
+            logger.info("SQLite backup created at %s", backup_path)
+    except Exception:
+        logger.exception("Failed to create SQLite backup during shutdown.")

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import signal
 import sys
 from pathlib import Path
@@ -31,9 +32,11 @@ else:
     VENV_BIN = VENV_DIR / "bin"
 
 DEFAULT_PORTS = {
-    "backend": os.environ.get("HOA_BACKEND_PORT", "8001"),
+    "backend": os.environ.get("HOA_BACKEND_PORT", "8000"),
     "frontend": os.environ.get("HOA_FRONTEND_PORT", "5174"),
 }
+
+IS_WINDOWS = sys.platform.startswith("win")
 
 
 def _find_executable(name: str) -> Path | None:
@@ -100,6 +103,63 @@ async def _run_alembic(alembic_exe: Path, env: dict[str, str]) -> None:
         raise SystemExit(process.returncode)
 
 
+def _terminate_processes_on_port(port: str) -> None:
+    """Attempt to terminate any process currently bound to the given TCP port."""
+    if not port:
+        return
+
+    pids: set[int] = set()
+    if not IS_WINDOWS and shutil and shutil.which("lsof"):
+        completed = subprocess.run(
+            ["lsof", "-ti", f"TCP:{port}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        output = completed.stdout
+        for line in output.splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    pids.add(int(line))
+                except ValueError:
+                    continue
+    elif IS_WINDOWS:
+        powershell = shutil.which("powershell")
+        if powershell:
+            script = (
+                f"Get-NetTCPConnection -LocalPort {port} "
+                "| Select-Object -ExpandProperty OwningProcess | Sort-Object -Unique"
+            )
+            completed = subprocess.run(
+                [powershell, "-Command", script],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in completed.stdout.splitlines():
+                line = line.strip()
+                if line:
+                    try:
+                        pids.add(int(line))
+                    except ValueError:
+                        continue
+
+    for pid in pids:
+        try:
+            print(f"[launcher] terminating PID {pid} on port {port}")
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except PermissionError:
+            print(f"[launcher] insufficient permissions to terminate PID {pid}")
+
+
+def _cleanup_existing_processes(ports: Iterable[str]) -> None:
+    for port in ports:
+        _terminate_processes_on_port(port)
+
+
 async def main() -> None:
     backend_port = DEFAULT_PORTS["backend"]
     frontend_port = DEFAULT_PORTS["frontend"]
@@ -118,6 +178,9 @@ async def main() -> None:
         formatted = ", ".join(missing_bins)
         raise SystemExit(f"Missing required executables: {formatted}. Install dependencies and try again.")
 
+    # Terminate anything already bound to our dev ports for a clean boot.
+    _cleanup_existing_processes((backend_port, frontend_port))
+
     # Shared environment so imports resolve when running Alembic and uvicorn
     base_env = os.environ.copy()
     base_env.setdefault("PYTHONPATH", str(ROOT))
@@ -127,6 +190,7 @@ async def main() -> None:
 
     backend_env = base_env.copy()
     backend_env.setdefault("PORT", backend_port)
+    backend_env.setdefault("WATCHFILES_IGNORE_DIRECTORIES", ".venv")
 
     backend_cmd = (
         str(uvicorn_exe),
@@ -164,7 +228,7 @@ async def main() -> None:
             pass
 
     try:
-        processes.append(await _run_command("backend", backend_cmd, BACKEND_DIR, backend_env))
+        processes.append(await _run_command("backend", backend_cmd, ROOT, backend_env))
         processes.append(await _run_command("frontend", frontend_cmd, FRONTEND_DIR, frontend_env))
         print("[launcher] backend on http://127.0.0.1:%s" % backend_port)
         print("[launcher] frontend on http://127.0.0.1:%s" % frontend_port)

@@ -79,6 +79,8 @@ class User(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     archived_at = Column(DateTime, nullable=True)
     archived_reason = Column(Text, nullable=True)
+    two_factor_secret = Column(String, nullable=True)
+    two_factor_enabled = Column(Boolean, default=False, nullable=False)
 
     primary_role = orm_relationship(
         "Role",

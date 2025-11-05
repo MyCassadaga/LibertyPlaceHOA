@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
+import Badge from '../components/Badge';
+import FilePreview from '../components/FilePreview';
+import Timeline, { TimelineEvent } from '../components/Timeline';
 import {
   createViolation,
   fetchFineSchedules,
@@ -11,7 +14,7 @@ import {
   submitAppeal,
 } from '../services/api';
 import { Appeal, FineSchedule, Resident, Violation, ViolationNotice, ViolationStatus } from '../types';
-import { formatUserRoles, userHasRole } from '../utils/roles';
+import { formatUserRoles, userHasAnyRole, userHasRole } from '../utils/roles';
 
 const STATUS_LABELS: Record<ViolationStatus, string> = {
   NEW: 'New',
@@ -45,6 +48,11 @@ const ALLOWED_TRANSITIONS: Record<ViolationStatus, ViolationStatus[]> = {
 
 const ViolationsPage: React.FC = () => {
   const { user } = useAuth();
+  const isHomeowner = userHasRole(user, 'HOMEOWNER');
+  const manageRoles = ['BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER', 'ATTORNEY'];
+  const canManage = userHasAnyRole(user, manageRoles);
+  const isHomeownerOnly = isHomeowner && !canManage;
+
   const [violations, setViolations] = useState<Violation[]>([]);
   const [fineSchedules, setFineSchedules] = useState<FineSchedule[]>([]);
   const [residents, setResidents] = useState<Resident[]>([]);
@@ -62,6 +70,7 @@ const ViolationsPage: React.FC = () => {
     due_date: '',
   });
   const [creating, setCreating] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState<boolean>(canManage);
   const [transitionStatus, setTransitionStatus] = useState<string>('');
   const [transitionNote, setTransitionNote] = useState('');
   const [transitionHearingDate, setTransitionHearingDate] = useState('');
@@ -70,13 +79,10 @@ const ViolationsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const isHomeowner = userHasRole(user, 'HOMEOWNER');
-  const canManage = !isHomeowner;
-
   const loadViolations = async () => {
     try {
       setLoading(true);
-      const filters = isHomeowner
+      const filters = isHomeownerOnly
         ? { mine: true }
         : statusFilter !== 'ALL'
         ? { status: statusFilter }
@@ -101,7 +107,7 @@ const ViolationsPage: React.FC = () => {
   useEffect(() => {
     const init = async () => {
       try {
-        if (!isHomeowner) {
+        if (canManage) {
           const [schedules, residentList] = await Promise.all([fetchFineSchedules(), fetchResidents()]);
           setFineSchedules(schedules);
           setResidents(residentList);
@@ -114,10 +120,10 @@ const ViolationsPage: React.FC = () => {
       }
     };
     void init();
-  }, [isHomeowner]);
+  }, [canManage]);
 
   const residentOptions = useMemo(() => {
-    if (isHomeowner) return [];
+    if (!canManage) return [];
     const options: { value: string; label: string }[] = [];
     residents.forEach((resident) => {
       const { owner, user } = resident;
@@ -149,13 +155,19 @@ const ViolationsPage: React.FC = () => {
       }
     });
     return options.sort((a, b) => a.label.localeCompare(b.label));
-  }, [residents, isHomeowner]);
+  }, [residents, canManage]);
 
   useEffect(() => {
-    if (!isHomeowner && !createForm.target && residentOptions.length > 0) {
+    if (canManage && !createForm.target && residentOptions.length > 0) {
       setCreateForm((prev) => ({ ...prev, target: residentOptions[0].value }));
     }
-  }, [residentOptions, createForm.target, isHomeowner]);
+  }, [residentOptions, createForm.target, canManage]);
+
+  useEffect(() => {
+    if (!canManage) {
+      setShowCreateForm(false);
+    }
+  }, [canManage]);
 
   const handleSelectViolation = async (violation: Violation) => {
     setSelectedViolation(violation);
@@ -176,6 +188,43 @@ const ViolationsPage: React.FC = () => {
       }
     }
   };
+
+  const violationTimeline = useMemo<TimelineEvent[]>(() => {
+    if (!selectedViolation) return [];
+    const events: TimelineEvent[] = [];
+    const push = (timestamp?: string | null, label?: string, description?: string, meta?: string) => {
+      if (!timestamp || !label) return;
+      events.push({ timestamp, label, description, meta });
+    };
+
+    push(selectedViolation.opened_at, 'Violation created', selectedViolation.description ?? undefined);
+    push(selectedViolation.due_date, 'Due date set');
+    push(selectedViolation.hearing_date, 'Hearing scheduled', undefined, selectedViolation.location ?? undefined);
+
+  notices.forEach((notice) => {
+      const templateLabel =
+        STATUS_LABELS[notice.template_key as ViolationStatus] ?? notice.template_key;
+      push(
+        notice.created_at,
+        `Notice sent (${templateLabel})`,
+        notice.subject,
+        notice.template_key,
+      );
+    });
+
+    selectedViolation.appeals.forEach((appeal) => {
+      push(appeal.submitted_at, 'Appeal submitted', appeal.reason, `Status: ${appeal.status}`);
+      if (appeal.decided_at) {
+        push(appeal.decided_at, 'Appeal decided', appeal.decision_notes ?? undefined);
+      }
+    });
+
+    if (selectedViolation.updated_at && selectedViolation.updated_at !== selectedViolation.opened_at) {
+      push(selectedViolation.updated_at, `Status updated (${STATUS_LABELS[selectedViolation.status] ?? selectedViolation.status})`, selectedViolation.resolution_notes ?? undefined);
+    }
+
+    return events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [selectedViolation, notices]);
 
   const handleCreateViolation = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -225,7 +274,7 @@ const ViolationsPage: React.FC = () => {
       });
       setSuccess('Violation created.');
       await loadViolations();
-      if (!isHomeowner) {
+      if (canManage) {
         const updatedResidents = await fetchResidents();
         setResidents(updatedResidents);
       }
@@ -285,30 +334,41 @@ const ViolationsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-primary-600">Covenant Violations</h2>
           <p className="text-sm text-slate-500">
             Track compliance actions, notices, hearings, and appeals.
           </p>
         </div>
-        <div>
-          <label className="mr-2 text-sm text-slate-600" htmlFor="status-filter">
-            Filter
-          </label>
-          <select
-            id="status-filter"
-            className="rounded border border-slate-300 px-3 py-1 text-sm"
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value)}
-          >
-            <option value="ALL">All</option>
-            {Object.entries(STATUS_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-wrap items-center gap-3">
+          {canManage && (
+            <button
+              type="button"
+              className="rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500"
+              onClick={() => setShowCreateForm((prev) => !prev)}
+            >
+              {showCreateForm ? 'Hide Report Form' : 'Report Violation'}
+            </button>
+          )}
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-slate-600" htmlFor="status-filter">
+              Filter
+            </label>
+            <select
+              id="status-filter"
+              className="rounded border border-slate-300 px-3 py-1 text-sm"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+            >
+              <option value="ALL">All</option>
+              {Object.entries(STATUS_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </header>
 
@@ -359,7 +419,13 @@ const ViolationsPage: React.FC = () => {
         </section>
 
         <div className="space-y-6">
-          {canManage && (
+          {canManage && !showCreateForm && (
+            <section className="rounded border border-dashed border-slate-300 bg-slate-50/60 p-4 text-sm text-slate-600">
+              Use <span className="font-semibold">Report Violation</span> to log a new case. You can still browse existing violations on the left.
+            </section>
+          )}
+
+          {canManage && showCreateForm && (
             <section className="rounded border border-slate-200 p-4">
               <h3 className="mb-3 text-sm font-semibold text-slate-600">Create Violation</h3>
               <form className="space-y-3" onSubmit={handleCreateViolation}>
@@ -472,9 +538,12 @@ const ViolationsPage: React.FC = () => {
                   <h3 className="text-sm font-semibold text-slate-600">
                     Violation #{selectedViolation.id} • {selectedViolation.owner.property_address || `Owner #${selectedViolation.owner.id}`}
                   </h3>
-                  <p className="text-xs text-slate-500">
-                    {new Date(selectedViolation.opened_at).toLocaleString()} • Reported by{' '}
-                    {selectedViolation.owner.primary_name}
+                  <p className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                    <span>
+                      {new Date(selectedViolation.opened_at).toLocaleString()} • Reported by{' '}
+                      {selectedViolation.owner.primary_name}
+                    </span>
+                    {selectedViolation.owner.is_archived && <Badge tone="warning">Owner Archived</Badge>}
                   </p>
                 </div>
                 <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_BADGE[selectedViolation.status]}`}>
@@ -499,6 +568,13 @@ const ViolationsPage: React.FC = () => {
               {selectedViolation.fine_amount && (
                 <p className="mt-1 text-xs text-rose-600">Fine: ${Number(selectedViolation.fine_amount).toFixed(2)}</p>
               )}
+
+              <section className="mt-4">
+                <h4 className="text-xs font-semibold uppercase text-slate-500">Timeline</h4>
+                <div className="mt-2">
+                  <Timeline events={violationTimeline} />
+                </div>
+              </section>
 
               {canManage && ALLOWED_TRANSITIONS[selectedViolation.status].length > 0 && (
                 <form className="mt-4 space-y-3 rounded border border-slate-200 p-3" onSubmit={handleTransition}>
@@ -578,19 +654,29 @@ const ViolationsPage: React.FC = () => {
                 ) : notices.length === 0 ? (
                   <p className="text-xs text-slate-500">No notices recorded.</p>
                 ) : (
-                  <ul className="mt-2 space-y-2 text-xs">
-                    {notices.map((notice) => (
-                      <li key={notice.id} className="rounded border border-slate-200 p-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-slate-600">{notice.subject}</span>
-                          <span className="text-slate-500">
-                            {new Date(notice.created_at).toLocaleDateString()} ({notice.template_key})
-                          </span>
+                  <div className="mt-2 space-y-3">
+                    {notices.map((notice) =>
+                      notice.pdf_path ? (
+                        <FilePreview
+                          key={notice.id}
+                          name={notice.subject}
+                          storedPath={notice.pdf_path}
+                          uploadedAt={notice.created_at}
+                          contentType="application/pdf"
+                        />
+                      ) : (
+                        <div key={notice.id} className="rounded border border-slate-200 p-3 text-xs">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-600">{notice.subject}</span>
+                            <span className="text-slate-500">
+                              {new Date(notice.created_at).toLocaleDateString()} ({notice.template_key})
+                            </span>
+                          </div>
+                          <p className="mt-1 whitespace-pre-wrap text-slate-600">{notice.body}</p>
                         </div>
-                        <p className="mt-1 whitespace-pre-wrap text-slate-600">{notice.body}</p>
-                      </li>
-                    ))}
-                  </ul>
+                      ),
+                    )}
+                  </div>
                 )}
               </section>
 

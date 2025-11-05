@@ -54,21 +54,21 @@ def list_violations(
         .order_by(Violation.opened_at.desc())
     )
 
-    if user.has_role("HOMEOWNER"):
-        owner = get_owner_for_user(db, user)
-        if not owner:
-            return []
-        query = query.filter(Violation.owner_id == owner.id)
-    else:
-        allowed_roles = {"BOARD", "TREASURER", "SYSADMIN", "ATTORNEY", "SECRETARY"}
-        if not user.has_any_role(*allowed_roles):
-            raise HTTPException(status_code=403, detail="Insufficient privileges for violations list.")
+    manager_roles = {"BOARD", "TREASURER", "SYSADMIN", "ATTORNEY", "SECRETARY"}
+    is_manager = user.has_any_role(*manager_roles)
+
+    if is_manager:
         if mine:
             owner = get_owner_for_user(db, user)
             if owner:
                 query = query.filter(Violation.owner_id == owner.id)
         elif owner_id:
             query = query.filter(Violation.owner_id == owner_id)
+    else:
+        owner = get_owner_for_user(db, user)
+        if not owner:
+            return []
+        query = query.filter(Violation.owner_id == owner.id)
 
     if status_filter:
         query = query.filter(Violation.status == status_filter.upper())
@@ -183,14 +183,13 @@ def get_violation(
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found.")
 
-    if user.has_role("HOMEOWNER"):
-        owner = get_owner_for_user(db, user)
-        if not owner or owner.id != violation.owner_id:
-            raise HTTPException(status_code=403, detail="Not allowed to view this violation.")
-    else:
-        allowed_roles = {"BOARD", "TREASURER", "SYSADMIN", "ATTORNEY", "SECRETARY"}
-        if not user.has_any_role(*allowed_roles):
-            raise HTTPException(status_code=403, detail="Insufficient privileges.")
+    manager_roles = {"BOARD", "TREASURER", "SYSADMIN", "ATTORNEY", "SECRETARY"}
+    if user.has_any_role(*manager_roles):
+        return violation
+
+    owner = get_owner_for_user(db, user)
+    if not owner or owner.id != violation.owner_id:
+        raise HTTPException(status_code=403, detail="Not allowed to view this violation.")
 
     return violation
 
@@ -287,14 +286,13 @@ def list_violation_notices(
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found.")
 
-    if user.has_role("HOMEOWNER"):
-        owner = get_owner_for_user(db, user)
-        if not owner or owner.id != violation.owner_id:
-            raise HTTPException(status_code=403, detail="Not allowed to view notices.")
-    else:
-        allowed_roles = {"BOARD", "TREASURER", "SYSADMIN", "ATTORNEY", "SECRETARY"}
-        if not user.has_any_role(*allowed_roles):
-            raise HTTPException(status_code=403, detail="Not allowed.")
+    manager_roles = {"BOARD", "TREASURER", "SYSADMIN", "ATTORNEY", "SECRETARY"}
+    if user.has_any_role(*manager_roles):
+        return notices
+
+    owner = get_owner_for_user(db, user)
+    if not owner or owner.id != violation.owner_id:
+        raise HTTPException(status_code=403, detail="Not allowed to view notices.")
 
     return notices
 

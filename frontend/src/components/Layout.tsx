@@ -48,6 +48,8 @@ const Layout: React.FC = () => {
     }
     if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN'])) {
       addItem('Reconciliation', '/reconciliation');
+    }
+    if (userHasAnyRole(user, ['BOARD', 'SYSADMIN'])) {
       addItem('Reports', '/reports');
     }
     if (userHasRole(user, 'SYSADMIN')) {

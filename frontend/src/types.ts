@@ -15,6 +15,7 @@ export interface User {
   is_active: boolean;
   archived_at?: string | null;
   archived_reason?: string | null;
+  two_factor_enabled: boolean;
 }
 
 export interface Invoice {
@@ -414,4 +415,9 @@ export interface BillingPolicyUpdatePayload {
   grace_period_days: number;
   dunning_schedule_days: number[];
   tiers: LateFeeTierInput[];
+}
+
+export interface TwoFactorSetupResponse {
+  secret: string;
+  otpauth_url: string;
 }

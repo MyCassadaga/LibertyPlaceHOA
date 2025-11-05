@@ -1,18 +1,31 @@
-from typing import Iterable, List, Sequence
+from typing import Iterable, List, Optional, Sequence
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import OAuth2PasswordRequestForm
+import pyotp
+from fastapi import APIRouter, Depends, Form, HTTPException
+from jose import JWTError
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..api.dependencies import get_db
-from ..auth.jwt import create_access_token, get_current_user, get_password_hash, require_roles, verify_password
+from ..auth.jwt import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    get_current_user,
+    get_password_hash,
+    require_roles,
+    verify_password,
+)
+from ..config import settings
 from ..constants import ROLE_PRIORITY
 from ..models.models import Owner, OwnerUserLink, Role, User, user_roles
 from ..schemas.schemas import (
     PasswordChange,
     RoleRead,
+    TokenRefreshRequest,
     Token,
+    TwoFactorSetupResponse,
+    TwoFactorVerifyRequest,
     UserCreate,
     UserRead,
     UserRoleUpdate,
@@ -21,6 +34,26 @@ from ..schemas.schemas import (
 from ..services.audit import audit_log
 
 router = APIRouter()
+
+
+class OAuth2PasswordRequestFormWithOTP:
+    def __init__(
+        self,
+        grant_type: str = Form(default="password"),
+        username: str = Form(...),
+        password: str = Form(...),
+        scope: str = Form(""),
+        client_id: Optional[str] = Form(None),
+        client_secret: Optional[str] = Form(None),
+        otp: Optional[str] = Form(None),
+    ) -> None:
+        self.grant_type = grant_type
+        self.username = username
+        self.password = password
+        self.scopes = scope.split()
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.otp = otp
 
 
 def _sort_roles_by_priority(roles: Sequence[Role]) -> List[Role]:
@@ -79,6 +112,41 @@ def _ensure_homeowner_link(db: Session, user: User, preferred_name: str | None =
     link = OwnerUserLink(owner_id=owner.id, user_id=user.id, link_type="PRIMARY")
     db.add(link)
     db.flush()
+
+
+def _verify_otp(user: User, otp: Optional[str]) -> None:
+    if not user.two_factor_secret:
+        raise HTTPException(status_code=400, detail="Two-factor secret not configured.")
+    if not otp:
+        raise HTTPException(status_code=401, detail="Two-factor code required.")
+    totp = pyotp.TOTP(user.two_factor_secret)
+    if not totp.verify(otp, valid_window=1):
+        raise HTTPException(status_code=401, detail="Invalid two-factor code.")
+
+
+def _build_token_response(user: User) -> Token:
+    primary_role = user.highest_priority_role or user.role
+    primary_role_name = primary_role.name if primary_role else None
+    role_names = [role.name for role in user.roles] or ([primary_role_name] if primary_role_name else [])
+
+    access_payload = {
+        "sub": str(user.id),
+        "roles": role_names,
+        "primary_role": primary_role_name,
+        "type": "access",
+    }
+    access_token = create_access_token(access_payload)
+    refresh_token = create_refresh_token(str(user.id))
+
+    return Token(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
+        roles=role_names,
+        primary_role=primary_role_name,
+        expires_in=settings.access_token_expire_minutes * 60,
+        refresh_expires_in=settings.refresh_token_expire_minutes * 60,
+    )
 
 @router.post("/register", response_model=UserRead)
 def register_user(
@@ -140,7 +208,7 @@ def register_user(
 
 @router.post("/login", response_model=Token)
 def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    form_data: OAuth2PasswordRequestFormWithOTP = Depends(),
     db: Session = Depends(get_db),
 ):
     user = (
@@ -155,18 +223,39 @@ def login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is archived or inactive.")
 
-    primary_role = user.highest_priority_role or user.role
-    primary_role_name = primary_role.name if primary_role else None
-    role_names = [role.name for role in user.roles] or ([primary_role_name] if primary_role_name else [])
+    if user.two_factor_enabled:
+        _verify_otp(user, form_data.otp)
 
-    token_payload = {
-        "sub": str(user.id),
-        "roles": role_names,
-        "primary_role": primary_role_name,
-        "role": primary_role_name,
-    }
-    token = create_access_token(token_payload)
-    return Token(access_token=token, roles=role_names, primary_role=primary_role_name)
+    return _build_token_response(user)
+
+
+@router.post("/refresh", response_model=Token)
+def refresh_token(
+    payload: TokenRefreshRequest,
+    db: Session = Depends(get_db),
+):
+    credentials_exception = HTTPException(status_code=401, detail="Invalid refresh token")
+    try:
+        decoded = decode_token(payload.refresh_token)
+    except JWTError as exc:  # pragma: no cover - defensive
+        raise credentials_exception from exc
+
+    if decoded.get("type") != "refresh":
+        raise credentials_exception
+
+    user_id = decoded.get("sub")
+    if not user_id:
+        raise credentials_exception
+
+    user = (
+        db.query(User)
+        .options(joinedload(User.primary_role), joinedload(User.roles))
+        .get(int(user_id))
+    )
+    if not user or not user.is_active:
+        raise credentials_exception
+
+    return _build_token_response(user)
 
 
 @router.get("/me", response_model=UserRead)
@@ -267,6 +356,79 @@ def change_password(
     )
 
     return {"message": "Password updated."}
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+def setup_two_factor(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> TwoFactorSetupResponse:
+    secret = pyotp.random_base32()
+    db_user = (
+        db.query(User)
+        .options(joinedload(User.primary_role), joinedload(User.roles))
+        .filter(User.id == current_user.id)
+        .first()
+    )
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    db_user.two_factor_secret = secret
+    db_user.two_factor_enabled = False
+    db.add(db_user)
+    db.commit()
+
+    totp = pyotp.TOTP(secret)
+    otpauth_url = totp.provisioning_uri(name=db_user.email or "user", issuer_name="Liberty Place HOA")
+    
+    return TwoFactorSetupResponse(secret=secret, otpauth_url=otpauth_url)
+
+
+@router.post("/2fa/enable")
+def enable_two_factor(
+    payload: TwoFactorVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    db_user = (
+        db.query(User)
+        .options(joinedload(User.primary_role), joinedload(User.roles))
+        .filter(User.id == current_user.id)
+        .first()
+    )
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    if not db_user.two_factor_secret:
+        raise HTTPException(status_code=400, detail="Generate a 2FA secret before enabling.")
+    _verify_otp(db_user, payload.otp)
+    db_user.two_factor_enabled = True
+    db.add(db_user)
+    db.commit()
+    return {"message": "Two-factor authentication enabled."}
+
+
+@router.post("/2fa/disable")
+def disable_two_factor(
+    payload: TwoFactorVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    db_user = (
+        db.query(User)
+        .options(joinedload(User.primary_role), joinedload(User.roles))
+        .filter(User.id == current_user.id)
+        .first()
+    )
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    if not db_user.two_factor_enabled:
+        raise HTTPException(status_code=400, detail="Two-factor authentication is not enabled.")
+    _verify_otp(db_user, payload.otp)
+    db_user.two_factor_enabled = False
+    db_user.two_factor_secret = None
+    db.add(db_user)
+    db.commit()
+    return {"message": "Two-factor authentication disabled."}
 
 
 @router.get("/roles", response_model=List[RoleRead])

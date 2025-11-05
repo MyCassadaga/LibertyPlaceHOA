@@ -33,6 +33,7 @@ import {
   Violation,
   ViolationCreatePayload,
   ViolationNotice,
+  TwoFactorSetupResponse,
 } from '../types';
 
 const api = axios.create({
@@ -49,18 +50,29 @@ export const setAuthToken = (token: string | null) => {
 
 export interface LoginResponse {
   access_token: string;
+  refresh_token: string;
   token_type: string;
   roles: string[];
   primary_role?: string | null;
+  expires_in: number;
+  refresh_expires_in: number;
 }
 
-export const login = async (email: string, password: string): Promise<LoginResponse> => {
+export const login = async (email: string, password: string, otp?: string): Promise<LoginResponse> => {
   const params = new URLSearchParams();
   params.append('username', email);
   params.append('password', password);
+  if (otp) {
+    params.append('otp', otp);
+  }
   const { data } = await api.post<LoginResponse>('/auth/login', params, {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   });
+  return data;
+};
+
+export const refreshSession = async (payload: { refresh_token: string }): Promise<LoginResponse> => {
+  const { data } = await api.post<LoginResponse>('/auth/refresh', payload);
   return data;
 };
 
@@ -246,6 +258,19 @@ export const fetchRoles = async (): Promise<RoleOption[]> => {
 export const registerUser = async (payload: RegisterUserPayload): Promise<User> => {
   const { data } = await api.post<User>('/auth/register', payload);
   return data;
+};
+
+export const startTwoFactorSetup = async (): Promise<TwoFactorSetupResponse> => {
+  const { data } = await api.post<TwoFactorSetupResponse>('/auth/2fa/setup');
+  return data;
+};
+
+export const enableTwoFactor = async (otp: string): Promise<void> => {
+  await api.post('/auth/2fa/enable', { otp });
+};
+
+export const disableTwoFactor = async (otp: string): Promise<void> => {
+  await api.post('/auth/2fa/disable', { otp });
 };
 
 export const updateUserRoles = async (userId: number, roleIds: number[]): Promise<User> => {

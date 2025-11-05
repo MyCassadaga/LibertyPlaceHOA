@@ -23,12 +23,26 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+def _create_token(data: dict, expires_minutes: int) -> str:
+    expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
     to_encode = data.copy()
-    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
-    return encoded_jwt
+    return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def create_access_token(data: dict) -> str:
+    payload = data.copy()
+    payload.setdefault("type", "access")
+    return _create_token(payload, settings.access_token_expire_minutes)
+
+
+def create_refresh_token(user_id: str) -> str:
+    payload = {"sub": user_id, "type": "refresh"}
+    return _create_token(payload, settings.refresh_token_expire_minutes)
+
+
+def decode_token(token: str) -> dict:
+    return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
 
 
 def get_db() -> Session:
@@ -46,9 +60,10 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        payload = decode_token(token)
         user_id: Optional[str] = payload.get("sub")
-        if user_id is None:
+        token_type = payload.get("type")
+        if user_id is None or token_type not in (None, "access"):
             raise credentials_exception
     except JWTError:
         raise credentials_exception
