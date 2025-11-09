@@ -14,8 +14,15 @@ import OwnerProfilePage from './pages/OwnerProfilePage';
 import OwnersPage from './pages/OwnersPage';
 import ViolationsPage from './pages/ViolationsPage';
 import ReportsPage from './pages/ReportsPage';
+import ElectionsPage from './pages/ElectionsPage';
+import PublicVotePage from './pages/PublicVotePage';
 import ReconciliationPage from './pages/ReconciliationPage';
 import ARCPage from './pages/ARCPage';
+import BudgetPage from './pages/BudgetPage';
+import PaperworkPage from './pages/PaperworkPage';
+import AuditLogPage from './pages/AuditLogPage';
+import DocumentsPage from './pages/DocumentsPage';
+import MeetingsPage from './pages/MeetingsPage';
 
 const App: React.FC = () => {
   const { user, loading } = useAuth();
@@ -38,6 +45,24 @@ const App: React.FC = () => {
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="billing" element={<BillingPage />} />
+        <Route path="documents" element={<DocumentsPage />} />
+        <Route path="meetings" element={<MeetingsPage />} />
+        <Route
+          path="budget"
+          element={
+            <RequireRole allowed={['HOMEOWNER', 'BOARD', 'TREASURER', 'SYSADMIN']}>
+              <BudgetPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="board/paperwork"
+          element={
+            <RequireRole allowed={['BOARD', 'TREASURER', 'SECRETARY', 'SYSADMIN']}>
+              <PaperworkPage />
+            </RequireRole>
+          }
+        />
         <Route path="owner-profile" element={<OwnerProfilePage />} />
         <Route
           path="owners"
@@ -68,6 +93,14 @@ const App: React.FC = () => {
           element={
             <RequireRole allowed={["BOARD", "TREASURER", "SYSADMIN", "SECRETARY", "ATTORNEY", "HOMEOWNER"]}>
               <ViolationsPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="elections"
+          element={
+            <RequireRole allowed={["BOARD", "SYSADMIN", "SECRETARY", "TREASURER", "ATTORNEY", "HOMEOWNER"]}>
+              <ElectionsPage />
             </RequireRole>
           }
         />
@@ -103,7 +136,16 @@ const App: React.FC = () => {
             </RequireRole>
           }
         />
+        <Route
+          path="audit-log"
+          element={
+            <RequireRole allowed={["SYSADMIN", "AUDITOR"]}>
+              <AuditLogPage />
+            </RequireRole>
+          }
+        />
       </Route>
+      <Route path="/vote/:electionId" element={<PublicVotePage />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

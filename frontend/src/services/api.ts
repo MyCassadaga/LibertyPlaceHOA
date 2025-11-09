@@ -13,15 +13,34 @@ import {
   BillingPolicyUpdatePayload,
   BillingSummary,
   Contract,
+  ElectionAdminBallot,
+  ElectionCandidate,
+  ElectionDetail,
+  ElectionListItem,
+  ElectionPublicDetail,
   EmailBroadcast,
   EmailBroadcastSegment,
   FineSchedule,
+  ForwardAttorneyResponse,
   Invoice,
+  Notification,
+  AutopayEnrollment,
+  AutopayAmountType,
+  LoginBackgroundResponse,
   Owner,
   OwnerSelfUpdatePayload,
   OwnerArchivePayload,
   OwnerRestorePayload,
   OwnerUpdatePayload,
+  OverdueAccount,
+  OverdueContactResponse,
+  BudgetSummary,
+  BudgetDetail,
+  BudgetLineItem,
+  ReservePlanItem,
+  BudgetAttachment,
+  PaperworkItem,
+  PaperworkFeatures,
   Reminder,
   Reconciliation,
   Role,
@@ -34,10 +53,18 @@ import {
   ViolationCreatePayload,
   ViolationNotice,
   TwoFactorSetupResponse,
+  AuditLogResponse,
+  VendorPayment,
 } from '../types';
 
+export const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? 'http://localhost:8000',
+  baseURL: API_BASE_URL,
+});
+
+const publicApi = axios.create({
+  baseURL: API_BASE_URL,
 });
 
 export const setAuthToken = (token: string | null) => {
@@ -46,6 +73,76 @@ export const setAuthToken = (token: string | null) => {
   } else {
     delete api.defaults.headers.common.Authorization;
   }
+};
+
+export const fetchLoginBackground = async (): Promise<LoginBackgroundResponse> => {
+  const { data } = await publicApi.get<LoginBackgroundResponse>('/system/login-background');
+  return data;
+};
+
+export const uploadLoginBackground = async (file: File): Promise<LoginBackgroundResponse> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await api.post<LoginBackgroundResponse>('/system/login-background', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+};
+
+export const createPaymentSession = async (invoiceId: number): Promise<{ checkoutUrl: string }> => {
+  const { data } = await api.post<{ checkoutUrl: string }>('/payments/session', {
+    invoiceId,
+  });
+  return data;
+};
+
+export interface AutopayEnrollmentPayload {
+  payment_day: number;
+  amount_type: AutopayAmountType;
+  fixed_amount?: string;
+  owner_id?: number;
+}
+
+export const fetchAutopayEnrollment = async (ownerId?: number): Promise<AutopayEnrollment> => {
+  const params = ownerId ? `?owner_id=${ownerId}` : '';
+  const { data } = await api.get<AutopayEnrollment>(`/payments/autopay${params}`);
+  return data;
+};
+
+export const upsertAutopayEnrollment = async (payload: AutopayEnrollmentPayload): Promise<AutopayEnrollment> => {
+  const { data } = await api.post<AutopayEnrollment>('/payments/autopay', payload);
+  return data;
+};
+
+export const cancelAutopay = async (ownerId?: number): Promise<AutopayEnrollment> => {
+  const params = ownerId ? `?owner_id=${ownerId}` : '';
+  const { data } = await api.delete<AutopayEnrollment>(`/payments/autopay${params}`);
+  return data;
+};
+
+export const fetchVendorPayments = async (): Promise<VendorPayment[]> => {
+  const { data } = await api.get<VendorPayment[]>('/payments/vendors');
+  return data;
+};
+
+export const createVendorPaymentRequest = async (payload: {
+  contract_id?: number | null;
+  vendor_name?: string;
+  amount: string;
+  memo?: string;
+}): Promise<VendorPayment> => {
+  const { data } = await api.post<VendorPayment>('/payments/vendors', payload);
+  return data;
+};
+
+export const sendVendorPayment = async (paymentId: number): Promise<VendorPayment> => {
+  const { data } = await api.post<VendorPayment>(`/payments/vendors/${paymentId}/send`);
+  return data;
+};
+
+export const markVendorPaymentPaid = async (paymentId: number): Promise<VendorPayment> => {
+  const { data } = await api.post<VendorPayment>(`/payments/vendors/${paymentId}/mark-paid`);
+  return data;
 };
 
 export interface LoginResponse {
@@ -91,6 +188,267 @@ export const fetchBillingSummary = async (): Promise<BillingSummary> => {
   return data;
 };
 
+export const fetchOverdueAccounts = async (): Promise<OverdueAccount[]> => {
+  const { data } = await api.get<OverdueAccount[]>('/billing/overdue');
+  return data;
+};
+
+export const contactOverdueOwner = async (
+  ownerId: number,
+  message?: string,
+): Promise<OverdueContactResponse> => {
+  const payload = message ? { message } : {};
+  const { data } = await api.post<OverdueContactResponse>(`/billing/overdue/${ownerId}/contact`, payload);
+  return data;
+};
+
+export const forwardOverdueToAttorney = async (
+  ownerId: number,
+  notes?: string,
+): Promise<ForwardAttorneyResponse> => {
+  const payload = notes ? { notes } : {};
+  const { data } = await api.post<ForwardAttorneyResponse>(
+    `/billing/overdue/${ownerId}/forward-attorney`,
+    payload,
+  );
+  return data;
+};
+
+export const fetchBudgets = async (): Promise<BudgetSummary[]> => {
+  const { data } = await api.get<BudgetSummary[]>('/budgets/');
+  return data;
+};
+
+export const createBudget = async (payload: { year: number; home_count?: number; notes?: string }): Promise<BudgetDetail> => {
+  const { data } = await api.post<BudgetDetail>('/budgets/', payload);
+  return data;
+};
+
+export const updateBudget = async (budgetId: number, payload: { home_count?: number; notes?: string }): Promise<BudgetDetail> => {
+  const { data } = await api.patch<BudgetDetail>(`/budgets/${budgetId}`, payload);
+  return data;
+};
+
+export const fetchBudgetDetail = async (budgetId: number): Promise<BudgetDetail> => {
+  const { data } = await api.get<BudgetDetail>(`/budgets/${budgetId}`);
+  return data;
+};
+
+export const addBudgetLineItem = async (
+  budgetId: number,
+  payload: { label: string; category?: string; amount: string; is_reserve?: boolean; sort_order?: number },
+): Promise<BudgetLineItem> => {
+  const { data } = await api.post<BudgetLineItem>(`/budgets/${budgetId}/line-items`, payload);
+  return data;
+};
+
+export const updateBudgetLineItem = async (
+  itemId: number,
+  payload: { label?: string; category?: string; amount?: string; is_reserve?: boolean; sort_order?: number },
+): Promise<BudgetLineItem> => {
+  const { data } = await api.patch<BudgetLineItem>(`/budgets/line-items/${itemId}`, payload);
+  return data;
+};
+
+export const deleteBudgetLineItem = async (itemId: number): Promise<void> => {
+  await api.delete(`/budgets/line-items/${itemId}`);
+};
+
+export const addReserveItem = async (
+  budgetId: number,
+  payload: { name: string; target_year: number; estimated_cost: string; inflation_rate?: number; current_funding?: string; notes?: string },
+): Promise<ReservePlanItem> => {
+  const { data } = await api.post<ReservePlanItem>(`/budgets/${budgetId}/reserve-items`, payload);
+  return data;
+};
+
+export const updateReserveItem = async (
+  itemId: number,
+  payload: Partial<{ name: string; target_year: number; estimated_cost: string; inflation_rate: number; current_funding: string; notes: string }>,
+): Promise<ReservePlanItem> => {
+  const { data } = await api.patch<ReservePlanItem>(`/budgets/reserve-items/${itemId}`, payload);
+  return data;
+};
+
+export const deleteReserveItem = async (itemId: number): Promise<void> => {
+  await api.delete(`/budgets/reserve-items/${itemId}`);
+};
+
+export const lockBudget = async (budgetId: number): Promise<BudgetDetail> => {
+  const { data } = await api.post<BudgetDetail>(`/budgets/${budgetId}/lock`);
+  return data;
+};
+
+export const uploadBudgetAttachment = async (budgetId: number, file: File): Promise<BudgetAttachment> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await api.post<BudgetAttachment>(`/budgets/${budgetId}/attachments`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+};
+
+export const deleteBudgetAttachment = async (attachmentId: number): Promise<void> => {
+  await api.delete(`/budgets/attachments/${attachmentId}`);
+};
+
+export const approveBudget = async (budgetId: number): Promise<BudgetDetail> => {
+  const { data } = await api.post<BudgetDetail>(`/budgets/${budgetId}/approve`);
+  return data;
+};
+
+export const revokeBudgetApproval = async (budgetId: number): Promise<BudgetDetail> => {
+  const { data } = await api.delete<BudgetDetail>(`/budgets/${budgetId}/approve`);
+  return data;
+};
+
+export const unlockBudget = async (budgetId: number): Promise<BudgetDetail> => {
+  const { data } = await api.post<BudgetDetail>(`/budgets/${budgetId}/unlock`);
+  return data;
+};
+
+export const fetchPaperwork = async (options: { status?: string; requiredOnly?: boolean } = {}): Promise<PaperworkItem[]> => {
+  const params = new URLSearchParams();
+  if (options.status) params.append('status', options.status);
+  if (options.requiredOnly) params.append('requiredOnly', 'true');
+  const url = params.toString() ? `/paperwork?${params.toString()}` : '/paperwork';
+  const { data } = await api.get<PaperworkItem[]>(url);
+  return data;
+};
+
+export const fetchPaperworkFeatures = async (): Promise<PaperworkFeatures> => {
+  const { data } = await api.get<PaperworkFeatures>('/paperwork/features');
+  return data;
+};
+
+export const claimPaperworkItem = async (paperworkId: number): Promise<PaperworkItem> => {
+  const { data } = await api.post<PaperworkItem>(`/paperwork/${paperworkId}/claim`);
+  return data;
+};
+
+export const mailPaperworkItem = async (paperworkId: number): Promise<PaperworkItem> => {
+  const { data } = await api.post<PaperworkItem>(`/paperwork/${paperworkId}/mail`);
+  return data;
+};
+
+export const sendPaperworkViaClick2Mail = async (paperworkId: number): Promise<PaperworkItem> => {
+  const { data } = await api.post<PaperworkItem>(`/paperwork/${paperworkId}/dispatch-click2mail`);
+  return data;
+};
+
+export const getPaperworkPrintUrl = (paperworkId: number): string => `${API_BASE_URL}/paperwork/${paperworkId}/print`;
+export const getPaperworkDownloadUrl = (paperworkId: number): string => `${API_BASE_URL}/paperwork/${paperworkId}/download`;
+
+export const fetchDocumentTree = async (): Promise<DocumentTreeResponse> => {
+  const { data } = await api.get<DocumentTreeResponse>('/documents');
+  return data;
+};
+
+export const createDocumentFolder = async (payload: {
+  name: string;
+  description?: string;
+  parent_id?: number | null;
+}): Promise<DocumentFolder> => {
+  const { data } = await api.post<DocumentFolder>('/documents/folders', payload);
+  return data;
+};
+
+export const updateDocumentFolder = async (
+  folderId: number,
+  payload: { name?: string; description?: string | null; parent_id?: number | null },
+): Promise<DocumentFolder> => {
+  const { data } = await api.patch<DocumentFolder>(`/documents/folders/${folderId}`, payload);
+  return data;
+};
+
+export const deleteDocumentFolder = async (folderId: number): Promise<void> => {
+  await api.delete(`/documents/folders/${folderId}`);
+};
+
+export const uploadGovernanceDocument = async (payload: {
+  folder_id?: number | null;
+  title: string;
+  description?: string;
+  file: File;
+}): Promise<GovernanceDocument> => {
+  const formData = new FormData();
+  formData.append('title', payload.title);
+  if (payload.description) formData.append('description', payload.description);
+  if (payload.folder_id != null) formData.append('folder_id', String(payload.folder_id));
+  formData.append('file', payload.file);
+  const { data } = await api.post<{ document: GovernanceDocument }>('/documents/files', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data.document;
+};
+
+export const deleteGovernanceDocument = async (documentId: number): Promise<void> => {
+  await api.delete(`/documents/files/${documentId}`);
+};
+
+export const getGovernanceDocumentDownloadUrl = (documentId: number): string =>
+  `${API_BASE_URL}/documents/files/${documentId}/download`;
+
+export const fetchMeetings = async (includePast = true): Promise<Meeting[]> => {
+  const params = new URLSearchParams();
+  if (!includePast) params.append('include_past', 'false');
+  const url = params.toString() ? `/meetings?${params.toString()}` : '/meetings';
+  const { data } = await api.get<Meeting[]>(url);
+  return data;
+};
+
+export const createMeeting = async (payload: {
+  title: string;
+  description?: string;
+  start_time: string;
+  end_time?: string | null;
+  location?: string | null;
+  zoom_link?: string | null;
+}): Promise<Meeting> => {
+  const { data } = await api.post<Meeting>('/meetings', payload);
+  return data;
+};
+
+export const updateMeeting = async (
+  meetingId: number,
+  payload: Partial<{
+    title: string;
+    description: string | null;
+    start_time: string;
+    end_time: string | null;
+    location: string | null;
+    zoom_link: string | null;
+  }>,
+): Promise<Meeting> => {
+  const { data } = await api.patch<Meeting>(`/meetings/${meetingId}`, payload);
+  return data;
+};
+
+export const deleteMeeting = async (meetingId: number): Promise<void> => {
+  await api.delete(`/meetings/${meetingId}`);
+};
+
+export const uploadMeetingMinutes = async (meetingId: number, file: File): Promise<Meeting> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await api.post<Meeting>(`/meetings/${meetingId}/minutes`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+};
+
+export const getMeetingMinutesDownloadUrl = (meetingId: number): string =>
+  `${API_BASE_URL}/meetings/${meetingId}/minutes`;
+
+export const fetchAuditLogs = async (options: { limit?: number; offset?: number } = {}): Promise<AuditLogResponse> => {
+  const params = new URLSearchParams();
+  if (options.limit) params.append('limit', String(options.limit));
+  if (options.offset) params.append('offset', String(options.offset));
+  const url = params.toString() ? `/audit-logs?${params.toString()}` : '/audit-logs';
+  const { data } = await api.get<AuditLogResponse>(url);
+  return data;
+};
+
 export const fetchBillingPolicy = async (): Promise<BillingPolicy> => {
   const { data } = await api.get<BillingPolicy>('/billing/policy');
   return data;
@@ -103,6 +461,14 @@ export const updateBillingPolicy = async (payload: BillingPolicyUpdatePayload): 
 
 export const fetchContracts = async (): Promise<Contract[]> => {
   const { data } = await api.get<Contract[]>('/contracts/');
+  return data;
+};
+
+export const submitElectionVote = async (
+  electionId: number,
+  payload: { candidate_id?: number; write_in?: string },
+): Promise<{ message: string }> => {
+  const { data } = await api.post<{ message: string }>(`/elections/${electionId}/vote`, payload);
   return data;
 };
 
@@ -246,6 +612,34 @@ export interface RegisterUserPayload {
   role_ids: number[];
 }
 
+export interface ElectionCreatePayload {
+  title: string;
+  description?: string | null;
+  opens_at?: string | null;
+  closes_at?: string | null;
+  status?: string | null;
+}
+
+export interface ElectionUpdatePayload {
+  title?: string | null;
+  description?: string | null;
+  opens_at?: string | null;
+  closes_at?: string | null;
+  status?: string | null;
+}
+
+export interface ElectionCandidatePayload {
+  display_name: string;
+  statement?: string | null;
+  owner_id?: number | null;
+}
+
+export interface ElectionVotePayload {
+  token: string;
+  candidate_id?: number | null;
+  write_in?: string | null;
+}
+
 export const fetchRoles = async (): Promise<RoleOption[]> => {
   const { data } = await api.get<(Role & { permissions?: unknown })[]>('/auth/roles');
   return data.map((role) => ({
@@ -297,6 +691,43 @@ export const fetchViolations = async (filters: ViolationFilters = {}): Promise<V
   const query = params.toString();
   const url = query ? `/violations/?${query}` : '/violations/';
   const { data } = await api.get<Violation[]>(url);
+  return data;
+};
+
+export const fetchNotifications = async (options: { includeRead?: boolean; limit?: number } = {}): Promise<Notification[]> => {
+  const params = new URLSearchParams();
+  if (options.includeRead === false) {
+    params.append('include_read', 'false');
+  }
+  if (options.limit) {
+    params.append('limit', String(options.limit));
+  }
+  const query = params.toString();
+  const url = query ? `/notifications/?${query}` : '/notifications/';
+  const { data } = await api.get<Notification[]>(url);
+  return data;
+};
+
+export const markNotificationRead = async (notificationId: number): Promise<Notification> => {
+  const { data } = await api.post<Notification>(`/notifications/${notificationId}/read`);
+  return data;
+};
+
+export const markAllNotificationsRead = async (): Promise<{ updated: number }> => {
+  const { data } = await api.post<{ updated: number }>('/notifications/read-all');
+  return data;
+};
+
+export const sendNotificationBroadcast = async (payload: {
+  title: string;
+  message: string;
+  level?: string;
+  category?: string;
+  link_url?: string | null;
+  user_ids?: number[];
+  roles?: string[];
+}): Promise<{ created: number }> => {
+  const { data } = await api.post<{ created: number }>('/notifications/broadcast', payload);
   return data;
 };
 
@@ -425,6 +856,68 @@ export const downloadViolationsSummaryReport = async (): Promise<Blob> =>
   downloadCsv('/reports/violations-summary');
 
 export const downloadArcSlaReport = async (): Promise<Blob> => downloadCsv('/reports/arc-sla');
+
+export const fetchElections = async (options: { includeArchived?: boolean } = {}): Promise<ElectionListItem[]> => {
+  const params = new URLSearchParams();
+  if (options.includeArchived) {
+    params.append('include_archived', 'true');
+  }
+  const query = params.toString();
+  const url = query ? `/elections/?${query}` : '/elections/';
+  const { data } = await api.get<ElectionListItem[]>(url);
+  return data;
+};
+
+export const createElection = async (payload: ElectionCreatePayload): Promise<ElectionDetail> => {
+  const { data } = await api.post<ElectionDetail>('/elections/', payload);
+  return data;
+};
+
+export const updateElection = async (electionId: number, payload: ElectionUpdatePayload): Promise<ElectionDetail> => {
+  const { data } = await api.patch<ElectionDetail>(`/elections/${electionId}`, payload);
+  return data;
+};
+
+export const addElectionCandidate = async (
+  electionId: number,
+  payload: ElectionCandidatePayload,
+): Promise<ElectionCandidate> => {
+  const { data } = await api.post<ElectionCandidate>(`/elections/${electionId}/candidates`, payload);
+  return data;
+};
+
+export const deleteElectionCandidate = async (electionId: number, candidateId: number): Promise<void> => {
+  await api.delete(`/elections/${electionId}/candidates/${candidateId}`);
+};
+
+export const generateElectionBallots = async (electionId: number): Promise<ElectionAdminBallot[]> => {
+  const { data } = await api.post<ElectionAdminBallot[]>(`/elections/${electionId}/ballots/generate`);
+  return data;
+};
+
+export const fetchElectionDetail = async (electionId: number): Promise<ElectionDetail> => {
+  const { data } = await api.get<ElectionDetail>(`/elections/${electionId}`);
+  return data;
+};
+
+export const fetchElectionBallots = async (electionId: number): Promise<ElectionAdminBallot[]> => {
+  const { data } = await api.get<ElectionAdminBallot[]>(`/elections/${electionId}/ballots`);
+  return data;
+};
+
+export const fetchPublicElection = async (
+  electionId: number,
+  token: string,
+): Promise<ElectionPublicDetail> => {
+  const { data } = await publicApi.get<ElectionPublicDetail>(`/elections/public/${electionId}`, {
+    params: { token },
+  });
+  return data;
+};
+
+export const submitPublicVote = async (electionId: number, payload: ElectionVotePayload): Promise<void> => {
+  await publicApi.post(`/elections/public/${electionId}/vote`, payload);
+};
 
 export const uploadBankStatement = async (
   file: File,

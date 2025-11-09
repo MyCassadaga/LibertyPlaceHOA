@@ -1,9 +1,9 @@
 # backend/config.py
 from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from pydantic import AnyHttpUrl, BaseSettings, EmailStr
+from pydantic import AnyHttpUrl, BaseSettings, EmailStr, Field
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -11,29 +11,87 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 class Settings(BaseSettings):
     # --- Database ---
     # Always use the file that actually has your tables: backend/hoa_dev.db
-    database_url: str = "sqlite:///backend/hoa_dev.db"
+    frontend_url: AnyHttpUrl = Field("http://localhost:5174", env="FRONTEND_URL")
+    api_base_url: AnyHttpUrl = Field("http://localhost:8000", env="API_BASE")
+
+    database_url: str = Field("sqlite:///backend/hoa_dev.db", env="DATABASE_URL")
 
     # --- Security / JWT ---
-    jwt_secret: str = "dev-secret-please-change"
-    jwt_algorithm: str = "HS256"
-    access_token_expire_minutes: int = 60 * 24  # 24 hours
-    refresh_token_expire_minutes: int = 60 * 24 * 30  # 30 days
+    jwt_secret: str = Field("dev-secret-please-change", env="JWT_SECRET")
+    jwt_algorithm: str = Field("HS256", env="JWT_ALGORITHM")
+    access_token_expire_minutes: int = Field(60 * 24, env="ACCESS_TOKEN_EXPIRE_MINUTES")
+    refresh_token_expire_minutes: int = Field(60 * 24 * 30, env="REFRESH_TOKEN_EXPIRE_MINUTES")
+
+    # --- Email / Providers ---
+    email_backend: str = Field("local", env="EMAIL_BACKEND")
+    sendgrid_api_key: Optional[str] = Field(None, env="SENDGRID_API_KEY")
+    stripe_api_key: Optional[str] = Field(None, env="STRIPE_API_KEY")
+    email_from_address: Optional[EmailStr] = Field(None, env="EMAIL_FROM_ADDRESS")
+    email_from_name: str = Field("Liberty Place HOA", env="EMAIL_FROM_NAME")
+
+    # --- Upload Locations ---
+    uploads_dir: str = Field("uploads", env="UPLOADS_DIR")
+    uploads_public_url: str = Field("uploads", env="UPLOADS_PUBLIC_URL")
+    file_storage_backend: str = Field("local", env="FILE_STORAGE_BACKEND")
+    s3_bucket: Optional[str] = Field(None, env="S3_BUCKET")
+    s3_region: Optional[str] = Field(None, env="S3_REGION")
+    s3_endpoint_url: Optional[str] = Field(None, env="S3_ENDPOINT_URL")
+    s3_access_key: Optional[str] = Field(None, env="S3_ACCESS_KEY_ID")
+    s3_secret_key: Optional[str] = Field(None, env="S3_SECRET_ACCESS_KEY")
+    s3_public_url: Optional[str] = Field(None, env="S3_PUBLIC_URL")
+
+    # --- File outputs / generated artifacts ---
+    email_output_dir: str = Field(default="uploads/emails", env="EMAIL_OUTPUT_DIR")
+    pdf_output_dir: str = Field(default="uploads/pdfs", env="PDF_OUTPUT_DIR")
 
     # --- CORS ---
-    cors_origins: List[AnyHttpUrl] = ["http://localhost:5173", "http://localhost:5174"]  # type: ignore[assignment]
-    # --- Email ---
-    email_backend: str = "local"
-    sendgrid_api_key: str | None = None
-    email_from_address: EmailStr | None = None
-    email_from_name: str = "Liberty Place HOA"
-    email_output_dir: str = "uploads/emails"
+    additional_cors_origins: Optional[str] = Field(None, env="ADDITIONAL_CORS_ORIGINS")
 
-    # --- Document Generation ---
-    pdf_output_dir: str = "uploads/pdfs"
+    # --- Click2Mail ---
+    click2mail_enabled: bool = Field(False, env="CLICK2MAIL_ENABLED")
+    click2mail_subdomain: str = Field("rest", env="CLICK2MAIL_SUBDOMAIN")
+    click2mail_username: Optional[str] = Field(None, env="CLICK2MAIL_USERNAME")
+    click2mail_password: Optional[str] = Field(None, env="CLICK2MAIL_PASSWORD")
+    click2mail_return_name: Optional[str] = Field(None, env="CLICK2MAIL_RETURN_NAME")
+    click2mail_return_company: Optional[str] = Field(None, env="CLICK2MAIL_RETURN_COMPANY")
+    click2mail_return_address1: Optional[str] = Field(None, env="CLICK2MAIL_RETURN_ADDRESS1")
+    click2mail_return_address2: Optional[str] = Field(None, env="CLICK2MAIL_RETURN_ADDRESS2")
+    click2mail_return_city: Optional[str] = Field(None, env="CLICK2MAIL_RETURN_CITY")
+    click2mail_return_state: Optional[str] = Field(None, env="CLICK2MAIL_RETURN_STATE")
+    click2mail_return_postal: Optional[str] = Field(None, env="CLICK2MAIL_RETURN_POSTAL")
+    click2mail_return_country: str = Field("US", env="CLICK2MAIL_RETURN_COUNTRY")
+    click2mail_default_city: Optional[str] = Field(None, env="CLICK2MAIL_DEFAULT_CITY")
+    click2mail_default_state: Optional[str] = Field(None, env="CLICK2MAIL_DEFAULT_STATE")
+    click2mail_default_postal: Optional[str] = Field(None, env="CLICK2MAIL_DEFAULT_POSTAL")
 
     class Config:
         env_file = ".env"
         case_sensitive = True
+
+    @property
+    def cors_allow_origins(self) -> List[str]:
+        origins: List[str] = [str(self.frontend_url)]
+        if self.additional_cors_origins:
+            extras = [origin.strip() for origin in self.additional_cors_origins.split(",") if origin.strip()]
+            origins.extend(extras)
+        return origins
+
+    @property
+    def uploads_root_path(self) -> Path:
+        return Path(self.uploads_dir).resolve()
+
+    @property
+    def uploads_public_prefix(self) -> str:
+        prefix = self.uploads_public_url.strip().lstrip("/")
+        return prefix or "uploads"
+
+    @property
+    def click2mail_is_configured(self) -> bool:
+        return (
+            self.click2mail_enabled
+            and bool(self.click2mail_username)
+            and bool(self.click2mail_password)
+        )
 
 
 @lru_cache
@@ -43,9 +101,10 @@ def get_settings() -> Settings:
 
 settings = get_settings()
 
-# Ensure path directory exists (for SQLite)
-db_path = Path(settings.database_url.replace("sqlite:///", ""))
-db_path.parent.mkdir(parents=True, exist_ok=True)
+# Ensure path directory exists (for SQLite/local artifacts)
+if settings.database_url.startswith("sqlite"):
+    db_path = Path(settings.database_url.replace("sqlite:///", ""))
+    db_path.parent.mkdir(parents=True, exist_ok=True)
 
 pdf_output_path = Path(settings.pdf_output_dir)
 pdf_output_path.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,27 @@
+databases:
+  - name: hoa-db
+    plan: free
+
+services:
+  - type: web
+    name: hoa-backend
+    env: python
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r requirements.txt && alembic upgrade head
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hoa-db
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://YOUR-VERCEL-DOMAIN
+      - key: API_BASE
+        value: https://YOUR-RENDER-APP.onrender.com
+      - key: SENDGRID_API_KEY
+        value: ""
+      - key: STRIPE_API_KEY
+        value: ""
+      - key: FILE_STORAGE_BACKEND
+        value: local

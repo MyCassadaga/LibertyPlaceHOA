@@ -70,3 +70,9 @@ def send_announcement(subject: str, body: str, recipients: Iterable[str]) -> Lis
         _write_local_email(subject, body, recipient_list)
 
     return recipient_list
+
+
+def send_notice_email(recipient: str, subject: str, body_html: str) -> None:
+    if not recipient:
+        raise ValueError("Recipient email required")
+    send_announcement(subject, body_html, [recipient])

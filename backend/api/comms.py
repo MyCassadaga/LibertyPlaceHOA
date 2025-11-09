@@ -133,8 +133,9 @@ def list_broadcast_segments(
 def list_email_broadcasts(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
-) -> List[EmailBroadcast]:
-    return db.query(EmailBroadcast).order_by(EmailBroadcast.created_at.desc()).all()
+) -> List[EmailBroadcastRead]:
+    broadcasts = db.query(EmailBroadcast).order_by(EmailBroadcast.created_at.desc()).all()
+    return [EmailBroadcastRead.from_orm(broadcast) for broadcast in broadcasts]
 
 
 @router.post("/broadcasts", response_model=EmailBroadcastRead, status_code=status.HTTP_201_CREATED)
@@ -142,7 +143,7 @@ def create_email_broadcast(
     payload: EmailBroadcastCreate,
     db: Session = Depends(get_db),
     actor: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
-) -> EmailBroadcast:
+) -> EmailBroadcastRead:
     try:
         segment = BroadcastSegment(payload.segment)
     except ValueError as exc:  # pragma: no cover - defensive, should be prevented by schema Literal
@@ -184,7 +185,7 @@ def create_email_broadcast(
             "recipient_count": broadcast.recipient_count,
         },
     )
-    return broadcast
+    return EmailBroadcastRead.from_orm(broadcast)
 
 
 @router.get("/announcements", response_model=List[AnnouncementRead])

@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship as orm_relationship
 
@@ -98,6 +99,8 @@ class User(Base):
     email_broadcasts = orm_relationship("EmailBroadcast", back_populates="creator")
     owner_links = orm_relationship("OwnerUserLink", back_populates="user", cascade="all, delete-orphan")
     owners = orm_relationship("Owner", secondary="owner_user_links", viewonly=True)
+    created_elections = orm_relationship("Election", back_populates="created_by")
+    notifications = orm_relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
     @property
     def role(self):
@@ -175,6 +178,7 @@ class Owner(Base):
     archived_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     archived_reason = Column(Text, nullable=True)
     former_lot = Column(String, nullable=True)
+    delivery_preference_global = Column(String, nullable=False, default="AUTO", index=True)
 
     invoices = orm_relationship("Invoice", back_populates="owner", cascade="all, delete-orphan")
     payments = orm_relationship("Payment", back_populates="owner", cascade="all, delete-orphan")
@@ -183,6 +187,9 @@ class Owner(Base):
     archived_by = orm_relationship("User", foreign_keys=[archived_by_user_id])
     user_links = orm_relationship("OwnerUserLink", back_populates="owner", cascade="all, delete-orphan")
     linked_users = orm_relationship("User", secondary="owner_user_links", viewonly=True)
+    election_ballots = orm_relationship("ElectionBallot", back_populates="owner", cascade="all, delete-orphan")
+    notices = orm_relationship("Notice", back_populates="owner", cascade="all, delete-orphan")
+    autopay_enrollment = orm_relationship("AutopayEnrollment", back_populates="owner", uselist=False)
 
 
 class OwnerUserLink(Base):
@@ -252,6 +259,32 @@ class Payment(Base):
 
     owner = orm_relationship("Owner", back_populates="payments")
     invoice = orm_relationship("Invoice", back_populates="payments")
+
+
+class AutopayEnrollment(Base):
+    __tablename__ = "autopay_enrollments"
+    __table_args__ = (UniqueConstraint("owner_id", name="uq_autopay_owner"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("owners.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String, nullable=False, default="PENDING")
+    payment_day = Column(Integer, nullable=False, default=1)
+    amount_type = Column(String, nullable=False, default="STATEMENT_BALANCE")
+    fixed_amount = Column(Numeric(10, 2), nullable=True)
+    funding_source_type = Column(String, nullable=True)
+    funding_source_mask = Column(String, nullable=True)
+    stripe_customer_id = Column(String, nullable=True)
+    stripe_payment_method_id = Column(String, nullable=True)
+    provider_status = Column(String, nullable=True)
+    last_run_at = Column(DateTime, nullable=True)
+    paused_at = Column(DateTime, nullable=True)
+    cancelled_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    owner = orm_relationship("Owner", back_populates="autopay_enrollment")
+    user = orm_relationship("User")
 
 
 class LedgerEntry(Base):
@@ -327,6 +360,7 @@ class Contract(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    vendor_payments = orm_relationship("VendorPayment", back_populates="contract", cascade="all, delete-orphan")
 
 
 class Announcement(Base):
@@ -411,6 +445,28 @@ class Violation(Base):
     fine_schedule = orm_relationship("FineSchedule", back_populates="violations")
     notices = orm_relationship("ViolationNotice", back_populates="violation", cascade="all, delete-orphan")
     appeals = orm_relationship("Appeal", back_populates="violation", cascade="all, delete-orphan")
+
+
+class VendorPayment(Base):
+    __tablename__ = "vendor_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    contract_id = Column(Integer, ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True)
+    vendor_name = Column(String, nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
+    memo = Column(Text, nullable=True)
+    requested_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String, nullable=False, default="PENDING")
+    provider = Column(String, nullable=False, default="STRIPE")
+    provider_status = Column(String, nullable=True)
+    provider_reference = Column(String, nullable=True)
+    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    submitted_at = Column(DateTime, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    contract = orm_relationship("Contract", back_populates="vendor_payments")
+    requested_by = orm_relationship("User", foreign_keys=[requested_by_user_id])
 
 
 class ViolationNotice(Base):
@@ -562,3 +618,278 @@ class BankTransaction(Base):
 
     reconciliation = orm_relationship("Reconciliation", back_populates="transactions")
     uploader = orm_relationship("User")
+
+
+class Election(Base):
+    __tablename__ = "elections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    status = Column(String, default="DRAFT", nullable=False)
+    opens_at = Column(DateTime, nullable=True)
+    closes_at = Column(DateTime, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    candidates = orm_relationship("ElectionCandidate", back_populates="election", cascade="all, delete-orphan")
+    ballots = orm_relationship("ElectionBallot", back_populates="election", cascade="all, delete-orphan")
+    votes = orm_relationship("ElectionVote", back_populates="election", cascade="all, delete-orphan")
+    created_by = orm_relationship("User", back_populates="created_elections", foreign_keys=[created_by_user_id])
+
+
+class ElectionCandidate(Base):
+    __tablename__ = "election_candidates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    election_id = Column(Integer, ForeignKey("elections.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("owners.id"), nullable=True)
+    display_name = Column(String, nullable=False)
+    statement = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    election = orm_relationship("Election", back_populates="candidates")
+    owner = orm_relationship("Owner")
+    votes = orm_relationship("ElectionVote", back_populates="candidate")
+
+
+class ElectionBallot(Base):
+    __tablename__ = "election_ballots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    election_id = Column(Integer, ForeignKey("elections.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(Integer, ForeignKey("owners.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String, unique=True, nullable=False)
+    issued_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    voted_at = Column(DateTime, nullable=True)
+    invalidated_at = Column(DateTime, nullable=True)
+
+    election = orm_relationship("Election", back_populates="ballots")
+    owner = orm_relationship("Owner", back_populates="election_ballots")
+    vote = orm_relationship("ElectionVote", uselist=False, back_populates="ballot")
+
+
+class ElectionVote(Base):
+    __tablename__ = "election_votes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    election_id = Column(Integer, ForeignKey("elections.id", ondelete="CASCADE"), nullable=False)
+    candidate_id = Column(Integer, ForeignKey("election_candidates.id", ondelete="SET NULL"), nullable=True)
+    ballot_id = Column(Integer, ForeignKey("election_ballots.id", ondelete="CASCADE"), nullable=False)
+    submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    write_in = Column(String, nullable=True)
+
+    election = orm_relationship("Election", back_populates="votes")
+    candidate = orm_relationship("ElectionCandidate", back_populates="votes")
+    ballot = orm_relationship("ElectionBallot", back_populates="vote")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
+    level = Column(String, default="info", nullable=False)
+    category = Column(String, nullable=True)
+    link_url = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    read_at = Column(DateTime, nullable=True)
+
+    user = orm_relationship("User", back_populates="notifications")
+
+
+class Budget(Base):
+    __tablename__ = "budgets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    year = Column(Integer, nullable=False, unique=True, index=True)
+    status = Column(String, nullable=False, default="DRAFT")
+    home_count = Column(Integer, nullable=False, default=0)
+    notes = Column(Text, nullable=True)
+    locked_at = Column(DateTime, nullable=True)
+    locked_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    locked_by = orm_relationship("User")
+    line_items = orm_relationship("BudgetLineItem", back_populates="budget", cascade="all, delete-orphan")
+    reserve_items = orm_relationship("ReservePlanItem", back_populates="budget", cascade="all, delete-orphan")
+    attachments = orm_relationship("BudgetAttachment", back_populates="budget", cascade="all, delete-orphan")
+    approvals = orm_relationship("BudgetApproval", back_populates="budget", cascade="all, delete-orphan")
+
+
+class BudgetLineItem(Base):
+    __tablename__ = "budget_line_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    budget_id = Column(Integer, ForeignKey("budgets.id", ondelete="CASCADE"), nullable=False, index=True)
+    label = Column(String, nullable=False)
+    category = Column(String, nullable=True)
+    amount = Column(Numeric(12, 2), nullable=False)
+    is_reserve = Column(Boolean, default=False, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    budget = orm_relationship("Budget", back_populates="line_items")
+
+
+class ReservePlanItem(Base):
+    __tablename__ = "reserve_plan_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    budget_id = Column(Integer, ForeignKey("budgets.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    target_year = Column(Integer, nullable=False)
+    estimated_cost = Column(Numeric(14, 2), nullable=False)
+    inflation_rate = Column(Float, nullable=False, default=0.0)
+    current_funding = Column(Numeric(14, 2), nullable=False, default=0)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    budget = orm_relationship("Budget", back_populates="reserve_items")
+
+
+class BudgetAttachment(Base):
+    __tablename__ = "budget_attachments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    budget_id = Column(Integer, ForeignKey("budgets.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_name = Column(String, nullable=False)
+    stored_path = Column(String, nullable=False)
+    content_type = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    budget = orm_relationship("Budget", back_populates="attachments")
+
+
+class BudgetApproval(Base):
+    __tablename__ = "budget_approvals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    budget_id = Column(Integer, ForeignKey("budgets.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    approved_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    budget = orm_relationship("Budget", back_populates="approvals")
+    user = orm_relationship("User")
+
+
+class NoticeType(Base):
+    __tablename__ = "notice_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    allow_electronic = Column(Boolean, nullable=False, default=True)
+    requires_paper = Column(Boolean, nullable=False, default=False)
+    default_delivery = Column(String, nullable=False, default="AUTO")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    notices = orm_relationship("Notice", back_populates="notice_type")
+
+
+class Notice(Base):
+    __tablename__ = "notices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_id = Column(Integer, ForeignKey("owners.id", ondelete="CASCADE"), nullable=False)
+    notice_type_id = Column(Integer, ForeignKey("notice_types.id", ondelete="RESTRICT"), nullable=False)
+    subject = Column(String, nullable=False)
+    body_html = Column(Text, nullable=False)
+    delivery_channel = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="PENDING")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    sent_email_at = Column(DateTime, nullable=True)
+    mailed_at = Column(DateTime, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    owner = orm_relationship("Owner", back_populates="notices")
+    notice_type = orm_relationship("NoticeType", back_populates="notices")
+    creator = orm_relationship("User")
+    paperwork_item = orm_relationship("PaperworkItem", back_populates="notice", uselist=False, cascade="all, delete-orphan")
+
+
+class PaperworkItem(Base):
+    __tablename__ = "paperwork_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    notice_id = Column(Integer, ForeignKey("notices.id", ondelete="CASCADE"), nullable=False, unique=True)
+    owner_id = Column(Integer, ForeignKey("owners.id", ondelete="CASCADE"), nullable=False)
+    required = Column(Boolean, nullable=False, default=False)
+    status = Column(String, nullable=False, default="PENDING")
+    claimed_by_board_member_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    claimed_at = Column(DateTime, nullable=True)
+    mailed_at = Column(DateTime, nullable=True)
+    delivery_provider = Column(String, nullable=True)
+    provider_job_id = Column(String, nullable=True)
+    provider_status = Column(String, nullable=True)
+    provider_meta = Column(JSON, nullable=True)
+    pdf_path = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    notice = orm_relationship("Notice", back_populates="paperwork_item")
+    owner = orm_relationship("Owner")
+    claimed_by = orm_relationship("User")
+
+
+class DocumentFolder(Base):
+    __tablename__ = "document_folders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    parent_id = Column(Integer, ForeignKey("document_folders.id", ondelete="SET NULL"), nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    parent = orm_relationship("DocumentFolder", remote_side=[id], backref="children")
+    created_by = orm_relationship("User")
+    documents = orm_relationship("GovernanceDocument", back_populates="folder")
+
+
+class GovernanceDocument(Base):
+    __tablename__ = "governance_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    folder_id = Column(Integer, ForeignKey("document_folders.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    file_path = Column(String, nullable=False)
+    content_type = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    uploaded_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    folder = orm_relationship("DocumentFolder", back_populates="documents")
+    uploaded_by = orm_relationship("User")
+
+
+class Meeting(Base):
+    __tablename__ = "meetings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=True)
+    location = Column(String, nullable=True)
+    zoom_link = Column(String, nullable=True)
+    minutes_file_path = Column(String, nullable=True)
+    minutes_content_type = Column(String, nullable=True)
+    minutes_file_size = Column(Integer, nullable=True)
+    minutes_uploaded_at = Column(DateTime, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    created_by = orm_relationship("User")

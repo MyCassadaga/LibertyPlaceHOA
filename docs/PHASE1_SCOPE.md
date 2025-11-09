@@ -14,7 +14,6 @@
 ## Deferred to Later Phases
 - Real email/PDF generation and address label exports (stubs in place).
 - Payment processor integration and homeowner self-service payment submission with validation.
-- Full CMS/public site content editing.
 - Advanced reporting, QuickBooks export automation, and Postgres production hardening.
 - Two-factor authentication and persistent sessions.
 - Automated test coverage and CI/CD pipeline.

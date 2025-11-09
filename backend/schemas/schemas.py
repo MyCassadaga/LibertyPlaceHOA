@@ -93,6 +93,30 @@ class TokenRefreshRequest(BaseModel):
     refresh_token: str
 
 
+class NotificationRead(BaseModel):
+    id: int
+    title: str
+    message: str
+    level: str
+    category: Optional[str]
+    link_url: Optional[str]
+    created_at: datetime
+    read_at: Optional[datetime]
+
+    class Config:
+        orm_mode = True
+
+
+class NotificationBroadcast(BaseModel):
+    title: str
+    message: str
+    level: Optional[str] = "info"
+    category: Optional[str]
+    link_url: Optional[str]
+    user_ids: Optional[List[int]]
+    roles: Optional[List[str]]
+
+
 class OwnerBase(BaseModel):
     primary_name: str
     secondary_name: Optional[str]
@@ -129,6 +153,7 @@ class OwnerRead(OwnerBase):
     archived_reason: Optional[str]
     archived_by_user_id: Optional[int]
     former_lot: Optional[str]
+    delivery_preference_global: str = "AUTO"
     linked_users: List[UserRead] = []
 
     class Config:
@@ -181,6 +206,239 @@ class OwnerRestoreRequest(BaseModel):
 class OwnerLinkRequest(BaseModel):
     user_id: int
     link_type: Optional[str]
+
+
+class ElectionCandidateCreate(BaseModel):
+    display_name: str
+    statement: Optional[str]
+    owner_id: Optional[int]
+
+
+class ElectionCandidateRead(ElectionCandidateCreate):
+    id: int
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class ElectionCreate(BaseModel):
+    title: str
+    description: Optional[str]
+    opens_at: Optional[datetime]
+    closes_at: Optional[datetime]
+    status: Optional[str] = "DRAFT"
+
+
+class ElectionUpdate(BaseModel):
+    title: Optional[str]
+    description: Optional[str]
+    opens_at: Optional[datetime]
+    closes_at: Optional[datetime]
+    status: Optional[str]
+
+
+class ElectionResultRead(BaseModel):
+    candidate_id: Optional[int]
+    candidate_name: Optional[str]
+    vote_count: int
+
+
+class ElectionRead(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    status: str
+    opens_at: Optional[datetime]
+    closes_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+    candidates: List[ElectionCandidateRead] = []
+    ballot_count: int
+    votes_cast: int
+    results: List[ElectionResultRead] = []
+    my_status: Optional["ElectionMyStatus"] = None
+
+    class Config:
+        orm_mode = True
+
+
+class ElectionListItem(BaseModel):
+    id: int
+    title: str
+    status: str
+    opens_at: Optional[datetime]
+    closes_at: Optional[datetime]
+    ballot_count: int
+    votes_cast: int
+
+
+class ElectionAdminBallotRead(BaseModel):
+    id: int
+    owner_id: int
+    owner_name: Optional[str]
+    token: str
+    issued_at: datetime
+    voted_at: Optional[datetime]
+
+
+class ElectionPublicRead(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    status: str
+    opens_at: Optional[datetime]
+    closes_at: Optional[datetime]
+    candidates: List[ElectionCandidateRead] = []
+    has_voted: bool = False
+
+
+class ElectionVoteCast(BaseModel):
+    token: str
+    candidate_id: Optional[int]
+    write_in: Optional[str]
+
+
+class ElectionMyStatus(BaseModel):
+    has_ballot: bool
+    has_voted: bool
+    voted_at: Optional[datetime]
+
+
+class ElectionAuthenticatedVote(BaseModel):
+    candidate_id: Optional[int]
+    write_in: Optional[str]
+
+
+class BudgetLineItemBase(BaseModel):
+    label: str
+    category: Optional[str]
+    amount: Decimal
+    is_reserve: bool = False
+    sort_order: Optional[int]
+
+
+class BudgetLineItemCreate(BudgetLineItemBase):
+    pass
+
+
+class BudgetLineItemUpdate(BaseModel):
+    label: Optional[str]
+    category: Optional[str]
+    amount: Optional[Decimal]
+    is_reserve: Optional[bool]
+    sort_order: Optional[int]
+
+
+class BudgetLineItemRead(BudgetLineItemBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class ReservePlanItemBase(BaseModel):
+    name: str
+    target_year: int
+    estimated_cost: Decimal
+    inflation_rate: float = 0.0
+    current_funding: Decimal = Decimal("0")
+    notes: Optional[str]
+
+
+class ReservePlanItemCreate(ReservePlanItemBase):
+    pass
+
+
+class ReservePlanItemUpdate(BaseModel):
+    name: Optional[str]
+    target_year: Optional[int]
+    estimated_cost: Optional[Decimal]
+    inflation_rate: Optional[float]
+    current_funding: Optional[Decimal]
+    notes: Optional[str]
+
+
+class ReservePlanItemRead(ReservePlanItemBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class BudgetAttachmentRead(BaseModel):
+    id: int
+    file_name: str
+    stored_path: str
+    content_type: Optional[str]
+    file_size: Optional[int]
+    uploaded_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class BudgetAttachmentCreateResponse(BudgetAttachmentRead):
+    pass
+
+
+class BudgetApprovalRead(BaseModel):
+    user_id: int
+    full_name: Optional[str]
+    email: Optional[str]
+    approved_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class BudgetRead(BaseModel):
+    id: int
+    year: int
+    status: str
+    home_count: int
+    notes: Optional[str]
+    locked_at: Optional[datetime]
+    locked_by_user_id: Optional[int]
+    total_annual: Decimal
+    operations_total: Decimal
+    reserves_total: Decimal
+    assessment_per_quarter: Decimal
+    created_at: datetime
+    updated_at: datetime
+    line_items: List[BudgetLineItemRead]
+    reserve_items: List[ReservePlanItemRead]
+    attachments: List[BudgetAttachmentRead]
+    approvals: List[BudgetApprovalRead]
+    approval_count: int
+    required_approvals: int
+    user_has_approved: bool
+
+    class Config:
+        orm_mode = True
+
+
+class BudgetSummary(BaseModel):
+    id: int
+    year: int
+    status: str
+    total_annual: Decimal
+    assessment_per_quarter: Decimal
+
+
+class BudgetCreate(BaseModel):
+    year: int
+    home_count: Optional[int] = None
+    notes: Optional[str]
+
+
+class BudgetUpdate(BaseModel):
+    home_count: Optional[int]
+    notes: Optional[str]
 
 
 class InvoiceBase(BaseModel):
@@ -285,6 +543,39 @@ class PaymentRead(BaseModel):
         orm_mode = True
 
 
+class AutopayEnrollmentRequest(BaseModel):
+    payment_day: conint(ge=1, le=28) = 1
+    amount_type: Literal["STATEMENT_BALANCE", "FIXED"] = "STATEMENT_BALANCE"
+    fixed_amount: Optional[condecimal(ge=0, max_digits=10, decimal_places=2)]
+    owner_id: Optional[int]
+
+    @root_validator
+    def validate_fixed_amount(cls, values):
+        amount_type = values.get("amount_type")
+        fixed_amount = values.get("fixed_amount")
+        if amount_type == "FIXED" and fixed_amount is None:
+            raise ValueError("fixed_amount is required when amount_type is FIXED")
+        return values
+
+
+class AutopayEnrollmentRead(BaseModel):
+    owner_id: int
+    status: str
+    payment_day: Optional[int]
+    amount_type: Literal["STATEMENT_BALANCE", "FIXED"]
+    fixed_amount: Optional[Decimal]
+    funding_source_mask: Optional[str]
+    provider: str
+    provider_status: Optional[str]
+    provider_setup_required: bool = True
+    last_run_at: Optional[datetime]
+    created_at: Optional[datetime]
+    updated_at: Optional[datetime]
+
+    class Config:
+        orm_mode = True
+
+
 class LedgerEntryRead(BaseModel):
     id: int
     owner_id: int
@@ -333,6 +624,37 @@ class ContractRead(BaseModel):
     notes: Optional[str]
     created_at: datetime
     updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class VendorPaymentCreate(BaseModel):
+    contract_id: Optional[int]
+    vendor_name: Optional[str]
+    amount: condecimal(ge=0, max_digits=12, decimal_places=2)
+    memo: Optional[str]
+
+    @root_validator
+    def vendor_requirement(cls, values):
+        if not values.get("vendor_name") and not values.get("contract_id"):
+            raise ValueError("vendor_name is required when contract_id is not provided")
+        return values
+
+
+class VendorPaymentRead(BaseModel):
+    id: int
+    contract_id: Optional[int]
+    vendor_name: str
+    amount: Decimal
+    memo: Optional[str]
+    status: str
+    provider: str
+    provider_status: Optional[str]
+    provider_reference: Optional[str]
+    requested_at: datetime
+    submitted_at: Optional[datetime]
+    paid_at: Optional[datetime]
 
     class Config:
         orm_mode = True
@@ -714,5 +1036,215 @@ class BillingSummaryRead(BaseModel):
     owner_count: int
 
 
+class OverdueInvoiceRead(BaseModel):
+    id: int
+    amount: Decimal
+    due_date: date
+    status: str
+    days_overdue: int
+    months_overdue: int
+    reminders_sent: int
+
+
+class OverdueAccountRead(BaseModel):
+    owner_id: int
+    owner_name: str
+    property_address: Optional[str]
+    primary_email: Optional[str]
+    primary_phone: Optional[str]
+    total_due: Decimal
+    max_months_overdue: int
+    last_reminder_sent_at: Optional[datetime]
+    invoices: List[OverdueInvoiceRead]
+
+
+class OverdueContactRequest(BaseModel):
+    message: Optional[str]
+
+
+class OverdueContactResponse(BaseModel):
+    notified_user_ids: List[int]
+
+
+class ForwardAttorneyRequest(BaseModel):
+    notes: Optional[str]
+
+
+class ForwardAttorneyResponse(BaseModel):
+    notice_url: str
+
+
+class NoticeCreateRequest(BaseModel):
+    owner_id: int
+    notice_type_code: str
+    subject: str
+    body_html: str
+
+
+class PaperworkItemRead(BaseModel):
+    id: int
+    notice_id: int
+    owner_id: int
+    required: bool
+    status: str
+    claimed_by_board_member_id: Optional[int]
+    claimed_at: Optional[datetime]
+    mailed_at: Optional[datetime]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class NoticeRead(BaseModel):
+    id: int
+    owner_id: int
+    notice_type_id: int
+    subject: str
+    body_html: str
+    delivery_channel: str
+    status: str
+    created_at: datetime
+    sent_email_at: Optional[datetime]
+    mailed_at: Optional[datetime]
+    paperwork_item: Optional[PaperworkItemRead]
+
+    class Config:
+        orm_mode = True
+
+
+class PaperworkListItem(BaseModel):
+    id: int
+    notice_id: int
+    owner_id: int
+    owner_name: str
+    owner_address: str
+    notice_type_code: str
+    subject: str
+    required: bool
+    status: str
+    delivery_provider: Optional[str]
+    provider_status: Optional[str]
+    provider_job_id: Optional[str]
+    pdf_available: bool
+    claimed_by: Optional[UserRead]
+    claimed_at: Optional[datetime]
+    mailed_at: Optional[datetime]
+    created_at: datetime
+
+
 BillingPolicyRead.update_forward_refs()
 BillingPolicyUpdate.update_forward_refs()
+ElectionRead.update_forward_refs()
+
+
+class GovernanceDocumentRead(BaseModel):
+    id: int
+    folder_id: Optional[int]
+    title: str
+    description: Optional[str]
+    content_type: Optional[str]
+    file_size: Optional[int]
+    uploaded_by_user_id: Optional[int]
+    created_at: datetime
+    download_url: str
+
+    class Config:
+        orm_mode = True
+
+
+class DocumentFolderRead(BaseModel):
+    id: int
+    name: str
+    description: Optional[str]
+    parent_id: Optional[int]
+    documents: List[GovernanceDocumentRead] = []
+    children: List["DocumentFolderRead"] = []
+
+    class Config:
+        orm_mode = True
+
+
+DocumentFolderRead.update_forward_refs()
+
+
+class DocumentFolderCreate(BaseModel):
+    name: str
+    description: Optional[str]
+    parent_id: Optional[int]
+
+
+class DocumentFolderUpdate(BaseModel):
+    name: Optional[str]
+    description: Optional[str]
+    parent_id: Optional[int]
+
+
+class DocumentUploadResponse(BaseModel):
+    document: GovernanceDocumentRead
+
+
+class DocumentTreeResponse(BaseModel):
+    folders: List[DocumentFolderRead]
+    root_documents: List[GovernanceDocumentRead]
+
+
+class MeetingRead(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    start_time: datetime
+    end_time: Optional[datetime]
+    location: Optional[str]
+    zoom_link: Optional[str]
+    minutes_available: bool
+    minutes_download_url: Optional[str]
+    created_by_user_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class MeetingCreate(BaseModel):
+    title: str
+    description: Optional[str]
+    start_time: datetime
+    end_time: Optional[datetime]
+    location: Optional[str]
+    zoom_link: Optional[str]
+
+
+class MeetingUpdate(BaseModel):
+    title: Optional[str]
+    description: Optional[str]
+    start_time: Optional[datetime]
+    end_time: Optional[datetime]
+    location: Optional[str]
+    zoom_link: Optional[str]
+
+
+class AuditLogActor(BaseModel):
+    id: Optional[int]
+    email: Optional[str]
+    full_name: Optional[str]
+
+
+class AuditLogEntry(BaseModel):
+    id: int
+    timestamp: datetime
+    action: str
+    target_entity_type: Optional[str]
+    target_entity_id: Optional[str]
+    before: Optional[str]
+    after: Optional[str]
+    actor: AuditLogActor
+
+    class Config:
+        orm_mode = True
+
+
+class AuditLogList(BaseModel):
+    items: List[AuditLogEntry]
+    total: int

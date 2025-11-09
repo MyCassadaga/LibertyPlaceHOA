@@ -1,7 +1,8 @@
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from textwrap import wrap
 from typing import Iterable, Optional
+import re
 
 from reportlab.lib.pagesizes import LETTER
 from reportlab.pdfgen import canvas
@@ -133,3 +134,62 @@ def generate_violation_notice_pdf(template_key: str, violation, owner, subject: 
     lines.append("This notice is automatically generated for association records.")
     filename = f"violation_{violation.id}_{template_key.lower()}.pdf"
     return _write_pdf(filename, lines)
+
+
+def generate_attorney_notice_pdf(owner, invoices, notes: Optional[str] = None) -> str:
+    from decimal import Decimal
+
+    total_due = sum((invoice.amount for invoice in invoices), Decimal("0"))
+    today = datetime.utcnow().date().isoformat()
+    lines = [
+        "Liberty Place HOA",
+        "Attorney Engagement Packet",
+        "",
+        f"Date Prepared: {today}",
+        f"Owner: {owner.primary_name}",
+        f"Property: {owner.property_address or owner.mailing_address or 'Pending address'}",
+        f"Primary Email: {owner.primary_email or 'N/A'}",
+        f"Primary Phone: {owner.primary_phone or 'N/A'}",
+        "",
+        f"Total Outstanding Balance: ${total_due}",
+        "",
+        "Delinquent Invoices:",
+    ]
+    for invoice in invoices:
+        lines.append(
+            f" - Invoice #{invoice.id}: ${invoice.amount} due {invoice.due_date.isoformat()} (status: {invoice.status})"
+        )
+    lines.append("")
+    if notes:
+        lines.append("Additional Notes:")
+        lines.extend(notes.splitlines())
+        lines.append("")
+    lines.append("This packet was generated automatically for legal review.")
+    filename = f"attorney_owner_{owner.id}_{int(datetime.utcnow().timestamp())}.pdf"
+    return _write_pdf(filename, lines)
+
+
+def generate_notice_letter_pdf(notice, owner) -> str:
+    address = owner.mailing_address or owner.property_address or "Address on file"
+    lines = [
+        "Liberty Place HOA",
+        "",
+        f"Date: {datetime.utcnow().date().isoformat()}",
+        f"To: {owner.primary_name}",
+        f"Property: {address}",
+        "",
+        f"Subject: {notice.subject}",
+        "",
+    ]
+    body_lines = _html_to_plain_text_lines(notice.body_html)
+    lines.extend(body_lines if body_lines else ["(no additional message provided)"])
+    filename = f"notice_{notice.id}.pdf"
+    return _write_pdf(filename, lines)
+
+
+def _html_to_plain_text_lines(body_html: str) -> list[str]:
+    if not body_html:
+        return []
+    normalized = body_html.replace("<br />", "\n").replace("<br/>", "\n").replace("<br>", "\n")
+    stripped = re.sub(r"<[^>]+>", "", normalized)
+    return [line.strip() for line in stripped.splitlines() if line.strip()]

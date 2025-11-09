@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import secrets
 from datetime import date, datetime
-from pathlib import Path
 from typing import Dict, Iterable, Optional
 
 from fastapi import UploadFile
@@ -10,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..models.models import ARCCondition, ARCInspection, ARCAttachment, ARCRequest, User
 from ..services.audit import audit_log
+from ..services.storage import storage_service
 
 ARC_STATES: Iterable[str] = (
     "DRAFT",
@@ -35,10 +35,6 @@ ARC_TRANSITIONS: Dict[str, set[str]] = {
     "ARCHIVED": set(),
 }
 
-ARC_UPLOAD_DIR = Path("uploads/arc")
-ARC_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-
 def add_attachment(
     session: Session,
     arc_request: ARCRequest,
@@ -47,18 +43,16 @@ def add_attachment(
 ) -> ARCAttachment:
     suffix = Path(file.filename or "").suffix or ""
     stored_name = f"arc_{arc_request.id}_{secrets.token_hex(8)}{suffix}"
-    stored_path = ARC_UPLOAD_DIR / stored_name
-
-    with stored_path.open("wb") as buffer:
-        buffer.write(file.file.read())
+    file_bytes = file.file.read()
+    stored = storage_service.save_file(f"arc/{stored_name}", file_bytes, content_type=file.content_type)
 
     attachment = ARCAttachment(
         arc_request_id=arc_request.id,
         uploaded_by_user_id=actor.id,
         original_filename=file.filename or stored_name,
-        stored_filename=str(stored_path),
+        stored_filename=stored.public_path,
         content_type=file.content_type,
-        file_size=stored_path.stat().st_size,
+        file_size=len(file_bytes) if file_bytes else None,
     )
     session.add(attachment)
     session.flush()

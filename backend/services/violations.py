@@ -2,15 +2,18 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from pathlib import Path
 from typing import Dict, Optional
 
 from sqlalchemy.orm import Session
 
 from ..models.models import Appeal, Owner, User, Violation, ViolationNotice
 from ..services import email
+from ..services.notifications import create_notification
 from ..services.audit import audit_log
 from ..utils.pdf_utils import generate_violation_notice_pdf
+from ..config import settings
+
+from pathlib import Path
 
 VIOLATION_STATES = [
     "NEW",
@@ -63,7 +66,7 @@ NOTICE_TEMPLATES: Dict[str, Dict[str, str]] = {
     },
 }
 
-NOTICE_DIRECTORY = Path("uploads/violations")
+NOTICE_DIRECTORY = settings.uploads_root_path / "violations"
 NOTICE_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
 
@@ -93,10 +96,13 @@ def _create_notice(
     pdf_path = Path(generate_violation_notice_pdf(template_key, violation, owner, subject, body))
     target_path = NOTICE_DIRECTORY / pdf_path.name
     try:
-        target_path.write_text(pdf_path.read_text())
+        target_path.write_bytes(pdf_path.read_bytes())
     except FileNotFoundError:
         target_path.write_text(body)
-    relative_pdf_path = str(target_path)
+    except UnicodeDecodeError:
+        # Fallback for environments that produce binary PDFs; keep body text.
+        target_path.write_text(body)
+    relative_pdf_path = f"{settings.uploads_public_prefix.strip('/')}/violations/{pdf_path.name}"
 
     notice = ViolationNotice(
         violation_id=violation.id,
@@ -161,6 +167,64 @@ def transition_violation(
             "hearing_date": violation.hearing_date.isoformat() if violation.hearing_date else None,
             "fine_amount": str(violation.fine_amount) if violation.fine_amount is not None else None,
         },
+    )
+
+    linked_users = [linked_user for linked_user in owner.linked_users if linked_user.is_active]
+    if linked_users:
+        user_ids = [linked_user.id for linked_user in linked_users]
+        notification_title = None
+        notification_message = None
+        level = "info"
+        if target_status == "WARNING_SENT":
+            notification_title = "Violation warning issued"
+            notification_message = (
+                f"A warning has been issued for {owner.property_address or 'your property'}. "
+                "Please review the details and resolve the concern."
+            )
+            level = "warning"
+        elif target_status == "HEARING":
+            notification_title = "Violation hearing scheduled"
+            notification_message = (
+                f"A violation hearing has been scheduled for {owner.property_address or 'your property'}. "
+                "Check the violation details for the scheduled date."
+            )
+        elif target_status == "FINE_ACTIVE":
+            notification_title = "Violation fine active"
+            notification_message = (
+                f"A fine is now active for {owner.property_address or 'your property'}. "
+                "Please review your account for payment information."
+            )
+            level = "warning"
+        elif target_status == "RESOLVED":
+            notification_title = "Violation resolved"
+            notification_message = (
+                f"The violation for {owner.property_address or 'your property'} has been marked as resolved."
+            )
+
+        if notification_title and notification_message:
+            create_notification(
+                session,
+                title=notification_title,
+                message=notification_message,
+                level=level,
+                link_url="/violations",
+                user_ids=user_ids,
+                category="violations",
+            )
+
+    manager_roles = ["BOARD", "SYSADMIN", "SECRETARY", "TREASURER", "ATTORNEY"]
+    manager_title = f"Violation status updated ({target_status.replace('_', ' ').title()})"
+    manager_message = (
+        f"The violation for {owner.property_address or 'the property'} has been moved to {target_status.replace('_', ' ').title()}."
+    )
+    create_notification(
+        session,
+        title=manager_title,
+        message=manager_message,
+        level="info",
+        link_url="/violations",
+        role_names=manager_roles,
+        category="violations",
     )
     return violation
 

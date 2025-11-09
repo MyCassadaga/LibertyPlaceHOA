@@ -12,6 +12,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.config import Base  # noqa: E402
+from backend.auth.jwt import get_password_hash  # noqa: E402
 from backend.models.models import Owner, Role, User  # noqa: E402
 
 
@@ -49,7 +50,7 @@ def create_role(db_session: Session) -> Callable[[str], Role]:
 def create_user(db_session: Session, create_role: Callable[[str], Role]) -> Callable[[str, Optional[str]], User]:
     def _create(email: str = "user@example.com", role_name: str = "SYSADMIN") -> User:
         role = create_role(role_name)
-        user = User(email=email, hashed_password="hashed", role_id=role.id)
+        user = User(email=email, hashed_password=get_password_hash("changeme"), role_id=role.id)
         user.primary_role = role
         user.roles.append(role)
         db_session.add(user)

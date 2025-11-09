@@ -1,23 +1,32 @@
 from datetime import datetime, date
 from decimal import Decimal
-from typing import List, Sequence
+from math import ceil
+from pathlib import Path
+from typing import Dict, List, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..api.dependencies import get_db, get_owner_for_user
 from ..auth.jwt import get_current_user, require_roles
-from ..models.models import BillingPolicy, Invoice, LateFeeTier, LedgerEntry, Owner, Payment, User
+from ..config import settings
+from ..models.models import BillingPolicy, Invoice, LateFeeTier, LedgerEntry, Owner, OwnerUserLink, Payment, User
 from ..schemas.schemas import (
     BillingPolicyRead,
     BillingPolicyUpdate,
     BillingSummaryRead,
+    ForwardAttorneyRequest,
+    ForwardAttorneyResponse,
     InvoiceCreate,
     InvoiceRead,
     InvoiceUpdate,
     LedgerEntryRead,
     LateFeePayload,
+    OverdueAccountRead,
+    OverdueContactRequest,
+    OverdueContactResponse,
+    OverdueInvoiceRead,
     PaymentCreate,
     PaymentRead,
 )
@@ -30,7 +39,8 @@ from ..services.billing import (
     record_invoice,
     record_payment,
 )
-from ..utils.pdf_utils import generate_reminder_notice_pdf
+from ..services.notifications import create_notification
+from ..utils.pdf_utils import generate_attorney_notice_pdf, generate_reminder_notice_pdf
 
 router = APIRouter()
 
@@ -243,6 +253,43 @@ def accounts_receivable_summary(
     )
 
 
+def _group_overdue_invoices(db: Session) -> Dict[int, List[Invoice]]:
+    today = date.today()
+    overdue_invoices = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.owner))
+        .join(Owner, Owner.id == Invoice.owner_id)
+        .filter(Owner.is_archived.is_(False))
+        .filter(Invoice.status == "OPEN")
+        .filter(Invoice.due_date < today)
+        .order_by(Invoice.owner_id.asc(), Invoice.due_date.asc())
+        .all()
+    )
+    grouped: Dict[int, List[Invoice]] = {}
+    for invoice in overdue_invoices:
+        grouped.setdefault(invoice.owner_id, []).append(invoice)
+    return grouped
+
+
+def _months_overdue(days_overdue: int) -> int:
+    if days_overdue <= 0:
+        return 0
+    return ceil(days_overdue / 30)
+
+
+def _public_notice_url(pdf_path: str) -> str:
+    try:
+        resolved = Path(pdf_path).resolve()
+        uploads_root = settings.uploads_root_path
+        relative = resolved.relative_to(uploads_root).as_posix()
+        public_prefix = settings.uploads_public_prefix.strip("/")
+        public_path = f"{public_prefix}/{relative}".lstrip("/")
+        return f"/{public_path}"
+    except Exception:
+        normalized = pdf_path.replace("\\", "/")
+        return normalized if normalized.startswith("/") else f"/{normalized}"
+
+
 @router.get("/policy", response_model=BillingPolicyRead)
 def read_billing_policy(
     db: Session = Depends(get_db),
@@ -370,3 +417,178 @@ def send_reminder_notice(
 
     filename = f"invoice_{invoice.id}_reminder.pdf"
     return FileResponse(path=pdf_path, media_type="application/pdf", filename=filename)
+
+
+def _default_contact_message(owner: Owner, invoices: Sequence[Invoice]) -> str:
+    total_due = sum((_as_decimal(invoice.amount) for invoice in invoices), Decimal("0"))
+    today = date.today()
+    longest_days = max(((today - invoice.due_date).days for invoice in invoices), default=0)
+    months = _months_overdue(longest_days)
+    address = owner.property_address or owner.mailing_address or "your property"
+    balance = total_due.quantize(Decimal("0.01"))
+    months_label = f"{months} month(s)" if months else "less than a month"
+    return (
+        f"Hello {owner.primary_name}, your HOA account for {address} is {months_label} past due "
+        f"with a balance of ${balance}. Please sign in to the portal or contact the board "
+        "within 10 days to avoid legal escalation."
+    )
+
+
+def _serialize_overdue_invoice(invoice: Invoice, today: date) -> OverdueInvoiceRead:
+    days_overdue = max(0, (today - invoice.due_date).days)
+    months_overdue = _months_overdue(days_overdue)
+    reminders_sent = 1 if invoice.last_reminder_sent_at else 0
+    return OverdueInvoiceRead(
+        id=invoice.id,
+        amount=_as_decimal(invoice.amount),
+        due_date=invoice.due_date,
+        status=invoice.status,
+        days_overdue=days_overdue,
+        months_overdue=months_overdue,
+        reminders_sent=reminders_sent,
+    )
+
+
+@router.get("/overdue", response_model=List[OverdueAccountRead])
+def list_overdue_accounts(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+) -> List[OverdueAccountRead]:
+    grouped = _group_overdue_invoices(db)
+    today = date.today()
+    overdue_accounts: List[OverdueAccountRead] = []
+    for owner_id, invoices in grouped.items():
+        owner = invoices[0].owner
+        serialized_invoices = [_serialize_overdue_invoice(invoice, today) for invoice in invoices]
+        max_months = max((item.months_overdue for item in serialized_invoices), default=0)
+        total_due = sum((_as_decimal(invoice.amount) for invoice in invoices), Decimal("0"))
+        last_reminder = max(
+            (invoice.last_reminder_sent_at for invoice in invoices if invoice.last_reminder_sent_at),
+            default=None,
+        )
+        overdue_accounts.append(
+            OverdueAccountRead(
+                owner_id=owner_id,
+                owner_name=owner.primary_name,
+                property_address=owner.property_address,
+                primary_email=owner.primary_email,
+                primary_phone=owner.primary_phone,
+                total_due=total_due,
+                max_months_overdue=max_months,
+                last_reminder_sent_at=last_reminder,
+                invoices=serialized_invoices,
+            )
+        )
+    return overdue_accounts
+
+
+@router.post(
+    "/overdue/{owner_id}/contact",
+    response_model=OverdueContactResponse,
+)
+def contact_overdue_owner(
+    owner_id: int,
+    payload: OverdueContactRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+) -> OverdueContactResponse:
+    owner = (
+        db.query(Owner)
+        .options(joinedload(Owner.user_links).joinedload(OwnerUserLink.user), joinedload(Owner.invoices))
+        .filter(Owner.id == owner_id)
+        .first()
+    )
+    if not owner:
+        raise HTTPException(status_code=404, detail="Owner not found")
+
+    overdue_invoices = [
+        invoice
+        for invoice in owner.invoices
+        if invoice.status == "OPEN" and invoice.due_date < date.today()
+    ]
+    if not overdue_invoices:
+        raise HTTPException(status_code=400, detail="Owner does not have overdue invoices")
+
+    linked_user_ids = [
+        link.user_id for link in owner.user_links if link.user and link.user.is_active
+    ]
+    message = (payload.message or "").strip() or _default_contact_message(owner, overdue_invoices)
+    notifications = create_notification(
+        db,
+        title="Assessment Past Due",
+        message=message,
+        category="billing",
+        user_ids=linked_user_ids if linked_user_ids else None,
+    )
+    db.commit()
+
+    audit_log(
+        db_session=db,
+        actor_user_id=actor.id,
+        action="billing.overdue.contact",
+        target_entity_type="Owner",
+        target_entity_id=str(owner.id),
+        after={
+            "owner_id": owner.id,
+            "invoice_ids": [invoice.id for invoice in overdue_invoices],
+            "recipients": linked_user_ids,
+            "message": message,
+        },
+    )
+    return OverdueContactResponse(notified_user_ids=[note.user_id for note in notifications])
+
+
+@router.post("/overdue/{owner_id}/forward-attorney", response_model=ForwardAttorneyResponse)
+def forward_overdue_to_attorney(
+    owner_id: int,
+    payload: ForwardAttorneyRequest,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+) -> ForwardAttorneyResponse:
+    owner = (
+        db.query(Owner)
+        .options(joinedload(Owner.invoices))
+        .filter(Owner.id == owner_id)
+        .first()
+    )
+    if not owner:
+        raise HTTPException(status_code=404, detail="Owner not found")
+
+    overdue_invoices = [
+        invoice
+        for invoice in owner.invoices
+        if invoice.status == "OPEN" and invoice.due_date < date.today()
+    ]
+    if not overdue_invoices:
+        raise HTTPException(status_code=400, detail="Owner does not have overdue invoices")
+
+    pdf_path = generate_attorney_notice_pdf(owner, overdue_invoices, payload.notes)
+    notice_url = _public_notice_url(pdf_path)
+    notification_message = (
+        f"{owner.primary_name} has been escalated to legal review "
+        f"with ${sum((_as_decimal(inv.amount) for inv in overdue_invoices), Decimal('0'))} outstanding."
+    )
+    create_notification(
+        db,
+        title="Attorney Packet Ready",
+        message=notification_message,
+        category="billing",
+        link_url=notice_url,
+        role_names=["ATTORNEY"],
+    )
+    db.commit()
+
+    audit_log(
+        db_session=db,
+        actor_user_id=actor.id,
+        action="billing.overdue.forward_attorney",
+        target_entity_type="Owner",
+        target_entity_id=str(owner.id),
+        after={
+            "owner_id": owner.id,
+            "invoice_ids": [invoice.id for invoice in overdue_invoices],
+            "notice": notice_url,
+            "notes": payload.notes,
+        },
+    )
+    return ForwardAttorneyResponse(notice_url=notice_url)

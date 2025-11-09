@@ -73,6 +73,14 @@ def test_violation_transition_generates_notice_and_email(
 
     monkeypatch.setattr(violations.email, "send_announcement", _fake_send)
 
+    sent_notifications = []
+
+    def _fake_notification(session, **kwargs):
+        sent_notifications.append(kwargs)
+        return []
+
+    monkeypatch.setattr(violations, "create_notification", _fake_notification)
+
     transition_violation(
         db_session,
         violation,
@@ -83,9 +91,11 @@ def test_violation_transition_generates_notice_and_email(
 
     notice = db_session.query(ViolationNotice).filter_by(violation_id=violation.id).one()
     assert notice.template_key == "WARNING_SENT"
-    assert Path(notice.pdf_path).exists()
+    stored_name = Path(notice.pdf_path).name
+    assert (violations.NOTICE_DIRECTORY / stored_name).exists()
     assert sent_payloads, "Expected email notification to be triggered"
     assert owner.primary_email in sent_payloads[0][2]
+    assert sent_notifications, "Expected at least one notification payload"
 
 
 def test_violation_transition_rejects_invalid_target(db_session, create_user, create_owner):

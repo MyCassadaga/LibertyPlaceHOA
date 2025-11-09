@@ -5,79 +5,111 @@ import { useAuth } from '../hooks/useAuth';
 import { userHasAnyRole, userHasRole } from '../utils/roles';
 import NavBar from './NavBar';
 
-interface NavItem {
-  label: string;
-  to: string;
-  roles?: string[];
-}
+const boardRoles = ['BOARD', 'TREASURER', 'SECRETARY', 'SYSADMIN', 'ATTORNEY'];
 
 const Layout: React.FC = () => {
   const { user } = useAuth();
 
-  const navItems = useMemo<NavItem[]>(() => {
-    if (!user) return [];
-    const entries = new Map<string, NavItem>();
-    const addItem = (label: string, to: string) => {
-      if (!entries.has(to)) {
-        entries.set(to, { label, to });
-      }
+  const { isHomeowner, isBoard, isSysAdmin, isAuditor } = useMemo(() => {
+    if (!user) {
+      return { isHomeowner: false, isBoard: false, isSysAdmin: false, isAuditor: false };
+    }
+    return {
+      isHomeowner: userHasRole(user, 'HOMEOWNER'),
+      isBoard: userHasAnyRole(user, boardRoles),
+      isSysAdmin: userHasRole(user, 'SYSADMIN'),
+      isAuditor: userHasRole(user, 'AUDITOR'),
     };
-
-    addItem('Dashboard', '/dashboard');
-    addItem('Billing', '/billing');
-    addItem('Account', '/owner-profile');
-
-    if (userHasRole(user, 'HOMEOWNER')) {
-      addItem('Violations', '/violations');
-      addItem('ARC Requests', '/arc');
-    }
-    if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY'])) {
-      addItem('Owners', '/owners');
-    }
-    if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN', 'ATTORNEY'])) {
-      addItem('Contracts', '/contracts');
-    }
-    if (userHasAnyRole(user, ['BOARD', 'SECRETARY', 'SYSADMIN'])) {
-      addItem('Comms', '/communications');
-    }
-    if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY', 'ATTORNEY'])) {
-      addItem('Violations', '/violations');
-    }
-    if (userHasAnyRole(user, ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY'])) {
-      addItem('ARC Requests', '/arc');
-    }
-    if (userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN'])) {
-      addItem('Reconciliation', '/reconciliation');
-    }
-    if (userHasAnyRole(user, ['BOARD', 'SYSADMIN'])) {
-      addItem('Reports', '/reports');
-    }
-    if (userHasRole(user, 'SYSADMIN')) {
-      addItem('Admin', '/admin');
-    }
-
-    return Array.from(entries.values());
   }, [user]);
+
+  const renderLink = (to: string, label: string, index: number) => (
+    <NavLink
+      key={`${to}-${index}`}
+      to={to}
+      className={({ isActive }) =>
+        `block rounded px-3 py-2 text-sm font-medium ${
+          isActive ? 'bg-primary-600 text-white' : 'text-slate-600 hover:bg-primary-50'
+        }`
+      }
+    >
+      {label}
+    </NavLink>
+  );
+
+  const homeownerLinks = useMemo(() => {
+    if (!user || !isHomeowner) return [];
+    const items: { label: string; to: string; roles?: string[] }[] = [
+      { label: 'Account', to: '/owner-profile' },
+      { label: 'ARC Requests', to: '/arc' },
+      { label: 'Budget', to: '/budget' },
+      { label: 'Billing', to: '/billing' },
+      { label: 'Documents', to: '/documents' },
+      { label: 'Elections', to: '/elections' },
+      { label: 'Meetings', to: '/meetings' },
+      { label: 'Violations', to: '/violations' },
+    ];
+    return items
+      .filter((item) => (item.roles ? userHasAnyRole(user, item.roles) : true))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [isHomeowner, user]);
+
+  const homeownerRoutes = useMemo(() => new Set(homeownerLinks.map((item) => item.to)), [homeownerLinks]);
+
+  const boardLinks = useMemo(() => {
+    if (!user || !isBoard) return [];
+    const items: { label: string; to: string; roles?: string[] }[] = [
+      { label: 'Budget', to: '/budget' },
+      { label: 'Paperwork', to: '/board/paperwork' },
+      { label: 'Comms', to: '/communications', roles: ['BOARD', 'SECRETARY', 'SYSADMIN'] },
+      { label: 'Contracts', to: '/contracts', roles: ['BOARD', 'TREASURER', 'SYSADMIN', 'ATTORNEY'] },
+      { label: 'Owners', to: '/owners', roles: ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY'] },
+      { label: 'Reports', to: '/reports', roles: ['BOARD', 'SYSADMIN'] },
+      { label: 'Reconciliation', to: '/reconciliation', roles: ['BOARD', 'TREASURER', 'SYSADMIN'] },
+    ];
+    return items
+      .filter(
+        (item) =>
+          (!item.roles || userHasAnyRole(user, item.roles)) &&
+          !(isHomeowner && homeownerRoutes.has(item.to)),
+      )
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [homeownerRoutes, isBoard, isHomeowner, user]);
 
   return (
     <div className="min-h-screen bg-slate-100">
       <NavBar />
       <div className="mx-auto flex max-w-6xl gap-6 px-4 py-6">
-        <aside className="w-48">
-          <nav className="space-y-2">
-            {navItems.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `block rounded px-3 py-2 text-sm font-medium ${
-                    isActive ? 'bg-primary-600 text-white' : 'text-slate-600 hover:bg-primary-50'
-                  }`
-                }
-              >
-                {item.label}
-              </NavLink>
-            ))}
+        <aside className="w-52">
+          <nav className="space-y-4">
+            {renderLink('/dashboard', 'Dashboard', 0)}
+
+            {isHomeowner && homeownerLinks.length > 0 && (
+              <div>
+                <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Homeowner</p>
+                <div className="mt-1 space-y-1">
+                  {homeownerLinks.map((item, index) => renderLink(item.to, item.label, index))}
+                </div>
+              </div>
+            )}
+
+            {isBoard && boardLinks.length > 0 && (
+              <div>
+                <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Board</p>
+                <div className="mt-1 space-y-1">
+                  {boardLinks.map((item, index) => renderLink(item.to, item.label, index))}
+                </div>
+              </div>
+            )}
+
+            {(isSysAdmin || isAuditor) && (
+              <div>
+                <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Admin</p>
+                <div className="mt-1 space-y-1">
+                  {isSysAdmin && renderLink('/admin', 'Admin', 999)}
+                  {renderLink('/audit-log', 'Audit Log', 1000)}
+                </div>
+              </div>
+            )}
           </nav>
         </aside>
         <main className="flex-1 rounded bg-white p-6 shadow">

@@ -248,7 +248,7 @@ const CommunicationsPage: React.FC = () => {
                     View recipient snapshot ({broadcast.recipient_count})
                   </summary>
                   <ul className="mt-2 grid gap-2 text-xs md:grid-cols-2">
-                    {broadcast.recipients.map((recipient) => (
+                    {(broadcast.recipients ?? []).map((recipient) => (
                       <li
                         key={`${recipient.email}-${recipient.owner_id ?? 'none'}-${recipient.contact_type ?? 'contact'}`}
                         className="rounded border border-slate-200 p-2"

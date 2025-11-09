@@ -1,6 +1,6 @@
-# Liberty Place HOA Management Platform (Phases 1–2)
+# Liberty Place HOA Management Platform (Phases 1–3)
 
-The Liberty Place HOA portal modernises self-managed board tasks across multiple phases. Phase 1 delivered homeowner directory, billing, communications, contracts, and RBAC foundations. Phase 2 builds on that work with covenant violation workflows, compliance notices, enhanced reporting, and admin tooling. The stack remains FastAPI + SQLAlchemy + Alembic on the backend with a Vite + React + TypeScript frontend.
+The Liberty Place HOA portal modernises self-managed board tasks across multiple phases. Phase 1 delivered homeowner directory, billing, communications, contracts, and RBAC foundations. Phase 2 built out covenant violations, compliance notices, reporting, and admin tooling. Phase 3 introduces elections and ballot management, paving the way for maintenance workflows and real-time notifications. The stack remains FastAPI + SQLAlchemy + Alembic on the backend with a Vite + React + TypeScript frontend.
 
 ## Prerequisites
 
@@ -19,13 +19,16 @@ source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# 3. Apply database migrations
+# 3. Copy environment template and customise values
+cp .env.template .env
+
+# 4. Apply database migrations
 alembic upgrade head
 
-# 4. (One-time) create the initial SYSADMIN user
+# 5. (One-time) create the initial SYSADMIN user
 python backend/manage_create_admin.py --email admin@example.com --password changeme
-python -m backend.manage_create_admin …
-# 5. Run the FastAPI development server
+
+# 6. Run the FastAPI development server
 uvicorn backend.main:app --reload --port 8000
 ```
 
@@ -51,16 +54,37 @@ python3 scripts/start_dev.py
 
 This launcher runs Alembic migrations, starts `uvicorn` on port 8001, and kicks off the Vite dev server on port 5174. Press `Ctrl+C` to stop both processes together.
 
-### Seeding quick test data
+## Environment variables
 
-To add a contract for renewal reminder testing, use:
+All runtime configuration now lives in `.env` files. Copy `.env.template` (backend) and `frontend/.env.template` before running the app. The most important keys:
+
+| Variable | Purpose |
+|----------|---------|
+| `FRONTEND_URL` | Origin allowed via CORS (Vercel/localhost). |
+| `API_BASE` | Public API origin. Used by the frontend and URL builders. |
+| `DATABASE_URL` | Connection string (SQLite locally, PostgreSQL in production). |
+| `STRIPE_API_KEY` | Placeholder for future payment integration. |
+| `SENDGRID_API_KEY` | Enables the SendGrid email backend. |
+| `FILE_STORAGE_BACKEND` | `local` (default) or `s3` for production uploads. |
+
+Additional optional keys cover S3 bucket details, email defaults, PDF/email output directories, and extra CORS origins. Never commit actual secrets—`.env.template` is the canonical source of required keys.
+
+### File storage backends
+
+Uploads now flow through a storage abstraction:
+
+- **Local development**: files land in the `uploads/` directory and are served from `/uploads/*`.
+- **Production (S3)**: set `FILE_STORAGE_BACKEND=s3` plus the bucket/region credentials. The API proxies `/uploads/*` requests to S3 so existing URLs continue to work.
+
+## Seeding quick test data
+
+Generate a sysadmin account plus a handful of homeowners/invoices with:
 
 ```bash
-python3 scripts/add_contract.py --vendor "ACME Landscaping" --service "Landscaping" \
-  --start 2024-01-01 --end 2024-12-31 --notice-deadline 2024-12-01 --auto-renew
+python3 scripts/seed_data.py --homeowners 5
 ```
 
-Adjust dates and fields as needed; the script writes directly to the dev database configured in `.env`.
+Every generated account uses the password `changeme`. Re-run the script with a higher `--homeowners` count to append more fixtures.
 
 ## Default Roles & Access
 
@@ -86,6 +110,16 @@ frontend/       React + Vite + Tailwind UI
 migrations/     Alembic migration scripts (inside backend/migrations)
 docs/           Phase scope and extended documentation
 ```
+
+## Phase 3 Highlights
+
+- **Elections & secret ballots**: New `elections`, `election_candidates`, `election_ballots`, and `election_votes` tables with REST endpoints for board/sysadmin users to create elections, manage candidates, issue one-time ballot tokens, and tally results. Homeowners can view upcoming elections in-app and vote via secure token links (`/vote/:electionId?token=…`).
+- **Budgets & reserves**: `/budgets` API and page let board/treasurer/sysadmin roles build annual budgets, add unlimited line items, project reserve needs (with inflation adjustments), attach reserve studies, and lock the plan for the year. Homeowners have read-only access to approved budgets with quarterly assessment breakdowns.
+- **Elections dashboard**: The `/elections` page surfaces upcoming ballots, closed results, candidate management, and ballot issuance for board/sysadmin roles. Managers can generate/export ballots while homeowners see guidance for their emailed ballot link.
+- **Public ballot page**: `/vote/:id?token=` renders the election, candidates, optional write-in, and posts a one-time vote backed by `/elections/public/*` APIs.
+- **Real-time notification center**: A dedicated `/notifications` API and WebSocket stream (`/notifications/ws?token=`) push alerts without polling. Violation state changes and election status updates broadcast to homeowners/board members, while sysadmins can send manual announcements. The React navbar now hosts a live notifications menu fed by the socket connection.
+- **2FA + refresh tokens**: Login supports TOTP-based two-factor authentication with full setup/enable/disable flows, and refresh tokens extend session persistence. The auth pytest suite exercises OTP validation, refresh issuance, and toggle endpoints.
+- **Expanded test coverage**: Pytest suite covers elections, notifications, ARC workflows, RBAC, and violation state machines to guard regressions across critical services.
 
 ## Phase 2 Highlights
 
@@ -113,11 +147,42 @@ docs/           Phase scope and extended documentation
 - `GET /reports/ar-aging`, `GET /reports/cash-flow` — financial CSV exports (BOARD/TREASURER/SYSADMIN).
 - `GET /reports/violations-summary`, `GET /reports/arc-sla` — compliance and ARC SLA analytics CSVs.
 - `/banking/reconciliations` & `/banking/transactions` — review bank statement imports, matched/unmatched items, and reconciliation details.
+- `GET /elections/` — list elections (board/sysadmin roles see all, homeowners see open/scheduled events).
+- `POST /elections/` — create elections, `POST /elections/{id}/candidates` add candidates, `POST /elections/{id}/ballots/generate` issue one-time ballot tokens.
+- `POST /elections/{id}/vote` — homeowners submit ballots directly inside the portal; `GET/POST /elections/public/{id}` still support tokenised links for email workflows.
+- `GET /documents` & related CRUD routes — governance document library with folder hierarchy (board/admin manage, homeowners view/download).
+- `GET /meetings` + `/meetings/{id}/minutes` — HOA meeting calendar with zoom links and minutes uploads.
 
-Frontend entry points: `/owner-profile` (Account settings for all roles), `/violations` (board + homeowner visibility), `/owners` (roster with archiving tools), and `/admin` (sysadmin only).
+Frontend entry points: `/owner-profile` (Account settings for all roles), `/violations` (board + homeowner visibility), `/owners` (roster with archiving tools), `/elections` (ballot dashboard), and `/admin` (sysadmin only).
+
+### Click2Mail paper mail integration
+
+Paperwork items can be mailed directly through Click2Mail. Configure the following environment variables to enable the workflow:
+
+```
+CLICK2MAIL_ENABLED=true
+CLICK2MAIL_SUBDOMAIN=rest
+CLICK2MAIL_USERNAME=your-api-username
+CLICK2MAIL_PASSWORD=your-api-password
+CLICK2MAIL_RETURN_NAME=Liberty Place HOA
+CLICK2MAIL_RETURN_ADDRESS1=123 Boardwalk Way
+CLICK2MAIL_RETURN_CITY=Portland
+CLICK2MAIL_RETURN_STATE=OR
+CLICK2MAIL_RETURN_POSTAL=97201
+CLICK2MAIL_DEFAULT_CITY=Portland
+CLICK2MAIL_DEFAULT_STATE=OR
+CLICK2MAIL_DEFAULT_POSTAL=97201
+```
+
+Use the `CLICK2MAIL_DEFAULT_*` variables when legacy owner data only contains a street line; otherwise provide fully qualified `Street, City, ST ZIP` strings on each owner. Once configured, the Paperwork page surfaces a “Send via Click2Mail” action that uploads the notice PDF, generates a single-recipient address list, and queues the job with the return address you provided. Job IDs and provider statuses are echoed back in the Paperwork history for auditing.
 
 ## Tests & Next Steps
 
-- Add automated tests (pytest) around violation state transitions and notice generation.
+- Run `pytest` for election, notifications, ARC, RBAC, and violation regression coverage.
 - Integrate a production-grade email/PDF provider in place of the current stubs.
-- Implement 2FA and persistent session storage as outlined in the full spec.
+- Re-scope the maintenance/work-order module (if needed) and wire CI/CD automation to execute linting/tests on push.
+
+## Deployment blueprints
+
+- **frontend (Vercel)**: `vercel.json` builds `frontend/` via `@vercel/static-build`. Define a Vercel secret called `api-base` (or update the file) so `VITE_API_URL` matches your Render backend.
+- **backend (Render)**: `render.yaml` provisions a Python web service plus managed PostgreSQL. Replace the placeholder URLs with your actual Vercel/Render domains and set optional secrets (`SENDGRID_API_KEY`, `STRIPE_API_KEY`, S3 credentials) via the Render dashboard.

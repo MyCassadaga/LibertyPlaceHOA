@@ -18,6 +18,21 @@ export interface User {
   two_factor_enabled: boolean;
 }
 
+export interface Notification {
+  id: number;
+  title: string;
+  message: string;
+  level: string;
+  category?: string | null;
+  link_url?: string | null;
+  created_at: string;
+  read_at?: string | null;
+}
+
+export interface LoginBackgroundResponse {
+  url: string | null;
+}
+
 export interface Invoice {
   id: number;
   owner_id: number;
@@ -33,6 +48,36 @@ export interface Invoice {
   last_reminder_sent_at?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface OverdueInvoice {
+  id: number;
+  amount: string;
+  due_date: string;
+  status: string;
+  days_overdue: number;
+  months_overdue: number;
+  reminders_sent: number;
+}
+
+export interface OverdueAccount {
+  owner_id: number;
+  owner_name: string;
+  property_address?: string | null;
+  primary_email?: string | null;
+  primary_phone?: string | null;
+  total_due: string;
+  max_months_overdue: number;
+  last_reminder_sent_at?: string | null;
+  invoices: OverdueInvoice[];
+}
+
+export interface OverdueContactResponse {
+  notified_user_ids: number[];
+}
+
+export interface ForwardAttorneyResponse {
+  notice_url: string;
 }
 
 export interface Payment {
@@ -133,6 +178,240 @@ export interface OwnerUpdatePayload {
   emergency_contact?: string | null;
   is_rental?: boolean | null;
   notes?: string | null;
+}
+
+export type ElectionStatus =
+  | 'DRAFT'
+  | 'SCHEDULED'
+  | 'OPEN'
+  | 'CLOSED'
+  | 'ARCHIVED';
+
+export interface ElectionCandidate {
+  id: number;
+  display_name: string;
+  statement?: string | null;
+  owner_id?: number | null;
+  created_at: string;
+}
+
+export interface ElectionResult {
+  candidate_id?: number | null;
+  candidate_name?: string | null;
+  vote_count: number;
+}
+
+export interface ElectionListItem {
+  id: number;
+  title: string;
+  status: ElectionStatus;
+  opens_at?: string | null;
+  closes_at?: string | null;
+  ballot_count: number;
+  votes_cast: number;
+}
+
+export interface ElectionDetail {
+  id: number;
+  title: string;
+  description?: string | null;
+  status: ElectionStatus;
+  opens_at?: string | null;
+  closes_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  candidates: ElectionCandidate[];
+  ballot_count: number;
+  votes_cast: number;
+  results: ElectionResult[];
+  my_status?: ElectionMyStatus | null;
+}
+
+export interface ElectionAdminBallot {
+  id: number;
+  owner_id: number;
+  owner_name?: string | null;
+  token: string;
+  issued_at: string;
+  voted_at?: string | null;
+}
+
+export interface ElectionPublicDetail {
+  id: number;
+  title: string;
+  description?: string | null;
+  status: ElectionStatus;
+  opens_at?: string | null;
+  closes_at?: string | null;
+  candidates: ElectionCandidate[];
+  has_voted: boolean;
+}
+
+export interface ElectionMyStatus {
+  has_ballot: boolean;
+  has_voted: boolean;
+  voted_at?: string | null;
+}
+
+export interface BudgetSummary {
+  id: number;
+  year: number;
+  status: string;
+  total_annual: string;
+  assessment_per_quarter: string;
+}
+
+export interface BudgetLineItem {
+  id: number;
+  label: string;
+  category?: string | null;
+  amount: string;
+  is_reserve: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ReservePlanItem {
+  id: number;
+  name: string;
+  target_year: number;
+  estimated_cost: string;
+  inflation_rate: number;
+  current_funding: string;
+  notes?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BudgetAttachment {
+  id: number;
+  file_name: string;
+  stored_path: string;
+  content_type?: string | null;
+  file_size?: number | null;
+  uploaded_at: string;
+}
+
+export interface BudgetApproval {
+  user_id: number;
+  full_name?: string | null;
+  email?: string | null;
+  approved_at: string;
+}
+
+export interface BudgetDetail {
+  id: number;
+  year: number;
+  status: string;
+  home_count: number;
+  notes?: string | null;
+  locked_at?: string | null;
+  locked_by_user_id?: number | null;
+  total_annual: string;
+  operations_total: string;
+  reserves_total: string;
+  assessment_per_quarter: string;
+  created_at: string;
+  updated_at: string;
+  line_items: BudgetLineItem[];
+  reserve_items: ReservePlanItem[];
+  attachments: BudgetAttachment[];
+  approvals: BudgetApproval[];
+  approval_count: number;
+  required_approvals: number;
+  user_has_approved: boolean;
+}
+
+export interface PaperworkClaimUser {
+  id: number;
+  full_name?: string | null;
+  email: string;
+}
+
+export interface PaperworkItem {
+  id: number;
+  notice_id: number;
+  owner_id: number;
+  owner_name: string;
+  owner_address: string;
+  notice_type_code: string;
+  subject: string;
+  required: boolean;
+  status: string;
+  delivery_provider?: string | null;
+  provider_status?: string | null;
+  provider_job_id?: string | null;
+  pdf_available: boolean;
+  claimed_by?: PaperworkClaimUser | null;
+  claimed_at?: string | null;
+  mailed_at?: string | null;
+  created_at: string;
+}
+
+export interface PaperworkFeatures {
+  click2mail_enabled: boolean;
+}
+
+export interface GovernanceDocument {
+  id: number;
+  folder_id?: number | null;
+  title: string;
+  description?: string | null;
+  content_type?: string | null;
+  file_size?: number | null;
+  uploaded_by_user_id?: number | null;
+  created_at: string;
+  download_url: string;
+}
+
+export interface DocumentFolder {
+  id: number;
+  name: string;
+  description?: string | null;
+  parent_id?: number | null;
+  documents: GovernanceDocument[];
+  children: DocumentFolder[];
+}
+
+export interface DocumentTreeResponse {
+  folders: DocumentFolder[];
+  root_documents: GovernanceDocument[];
+}
+
+export interface Meeting {
+  id: number;
+  title: string;
+  description?: string | null;
+  start_time: string;
+  end_time?: string | null;
+  location?: string | null;
+  zoom_link?: string | null;
+  minutes_available: boolean;
+  minutes_download_url?: string | null;
+  created_by_user_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  timestamp: string;
+  action: string;
+  target_entity_type?: string | null;
+  target_entity_id?: string | null;
+  before?: string | null;
+  after?: string | null;
+  actor: {
+    id?: number | null;
+    email?: string | null;
+    full_name?: string | null;
+  };
+}
+
+export interface AuditLogResponse {
+  items: AuditLogEntry[];
+  total: number;
 }
 
 export interface Contract {
@@ -415,6 +694,38 @@ export interface BillingPolicyUpdatePayload {
   grace_period_days: number;
   dunning_schedule_days: number[];
   tiers: LateFeeTierInput[];
+}
+
+export type AutopayAmountType = 'STATEMENT_BALANCE' | 'FIXED';
+
+export interface AutopayEnrollment {
+  owner_id: number;
+  status: 'NOT_ENROLLED' | 'PENDING' | 'PENDING_PROVIDER' | 'ACTIVE' | 'PAUSED' | 'CANCELLED';
+  payment_day?: number | null;
+  amount_type: AutopayAmountType;
+  fixed_amount?: string | null;
+  funding_source_mask?: string | null;
+  provider: string;
+  provider_status?: string | null;
+  provider_setup_required: boolean;
+  last_run_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface VendorPayment {
+  id: number;
+  contract_id?: number | null;
+  vendor_name: string;
+  amount: string;
+  memo?: string | null;
+  status: 'PENDING' | 'SUBMITTED' | 'FAILED' | 'PAID';
+  provider: string;
+  provider_status?: string | null;
+  provider_reference?: string | null;
+  requested_at: string;
+  submitted_at?: string | null;
+  paid_at?: string | null;
 }
 
 export interface TwoFactorSetupResponse {

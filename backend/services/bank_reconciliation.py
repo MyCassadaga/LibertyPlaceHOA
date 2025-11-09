@@ -4,7 +4,6 @@ import csv
 import secrets
 from datetime import datetime
 from decimal import Decimal
-from pathlib import Path
 from typing import Dict, List, Optional
 
 from fastapi import UploadFile
@@ -12,9 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..models.models import BankTransaction, Payment, Reconciliation, User, Invoice
 from ..services.audit import audit_log
-
-BANK_UPLOAD_DIR = Path("uploads/bank")
-BANK_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+from ..services.storage import storage_service
 
 
 def _parse_amount(raw: str) -> Decimal:
@@ -119,9 +116,8 @@ def import_bank_statement(
     session.flush()  # get ID for filenames
 
     stored_filename = f"reconciliation_{reconciliation.id}_{secrets.token_hex(8)}.csv"
-    target_path = BANK_UPLOAD_DIR / stored_filename
     file.file.seek(0)
-    target_path.write_bytes(file.file.read())
+    stored = storage_service.save_file(f"bank/{stored_filename}", file.file.read(), content_type="text/csv")
 
     transactions: List[BankTransaction] = []
     for row in rows:
@@ -134,7 +130,7 @@ def import_bank_statement(
             reference=row.get("reference") or row.get("memo"),
             amount=amount,
             status="PENDING",
-            source_file=str(target_path),
+            source_file=stored.public_path,
         )
         session.add(transaction)
         transactions.append(transaction)

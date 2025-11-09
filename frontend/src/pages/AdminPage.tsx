@@ -1,7 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import { fetchRoles, fetchUsers, registerUser, updateUserRoles, RegisterUserPayload } from '../services/api';
+import {
+  fetchRoles,
+  fetchUsers,
+  registerUser,
+  updateUserRoles,
+  fetchLoginBackground,
+  uploadLoginBackground,
+  RegisterUserPayload,
+} from '../services/api';
+import { API_BASE_URL } from '../services/api';
 import { RoleOption, User } from '../types';
 import { formatUserRoles } from '../utils/roles';
 
@@ -26,6 +35,18 @@ const AdminPage: React.FC = () => {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [loginBackgroundUrl, setLoginBackgroundUrl] = useState<string | null>(null);
+  const [backgroundStatus, setBackgroundStatus] = useState<string | null>(null);
+  const [backgroundError, setBackgroundError] = useState<string | null>(null);
+  const [backgroundUploading, setBackgroundUploading] = useState(false);
+  const [backgroundFile, setBackgroundFile] = useState<File | null>(null);
+
+  const toAbsoluteBackgroundUrl = useCallback((url?: string | null) => {
+    if (!url) return null;
+    const base = API_BASE_URL.replace(/\/$/, '');
+    const path = url.startsWith('/') ? url : `/${url}`;
+    return `${base}${path}`;
+  }, []);
 
   const normalizeRoleIds = useCallback((ids: number[]): number[] => {
     return Array.from(new Set(ids)).sort((a, b) => a - b);
@@ -110,6 +131,18 @@ const AdminPage: React.FC = () => {
     void loadUsers();
   }, [loadUsers]);
 
+  useEffect(() => {
+    const loadBackground = async () => {
+      try {
+        const data = await fetchLoginBackground();
+        setLoginBackgroundUrl(toAbsoluteBackgroundUrl(data.url));
+      } catch {
+        setLoginBackgroundUrl(null);
+      }
+    };
+    void loadBackground();
+  }, [toAbsoluteBackgroundUrl]);
+
   const handleTextChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
     setForm((prev) => ({
@@ -172,6 +205,36 @@ const AdminPage: React.FC = () => {
       setRoleError('Unable to update roles. Ensure the account retains at least one role and a SYSADMIN remains active.');
     } finally {
       setSavingUserId(null);
+    }
+  };
+
+  const handleBackgroundFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setBackgroundStatus(null);
+    setBackgroundError(null);
+    const file = event.target.files?.[0] ?? null;
+    setBackgroundFile(file);
+  };
+
+  const handleBackgroundUpload = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!backgroundFile) {
+      setBackgroundError('Select an image before uploading.');
+      return;
+    }
+    setBackgroundUploading(true);
+    setBackgroundStatus(null);
+    setBackgroundError(null);
+    try {
+      const data = await uploadLoginBackground(backgroundFile);
+      setLoginBackgroundUrl(toAbsoluteBackgroundUrl(data.url));
+      setBackgroundStatus('Login background updated successfully.');
+      setBackgroundFile(null);
+      event.currentTarget.reset();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to upload background image.';
+      setBackgroundError(message);
+    } finally {
+      setBackgroundUploading(false);
     }
   };
 
@@ -310,7 +373,51 @@ const AdminPage: React.FC = () => {
         {submitting ? 'Creating…' : 'Create User'}
       </button>
     </form>
-  </section>
+      </section>
+
+      <section className="rounded border border-slate-200 p-4">
+        <h3 className="mb-2 text-lg font-semibold text-slate-700">Login Background</h3>
+        <p className="mb-4 text-sm text-slate-500">
+          Upload a PNG or JPG that appears behind the login form. Existing backgrounds are replaced immediately.
+        </p>
+        {loginBackgroundUrl ? (
+          <div className="mb-4">
+            <p className="mb-2 text-xs uppercase text-slate-500">Current preview</p>
+            <div className="overflow-hidden rounded border border-slate-200">
+              <img src={loginBackgroundUrl} alt="Login background" className="h-40 w-full object-cover" />
+            </div>
+          </div>
+        ) : (
+          <p className="mb-4 text-sm text-slate-500">No background configured. The login page uses a neutral gradient.</p>
+        )}
+
+        <form onSubmit={handleBackgroundUpload} className="space-y-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="admin-login-background">
+              Upload new background
+            </label>
+            <input
+              id="admin-login-background"
+              type="file"
+              accept="image/png, image/jpeg"
+              onChange={handleBackgroundFileChange}
+              className="block w-full text-sm text-slate-600 file:mr-4 file:rounded file:border-0 file:bg-primary-50 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-primary-600 hover:file:bg-primary-100"
+            />
+            <p className="mt-1 text-xs text-slate-500">Recommended size ≥ 1600px width. Maximum suggested upload 5MB.</p>
+          </div>
+
+          {backgroundError && <p className="text-sm text-red-600">{backgroundError}</p>}
+          {backgroundStatus && <p className="text-sm text-green-600">{backgroundStatus}</p>}
+
+          <button
+            type="submit"
+            className="rounded bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
+            disabled={backgroundUploading}
+          >
+            {backgroundUploading ? 'Uploading…' : 'Upload Background'}
+          </button>
+        </form>
+      </section>
 
       <section className="rounded border border-slate-200 p-4">
         <h3 className="mb-2 text-lg font-semibold text-slate-700">Manage Existing Accounts</h3>
