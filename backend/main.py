@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlalchemy.orm import Session, joinedload
 
 from .api import (
@@ -292,6 +293,20 @@ app.include_router(meetings.router)
 app.include_router(audit_logs.router)
 app.include_router(system.router, prefix="/system", tags=["system"])
 app.include_router(payments.router, prefix="/payments", tags=["payments"])
+
+
+@app.get("/health", include_in_schema=False)
+def health_check():
+    status = "ok"
+    db_status = "ok"
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:  # pragma: no cover - only surfaces in production
+        logger.exception("Health check database probe failed")
+        status = "degraded"
+        db_status = "error"
+    return {"status": status, "database": db_status}
 
 
 @app.middleware("http")
