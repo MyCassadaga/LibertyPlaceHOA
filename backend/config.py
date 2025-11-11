@@ -3,7 +3,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
-from pydantic import AnyHttpUrl, BaseSettings, EmailStr, Field
+from pydantic import AnyHttpUrl, BaseSettings, EmailStr, Field, validator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -67,6 +67,20 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+
+    @validator("database_url", pre=True)
+    def normalize_database_url(cls, value: str) -> str:
+        # Neon/Render sometimes supply values like: psql 'postgresql://...'
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip()
+        if normalized.startswith("psql "):
+            normalized = normalized[5:].strip()
+        if (normalized.startswith("'") and normalized.endswith("'")) or (
+            normalized.startswith('"') and normalized.endswith('"')
+        ):
+            normalized = normalized[1:-1].strip()
+        return normalized
 
     @property
     def cors_allow_origins(self) -> List[str]:
