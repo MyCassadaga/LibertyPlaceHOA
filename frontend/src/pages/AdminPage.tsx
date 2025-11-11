@@ -217,6 +217,7 @@ const AdminPage: React.FC = () => {
 
   const handleBackgroundUpload = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const formElement = event.currentTarget;
     if (!backgroundFile) {
       setBackgroundError('Select an image before uploading.');
       return;
@@ -229,7 +230,7 @@ const AdminPage: React.FC = () => {
       setLoginBackgroundUrl(toAbsoluteBackgroundUrl(data.url));
       setBackgroundStatus('Login background updated successfully.');
       setBackgroundFile(null);
-      event.currentTarget.reset();
+      formElement.reset();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to upload background image.';
       setBackgroundError(message);

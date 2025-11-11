@@ -6,6 +6,7 @@ from typing import List, Optional
 from pydantic import AnyHttpUrl, BaseSettings, EmailStr, Field, validator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from .constants import CORS_ALLOW_ORIGINS
 
 
 class Settings(BaseSettings):
@@ -85,10 +86,20 @@ class Settings(BaseSettings):
     @property
     def cors_allow_origins(self) -> List[str]:
         origins: List[str] = [str(self.frontend_url)]
+        for default_origin in CORS_ALLOW_ORIGINS:
+            if default_origin not in origins:
+                origins.append(default_origin)
         if self.additional_cors_origins:
             extras = [origin.strip() for origin in self.additional_cors_origins.split(",") if origin.strip()]
             origins.extend(extras)
-        return origins
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_origins: List[str] = []
+        for origin in origins:
+            if origin not in seen:
+                unique_origins.append(origin)
+                seen.add(origin)
+        return unique_origins
 
     @property
     def uploads_root_path(self) -> Path:
