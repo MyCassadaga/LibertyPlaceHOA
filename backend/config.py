@@ -24,8 +24,14 @@ class Settings(BaseSettings):
     refresh_token_expire_minutes: int = Field(60 * 24 * 30, env="REFRESH_TOKEN_EXPIRE_MINUTES")
 
     # --- Email / Providers ---
+    # Note: keep SMTP + SendGrid knobs here so env overrides are consistent across hosts.
     email_backend: str = Field("local", env="EMAIL_BACKEND")
     sendgrid_api_key: Optional[str] = Field(None, env="SENDGRID_API_KEY")
+    email_host: Optional[str] = Field(None, env="EMAIL_HOST")
+    email_port: int = Field(587, env="EMAIL_PORT")
+    email_host_user: Optional[str] = Field(None, env="EMAIL_HOST_USER")
+    email_host_password: Optional[str] = Field(None, env="EMAIL_HOST_PASSWORD")
+    email_use_tls: bool = Field(True, env="EMAIL_USE_TLS")
     stripe_api_key: Optional[str] = Field(None, env="STRIPE_API_KEY")
     email_from_address: Optional[EmailStr] = Field(None, env="EMAIL_FROM_ADDRESS")
     email_from_name: str = Field("Liberty Place HOA", env="EMAIL_FROM_NAME")
