@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Iterable, List
 
@@ -94,7 +94,7 @@ def generate_cash_flow_report(session: Session, months: int = 12) -> CsvReport:
 
     monthly_totals: dict[str, Decimal] = {}
     for entry in entries:
-        timestamp = entry.timestamp or datetime.utcnow()
+        timestamp = entry.timestamp or datetime.now(timezone.utc)
         month_key = timestamp.strftime("%Y-%m")
         monthly_totals.setdefault(month_key, Decimal("0.00"))
         monthly_totals[month_key] += Decimal(entry.amount or 0)
@@ -104,7 +104,7 @@ def generate_cash_flow_report(session: Session, months: int = 12) -> CsvReport:
     rows = [[month, f"{monthly_totals[month]:.2f}"] for month in sorted_months]
 
     csv_content = _render_csv(headers, rows)
-    filename = f"cash-flow-{datetime.utcnow().date().isoformat()}.csv"
+    filename = f"cash-flow-{datetime.now(timezone.utc).date().isoformat()}.csv"
     return CsvReport(filename=filename, content=csv_content)
 
 
@@ -142,7 +142,7 @@ def generate_violations_summary_report(session: Session) -> CsvReport:
         rows.append([f"Category: {category}", str(count)])
 
     csv_content = _render_csv(headers, rows)
-    filename = f"violations-summary-{datetime.utcnow().date().isoformat()}.csv"
+    filename = f"violations-summary-{datetime.now(timezone.utc).date().isoformat()}.csv"
     return CsvReport(filename=filename, content=csv_content)
 
 
@@ -178,5 +178,5 @@ def generate_arc_sla_report(session: Session) -> CsvReport:
     ]
 
     csv_content = _render_csv(headers, rows)
-    filename = f"arc-sla-{datetime.utcnow().date().isoformat()}.csv"
+    filename = f"arc-sla-{datetime.now(timezone.utc).date().isoformat()}.csv"
     return CsvReport(filename=filename, content=csv_content)

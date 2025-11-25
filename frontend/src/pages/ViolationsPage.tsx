@@ -1,20 +1,20 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
 import Badge from '../components/Badge';
 import FilePreview from '../components/FilePreview';
 import Timeline, { TimelineEvent } from '../components/Timeline';
-import {
-  createViolation,
-  fetchFineSchedules,
-  fetchResidents,
-  fetchViolations,
-  fetchViolationNotices,
-  transitionViolation,
-  submitAppeal,
-} from '../services/api';
-import { Appeal, FineSchedule, Resident, Violation, ViolationNotice, ViolationStatus } from '../types';
+import { Appeal, Violation, ViolationStatus } from '../types';
 import { formatUserRoles, userHasAnyRole, userHasRole } from '../utils/roles';
+import { useResidentsQuery } from '../features/owners/hooks';
+import {
+  useCreateViolationMutation,
+  useFineSchedulesQuery,
+  useSubmitAppealMutation,
+  useTransitionViolationMutation,
+  useViolationNoticesQuery,
+  useViolationsQuery,
+} from '../features/violations/hooks';
 
 const STATUS_LABELS: Record<ViolationStatus, string> = {
   NEW: 'New',
@@ -53,12 +53,7 @@ const ViolationsPage: React.FC = () => {
   const canManage = userHasAnyRole(user, manageRoles);
   const isHomeownerOnly = isHomeowner && !canManage;
 
-  const [violations, setViolations] = useState<Violation[]>([]);
-  const [fineSchedules, setFineSchedules] = useState<FineSchedule[]>([]);
-  const [residents, setResidents] = useState<Resident[]>([]);
-  const [selectedViolation, setSelectedViolation] = useState<Violation | null>(null);
-  const [notices, setNotices] = useState<ViolationNotice[]>([]);
-  const [loadingNotices, setLoadingNotices] = useState(false);
+  const [selectedViolationId, setSelectedViolationId] = useState<number | null>(null);
   const [appealText, setAppealText] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [createForm, setCreateForm] = useState({
@@ -75,52 +70,43 @@ const ViolationsPage: React.FC = () => {
   const [transitionNote, setTransitionNote] = useState('');
   const [transitionHearingDate, setTransitionHearingDate] = useState('');
   const [transitionFineAmount, setTransitionFineAmount] = useState('');
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-
-  const loadViolations = async () => {
-    try {
-      setLoading(true);
-      const filters = isHomeownerOnly
-        ? { mine: true }
-        : statusFilter !== 'ALL'
-        ? { status: statusFilter }
-        : {};
-      const data = await fetchViolations(filters);
-      setViolations(data);
-      if (selectedViolation) {
-        const updated = data.find((item) => item.id === selectedViolation.id);
-        setSelectedViolation(updated ?? null);
-      }
-    } catch (err) {
-      setError('Unable to load violations.');
-    } finally {
-      setLoading(false);
+  const violationsFilters = useMemo(() => {
+    if (isHomeownerOnly) {
+      return { mine: true };
     }
-  };
+    if (statusFilter !== 'ALL') {
+      return { status: statusFilter };
+    }
+    return {};
+  }, [isHomeownerOnly, statusFilter]);
 
-  useEffect(() => {
-    void loadViolations();
-  }, [statusFilter]);
+  const violationsQuery = useViolationsQuery(violationsFilters);
+  const violations = useMemo(() => violationsQuery.data ?? [], [violationsQuery.data]);
+  const selectedViolation = useMemo(
+    () => (selectedViolationId ? violations.find((item) => item.id === selectedViolationId) ?? null : null),
+    [selectedViolationId, violations],
+  );
 
-  useEffect(() => {
-    const init = async () => {
-      try {
-        if (canManage) {
-          const [schedules, residentList] = await Promise.all([fetchFineSchedules(), fetchResidents()]);
-          setFineSchedules(schedules);
-          setResidents(residentList);
-          if (schedules.length > 0) {
-            setCreateForm((prev) => ({ ...prev, fine_schedule_id: String(schedules[0].id) }));
-          }
-        }
-      } catch (err) {
-        setError('Unable to load supporting data.');
-      }
-    };
-    void init();
-  }, [canManage]);
+  const fineSchedulesQuery = useFineSchedulesQuery(canManage);
+  const fineSchedules = useMemo(() => fineSchedulesQuery.data ?? [], [fineSchedulesQuery.data]);
+  const residentsQuery = useResidentsQuery();
+  const residents = useMemo(() => residentsQuery.data ?? [], [residentsQuery.data]);
+  const noticesQuery = useViolationNoticesQuery(selectedViolation?.id ?? null);
+  const notices = useMemo(() => noticesQuery.data ?? [], [noticesQuery.data]);
+
+  const createViolationMutation = useCreateViolationMutation();
+  const transitionMutation = useTransitionViolationMutation();
+  const submitAppealMutation = useSubmitAppealMutation();
+
+  const loading = violationsQuery.isLoading;
+  const violationsError = violationsQuery.isError ? 'Unable to load violations.' : null;
+  const noticesLoading = noticesQuery.isLoading;
+  const combinedError = error ?? violationsError;
+  const logError = useCallback((message: string, err: unknown) => {
+    console.error(message, err);
+  }, []);
 
   const residentOptions = useMemo(() => {
     if (!canManage) return [];
@@ -164,29 +150,40 @@ const ViolationsPage: React.FC = () => {
   }, [residentOptions, createForm.target, canManage]);
 
   useEffect(() => {
+    if (canManage && fineSchedules.length > 0 && !createForm.fine_schedule_id) {
+      setCreateForm((prev) => ({
+        ...prev,
+        fine_schedule_id: prev.fine_schedule_id || String(fineSchedules[0].id),
+      }));
+    }
+  }, [canManage, fineSchedules, createForm.fine_schedule_id]);
+
+  useEffect(() => {
     if (!canManage) {
       setShowCreateForm(false);
     }
   }, [canManage]);
 
-  const handleSelectViolation = async (violation: Violation) => {
-    setSelectedViolation(violation);
+  useEffect(() => {
+    if (!selectedViolationId && violations.length > 0) {
+      setSelectedViolationId(violations[0].id);
+      return;
+    }
+    if (selectedViolationId) {
+      const exists = violations.some((violation) => violation.id === selectedViolationId);
+      if (!exists) {
+        setSelectedViolationId(violations[0]?.id ?? null);
+      }
+    }
+  }, [violations, selectedViolationId]);
+
+  const handleSelectViolation = (violation: Violation) => {
+    setSelectedViolationId(violation.id);
     setTransitionStatus('');
     setTransitionNote('');
     setTransitionHearingDate('');
     setTransitionFineAmount('');
     setAppealText('');
-    if (violation) {
-      try {
-        setLoadingNotices(true);
-        const noticesData = await fetchViolationNotices(violation.id);
-        setNotices(noticesData);
-      } catch (err) {
-        setError('Unable to load notices.');
-      } finally {
-        setLoadingNotices(false);
-      }
-    }
   };
 
   const violationTimeline = useMemo<TimelineEvent[]>(() => {
@@ -255,7 +252,7 @@ const ViolationsPage: React.FC = () => {
         return;
       }
 
-      await createViolation({
+      await createViolationMutation.mutateAsync({
         owner_id: ownerId,
         user_id: userId,
         category: createForm.category,
@@ -273,12 +270,8 @@ const ViolationsPage: React.FC = () => {
         due_date: '',
       });
       setSuccess('Violation created.');
-      await loadViolations();
-      if (canManage) {
-        const updatedResidents = await fetchResidents();
-        setResidents(updatedResidents);
-      }
     } catch (err) {
+      logError('Unable to create violation.', err);
       setError('Unable to create violation. Ensure required fields are completed.');
     } finally {
       setCreating(false);
@@ -291,19 +284,18 @@ const ViolationsPage: React.FC = () => {
       return;
     }
     try {
-      await transitionViolation(selectedViolation.id, {
-        target_status: transitionStatus,
-        note: transitionNote || undefined,
-        hearing_date: transitionHearingDate || undefined,
-        fine_amount: transitionFineAmount || undefined,
+      await transitionMutation.mutateAsync({
+        violationId: selectedViolation.id,
+        payload: {
+          target_status: transitionStatus,
+          note: transitionNote || undefined,
+          hearing_date: transitionHearingDate || undefined,
+          fine_amount: transitionFineAmount || undefined,
+        },
       });
       setSuccess('Status updated.');
-      await loadViolations();
-      const refreshed = violations.find((item) => item.id === selectedViolation.id);
-      if (refreshed) {
-        await handleSelectViolation(refreshed);
-      }
     } catch (err) {
+      logError('Unable to update violation status.', err);
       setError('Unable to update status. Check required fields for the transition.');
     }
   };
@@ -312,25 +304,14 @@ const ViolationsPage: React.FC = () => {
     event.preventDefault();
     if (!selectedViolation || !appealText.trim()) return;
     try {
-      await submitAppeal(selectedViolation.id, appealText.trim());
+      await submitAppealMutation.mutateAsync({ violationId: selectedViolation.id, message: appealText.trim() });
       setAppealText('');
       setSuccess('Appeal submitted.');
-      await loadViolations();
-      const refreshed = violations.find((item) => item.id === selectedViolation.id);
-      if (refreshed) {
-        await handleSelectViolation(refreshed);
-      }
     } catch (err) {
+      logError('Unable to submit appeal.', err);
       setError('Unable to submit appeal.');
     }
   };
-
-  const filteredViolations = useMemo(() => {
-    if (statusFilter === 'ALL') {
-      return violations;
-    }
-    return violations.filter((v) => v.status === statusFilter);
-  }, [violations, statusFilter]);
 
   return (
     <div className="space-y-6">
@@ -372,7 +353,7 @@ const ViolationsPage: React.FC = () => {
         </div>
       </header>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {combinedError && <p className="text-sm text-red-600">{combinedError}</p>}
       {success && <p className="text-sm text-green-600">{success}</p>}
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -383,11 +364,11 @@ const ViolationsPage: React.FC = () => {
           <div className="max-h-[480px] overflow-y-auto">
             {loading ? (
               <p className="p-4 text-sm text-slate-500">Loading violations…</p>
-            ) : filteredViolations.length === 0 ? (
+            ) : violations.length === 0 ? (
               <p className="p-4 text-sm text-slate-500">No violations found for the selected filter.</p>
             ) : (
               <ul className="divide-y divide-slate-200">
-                {filteredViolations.map((violation) => (
+                {violations.map((violation) => (
                   <li
                     key={violation.id}
                     className={`cursor-pointer px-4 py-3 hover:bg-primary-50 ${
@@ -428,6 +409,12 @@ const ViolationsPage: React.FC = () => {
           {canManage && showCreateForm && (
             <section className="rounded border border-slate-200 p-4">
               <h3 className="mb-3 text-sm font-semibold text-slate-600">Create Violation</h3>
+              {fineSchedulesQuery.isError && (
+                <p className="text-sm text-red-600">Unable to load fine schedules.</p>
+              )}
+              {residentsQuery.isError && (
+                <p className="text-sm text-red-600">Unable to load resident roster.</p>
+              )}
               <form className="space-y-3" onSubmit={handleCreateViolation}>
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="violation-target">
@@ -649,7 +636,9 @@ const ViolationsPage: React.FC = () => {
 
               <section className="mt-4">
                 <h4 className="text-xs font-semibold uppercase text-slate-500">Notices</h4>
-                {loadingNotices ? (
+                {noticesQuery.isError ? (
+                  <p className="text-xs text-red-600">Unable to load notices.</p>
+                ) : noticesLoading ? (
                   <p className="text-xs text-slate-500">Loading notices…</p>
                 ) : notices.length === 0 ? (
                   <p className="text-xs text-slate-500">No notices recorded.</p>

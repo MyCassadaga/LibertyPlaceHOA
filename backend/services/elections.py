@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable, Optional
 
 from sqlalchemy import func
@@ -40,7 +40,7 @@ def generate_ballots(session: Session, election: Election, owners: Optional[Iter
         token = secrets.token_urlsafe(24)
         if ballot:
             ballot.token = token
-            ballot.issued_at = datetime.utcnow()
+            ballot.issued_at = datetime.now(timezone.utc)
             ballot.invalidated_at = None
             ballot.voted_at = None
         else:
@@ -57,7 +57,7 @@ def generate_ballots(session: Session, election: Election, owners: Optional[Iter
     return created
 
 
-def compute_results(session: Session, election: Election) -> list[dict[str, object]]:
+def compute_results(session: Session, election: Election, include_write_ins: bool = True) -> list[dict[str, object]]:
     """Return aggregated vote counts for an election."""
     rows = (
         session.query(
@@ -71,7 +71,7 @@ def compute_results(session: Session, election: Election) -> list[dict[str, obje
         .order_by(func.count(ElectionVote.id).desc(), ElectionCandidate.display_name.asc())
         .all()
     )
-    return [
+    results = [
         {
             "candidate_id": row.candidate_id,
             "candidate_name": row.candidate_name,
@@ -79,6 +79,46 @@ def compute_results(session: Session, election: Election) -> list[dict[str, obje
         }
         for row in rows
     ]
+    if include_write_ins:
+        write_in_total = (
+            session.query(func.count(ElectionVote.id))
+            .filter(
+                ElectionVote.election_id == election.id,
+                ElectionVote.candidate_id.is_(None),
+                ElectionVote.write_in.isnot(None),
+            )
+            .scalar()
+        ) or 0
+        if write_in_total > 0:
+            results.append(
+                {
+                    "candidate_id": None,
+                    "candidate_name": "Write-in",
+                    "vote_count": int(write_in_total),
+                }
+            )
+    return results
+
+
+def calculate_election_stats(session: Session, election: Election) -> dict[str, object]:
+    """Compute turnout metrics and aggregated results for the supplied election."""
+    ballot_count = len(election.ballots)
+    votes_cast = sum(1 for ballot in election.ballots if ballot.voted_at is not None)
+    abstentions = max(ballot_count - votes_cast, 0)
+    turnout_percent = float(round((votes_cast / ballot_count * 100) if ballot_count else 0.0, 2))
+    results = compute_results(session, election, include_write_ins=True)
+    write_in_entry = next((row for row in results if row["candidate_id"] is None and row["candidate_name"] == "Write-in"), None)
+    write_in_count = int(write_in_entry["vote_count"]) if write_in_entry else 0
+
+    return {
+        "election_id": election.id,
+        "ballot_count": ballot_count,
+        "votes_cast": votes_cast,
+        "turnout_percent": turnout_percent,
+        "abstentions": abstentions,
+        "write_in_count": write_in_count,
+        "results": results,
+    }
 
 
 def record_vote(
@@ -100,7 +140,7 @@ def record_vote(
         ballot_id=ballot.id,
         write_in=write_in.strip() if write_in else None,
     )
-    ballot.voted_at = datetime.utcnow()
+    ballot.voted_at = datetime.now(timezone.utc)
     session.add(vote)
     session.flush()
     return vote

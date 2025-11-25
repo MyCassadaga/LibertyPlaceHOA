@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Dict, Iterable, Optional
 
 from fastapi import UploadFile
@@ -103,7 +103,7 @@ def resolve_condition(
 ) -> ARCCondition:
     previous = condition.status
     condition.status = status
-    condition.resolved_at = datetime.utcnow() if status == "RESOLVED" else None
+    condition.resolved_at = datetime.now(timezone.utc) if status == "RESOLVED" else None
     session.add(condition)
     session.flush()
 
@@ -168,20 +168,20 @@ def transition_arc_request(
 
     before_status = arc_request.status
     arc_request.status = target_status
-    arc_request.updated_at = datetime.utcnow()
+    arc_request.updated_at = datetime.now(timezone.utc)
 
     if target_status == "SUBMITTED":
-        arc_request.submitted_at = datetime.utcnow()
+        arc_request.submitted_at = datetime.now(timezone.utc)
     if target_status == "REVISION_REQUESTED":
-        arc_request.revision_requested_at = datetime.utcnow()
+        arc_request.revision_requested_at = datetime.now(timezone.utc)
     if target_status in {"APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED"}:
-        arc_request.final_decision_at = datetime.utcnow()
+        arc_request.final_decision_at = datetime.now(timezone.utc)
         arc_request.final_decision_by_user_id = actor.id
         arc_request.decision_notes = notes
     if target_status == "COMPLETED":
-        arc_request.completed_at = datetime.utcnow()
+        arc_request.completed_at = datetime.now(timezone.utc)
     if target_status == "ARCHIVED":
-        arc_request.archived_at = datetime.utcnow()
+        arc_request.archived_at = datetime.now(timezone.utc)
 
     if reviewer_user_id:
         arc_request.reviewer_user_id = reviewer_user_id

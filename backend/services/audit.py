@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
@@ -26,7 +26,7 @@ def audit_log(
     after: Any = None,
 ) -> AuditLog:
     entry = AuditLog(
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(timezone.utc),
         actor_user_id=actor_user_id,
         action=action,
         target_entity_type=target_entity_type,

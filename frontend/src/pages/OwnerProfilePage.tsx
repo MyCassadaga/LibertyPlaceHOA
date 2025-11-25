@@ -90,6 +90,7 @@ const OwnerProfilePage: React.FC = () => {
           setOwner(null);
           setOwnerMissing(true);
         } else {
+          console.error('Unable to load owner profile', err);
           setOwnerError('Unable to load owner profile.');
         }
       } finally {
@@ -100,16 +101,16 @@ const OwnerProfilePage: React.FC = () => {
     void loadOwner();
   }, [user]);
 
-  if (!user) {
-    return null;
-  }
-
   const formattedTwoFactorSecret = useMemo(() => {
     if (!twoFactorSetup?.secret) {
       return '';
     }
     return twoFactorSetup.secret.replace(/(.{4})/g, '$1 ').trim();
   }, [twoFactorSetup]);
+
+  if (!user) {
+    return null;
+  }
 
   const handleAccountInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
@@ -276,6 +277,7 @@ const OwnerProfilePage: React.FC = () => {
       setPasswordStatus('Password updated successfully.');
       setPasswordForm({ current: '', next: '', confirm: '' });
     } catch (err) {
+      console.error('Unable to update password', err);
       setPasswordError('Unable to update password. Check your current password and try again.');
     } finally {
       setPasswordSaving(false);
@@ -324,6 +326,7 @@ const OwnerProfilePage: React.FC = () => {
       setOwnerForm(createOwnerFormState(updatedOwner));
       setOwnerStatus('Owner profile updated.');
     } catch (err) {
+      console.error('Unable to update owner profile', err);
       setOwnerError('Unable to update owner profile.');
     } finally {
       setOwnerSaving(false);

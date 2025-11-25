@@ -1,32 +1,55 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
 import Badge from '../components/Badge';
 import {
-  archiveOwner,
-  fetchOwnerById,
-  fetchResidents,
-  linkUserToOwner,
-  restoreOwner,
-  unlinkUserFromOwner,
-  updateOwner,
-} from '../services/api';
-import { Owner, OwnerUpdatePayload, Resident, User } from '../types';
+  useArchiveOwnerMutation,
+  useLinkUserMutation,
+  useOwnerDetailQuery,
+  useOwnerUpdateMutation,
+  useResidentsQuery,
+  useRestoreOwnerMutation,
+  useUnlinkUserMutation,
+} from '../features/owners/hooks';
+import { Owner, OwnerUpdatePayload, User } from '../types';
 import { formatUserRoles, userHasRole } from '../utils/roles';
 
 const OwnersPage: React.FC = () => {
   const { user } = useAuth();
   const isSysAdmin = userHasRole(user, 'SYSADMIN');
-  const [residents, setResidents] = useState<Resident[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [processingOwnerId, setProcessingOwnerId] = useState<number | null>(null);
-  const [editingOwner, setEditingOwner] = useState<Owner | null>(null);
+  const [editingOwnerId, setEditingOwnerId] = useState<number | null>(null);
   const [ownerForm, setOwnerForm] = useState<(OwnerUpdatePayload & { notesText: string }) | null>(null);
-  const [savingOwner, setSavingOwner] = useState(false);
   const [selectedLinkUserId, setSelectedLinkUserId] = useState<number | ''>('');
   const [linkingUserId, setLinkingUserId] = useState<number | null>(null);
+  const residentsQuery = useResidentsQuery();
+  const residents = useMemo(() => residentsQuery.data ?? [], [residentsQuery.data]);
+  const ownerDetailQuery = useOwnerDetailQuery(editingOwnerId);
+  const loading = residentsQuery.isLoading;
+  const residentsError = residentsQuery.isError ? 'Unable to load resident roster.' : null;
+  const ownerDetailError =
+    editingOwnerId != null && ownerDetailQuery.isError ? 'Unable to load owner details.' : null;
+  const [error, setError] = useState<string | null>(null);
+  const effectiveError = error ?? ownerDetailError ?? residentsError;
+  const logError = useCallback((message: string, err: unknown) => {
+    console.error(message, err);
+  }, []);
+
+  const ownerUpdateMutation = useOwnerUpdateMutation(editingOwnerId);
+  const savingOwner = ownerUpdateMutation.isPending;
+  const archiveMutation = useArchiveOwnerMutation();
+  const restoreMutation = useRestoreOwnerMutation();
+  const linkUserMutation = useLinkUserMutation(editingOwnerId);
+  const unlinkUserMutation = useUnlinkUserMutation(editingOwnerId);
+
+  useEffect(() => {
+    if (ownerDetailQuery.data) {
+      setOwnerForm(buildOwnerForm(ownerDetailQuery.data));
+    } else if (editingOwnerId == null) {
+      setOwnerForm(null);
+    }
+  }, [ownerDetailQuery.data, editingOwnerId]);
 
   const buildOwnerForm = (owner: Owner): (OwnerUpdatePayload & { notesText: string }) => ({
     primary_name: owner.primary_name ?? '',
@@ -44,23 +67,6 @@ const OwnersPage: React.FC = () => {
     notes: undefined,
     notesText: owner.notes ?? '',
   });
-
-  const loadResidents = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchResidents({ includeArchived: true });
-      setResidents(data);
-    } catch (err) {
-      setError('Unable to load resident roster.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadResidents();
-  }, []);
 
   const ownerRows = useMemo(() => residents.filter((record) => record.owner), [residents]);
   const activeOwnerRows = useMemo(
@@ -81,6 +87,8 @@ const OwnersPage: React.FC = () => {
     () => accountRows.filter((record) => record.user && !record.user.is_active),
     [accountRows],
   );
+
+  const editingOwner = ownerDetailQuery.data ?? null;
 
   const linkedAccounts = useMemo<User[]>(() => {
     if (!editingOwner) return [];
@@ -103,15 +111,14 @@ const OwnersPage: React.FC = () => {
     setStatus(null);
     setError(null);
     setOwnerForm(buildOwnerForm(owner));
-    setEditingOwner(owner);
+    setEditingOwnerId(owner.id);
     setSelectedLinkUserId('');
     setLinkingUserId(null);
   };
 
   const closeEdit = () => {
-    setEditingOwner(null);
+    setEditingOwnerId(null);
     setOwnerForm(null);
-    setSavingOwner(false);
     setSelectedLinkUserId('');
     setLinkingUserId(null);
   };
@@ -125,7 +132,7 @@ const OwnersPage: React.FC = () => {
       } else if (field === 'notesText') {
         next.notesText = String(value);
       } else {
-        next[field] = typeof value === 'string' ? value : value ? 'true' : 'false';
+        next[field] = typeof value === 'string' ? value : String(value);
       }
       return next;
     });
@@ -133,7 +140,7 @@ const OwnersPage: React.FC = () => {
 
   const handleOwnerSave = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!editingOwner || !ownerForm) return;
+    if (!editingOwnerId || !ownerForm) return;
 
     const trim = (raw?: string | null) => {
       if (raw == null) return undefined;
@@ -162,33 +169,27 @@ const OwnersPage: React.FC = () => {
       return;
     }
 
-    setSavingOwner(true);
     try {
-      await updateOwner(editingOwner.id, payload);
+      await ownerUpdateMutation.mutateAsync(payload);
       setStatus('Owner details updated.');
-      await loadResidents();
       closeEdit();
     } catch (err) {
+      logError('Unable to update owner.', err);
       setError('Unable to update owner. Please try again.');
-    } finally {
-      setSavingOwner(false);
     }
   };
 
   const handleLinkUser = async () => {
-    if (!editingOwner || !selectedLinkUserId) return;
+    if (!editingOwnerId || !selectedLinkUserId) return;
     setLinkingUserId(Number(selectedLinkUserId));
     setStatus(null);
     setError(null);
     try {
-      await linkUserToOwner(editingOwner.id, { user_id: Number(selectedLinkUserId) });
-      const refreshed = await fetchOwnerById(editingOwner.id);
-      setEditingOwner(refreshed);
-      setOwnerForm(buildOwnerForm(refreshed));
-      await loadResidents();
+      await linkUserMutation.mutateAsync(Number(selectedLinkUserId));
       setStatus('Linked account to owner.');
       setSelectedLinkUserId('');
     } catch (err) {
+      logError('Unable to link account to owner.', err);
       setError('Unable to link account to owner.');
     } finally {
       setLinkingUserId(null);
@@ -196,20 +197,17 @@ const OwnersPage: React.FC = () => {
   };
 
   const handleUnlinkUser = async (userId: number) => {
-    if (!editingOwner) return;
+    if (!editingOwnerId) return;
     const confirm = window.confirm('Remove this linked account from the owner record?');
     if (!confirm) return;
     setLinkingUserId(userId);
     setStatus(null);
     setError(null);
     try {
-      await unlinkUserFromOwner(editingOwner.id, userId);
-      const refreshed = await fetchOwnerById(editingOwner.id);
-      setEditingOwner(refreshed);
-      setOwnerForm(buildOwnerForm(refreshed));
-      await loadResidents();
+      await unlinkUserMutation.mutateAsync(userId);
       setStatus('Unlinked account from owner.');
     } catch (err) {
+      logError('Unable to unlink account from owner.', err);
       setError('Unable to unlink account from owner.');
     } finally {
       setLinkingUserId(null);
@@ -237,10 +235,10 @@ const OwnersPage: React.FC = () => {
     setStatus(null);
     setError(null);
     try {
-      await archiveOwner(ownerId, { reason });
+      await archiveMutation.mutateAsync({ ownerId, reason });
       setStatus('Owner archived successfully.');
-      await loadResidents();
     } catch (err) {
+      logError('Unable to archive owner.', err);
       setError('Unable to archive owner. Please try again.');
     } finally {
       setProcessingOwnerId(null);
@@ -262,10 +260,10 @@ const OwnersPage: React.FC = () => {
     setStatus(null);
     setError(null);
     try {
-      await restoreOwner(ownerId, { reactivate_user: reactivateUser });
+      await restoreMutation.mutateAsync({ ownerId, reactivate: reactivateUser });
       setStatus('Owner restored successfully.');
-      await loadResidents();
     } catch (err) {
+      logError('Unable to restore owner.', err);
       setError('Unable to restore owner. Please try again.');
     } finally {
       setProcessingOwnerId(null);
@@ -281,7 +279,7 @@ const OwnersPage: React.FC = () => {
         </p>
       </header>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {effectiveError && <p className="text-sm text-red-600">{effectiveError}</p>}
       {status && <p className="text-sm text-green-600">{status}</p>}
       {loading && <p className="text-sm text-slate-500">Loading residents…</p>}
 
@@ -489,6 +487,14 @@ const OwnersPage: React.FC = () => {
         <div className="rounded border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
           {inactiveAccounts.length} account(s) are inactive. Restoring an owner can optionally reactivate
           their login.
+        </div>
+      )}
+
+      {editingOwnerId && !editingOwner && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40">
+          <div className="rounded bg-white px-6 py-4 text-sm text-slate-600 shadow">
+            Loading owner details…
+          </div>
         </div>
       )}
 

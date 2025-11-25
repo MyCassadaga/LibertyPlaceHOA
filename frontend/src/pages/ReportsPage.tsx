@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -6,14 +6,16 @@ import {
   downloadCashFlowReport,
   downloadViolationsSummaryReport,
   downloadArcSlaReport,
-  fetchInvoices,
-  fetchReconciliations,
-  fetchViolations,
-  fetchARCRequests,
 } from '../services/api';
 import SortableTable, { SortableColumn } from '../components/SortableTable';
 import { downloadCsvFromData, CsvColumn } from '../utils/csv';
-import type { ARCRequest, ARCStatus, Invoice, Reconciliation, Violation, ViolationStatus } from '../types';
+import type { ARCStatus, ViolationStatus } from '../types';
+import {
+  useArcRequestsQuery,
+  useInvoicesQuery,
+  useReconciliationsQuery,
+  useViolationsQuery,
+} from '../features/reports/hooks';
 
 const downloadFile = async (fetcher: () => Promise<Blob>, filename: string, setStatus: (value: string | null) => void, setError: (value: string | null) => void) => {
   try {
@@ -30,6 +32,7 @@ const downloadFile = async (fetcher: () => Promise<Blob>, filename: string, setS
     URL.revokeObjectURL(url);
     setStatus('Download started.');
   } catch (err) {
+    console.error('Unable to download report', err);
     setStatus(null);
     setError('Unable to download report.');
   }
@@ -98,43 +101,21 @@ const ReportsPage: React.FC = () => {
   const { user } = useAuth();
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loadingReports, setLoadingReports] = useState<boolean>(false);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [reconciliations, setReconciliations] = useState<Reconciliation[]>([]);
-  const [violationsData, setViolationsData] = useState<Violation[]>([]);
-  const [arcRequests, setArcRequests] = useState<ARCRequest[]>([]);
+  const invoicesQuery = useInvoicesQuery();
+  const reconciliationsQuery = useReconciliationsQuery();
+  const violationsQuery = useViolationsQuery();
+  const arcRequestsQuery = useArcRequestsQuery();
 
-  useEffect(() => {
-    const loadReports = async () => {
-      setLoadingReports(true);
-      setError(null);
-      try {
-        const [invoiceList, reconciliationList, violationList, arcList] = await Promise.all([
-          fetchInvoices(),
-          fetchReconciliations(),
-          fetchViolations(),
-          fetchARCRequests(),
-        ]);
-        setInvoices(invoiceList);
-        setReconciliations(reconciliationList);
-        setViolationsData(violationList);
-        setArcRequests(arcList);
-      } catch (err) {
-        setError('Unable to load report data. Check your permissions or try again.');
-      } finally {
-        setLoadingReports(false);
-      }
-    };
-
-    void loadReports();
-  }, []);
+  const invoicesSnapshot = invoicesQuery.dataUpdatedAt || null;
 
   const agingRows = useMemo<AgingRow[]>(() => {
-    const now = Date.now();
     const msPerDay = 1000 * 60 * 60 * 24;
-    return invoices.map((invoice) => {
+    return (invoicesQuery.data ?? []).map((invoice) => {
       const dueDateValue = invoice.due_date ? new Date(invoice.due_date).getTime() : null;
-      const diff = dueDateValue ? Math.floor((now - dueDateValue) / msPerDay) : null;
+      const diff =
+        dueDateValue && invoicesSnapshot
+          ? Math.floor((invoicesSnapshot - dueDateValue) / msPerDay)
+          : null;
       const ownerLabel = invoice.lot ?? `Owner #${String(invoice.owner_id).padStart(3, '0')}`;
       return {
         invoiceId: invoice.id,
@@ -147,10 +128,10 @@ const ReportsPage: React.FC = () => {
         daysPastDue: diff,
       };
     });
-  }, [invoices]);
+  }, [invoicesQuery.data, invoicesSnapshot]);
 
   const cashFlowRows = useMemo<CashFlowRow[]>(() => {
-    return reconciliations.map((recon) => ({
+    return (reconciliationsQuery.data ?? []).map((recon) => ({
       statementDate: recon.statement_date ?? null,
       matchedAmount: Number.parseFloat(recon.matched_amount) || 0,
       unmatchedAmount: Number.parseFloat(recon.unmatched_amount) || 0,
@@ -158,11 +139,11 @@ const ReportsPage: React.FC = () => {
       unmatchedTransactions: recon.unmatched_transactions,
       totalTransactions: recon.total_transactions,
     }));
-  }, [reconciliations]);
+  }, [reconciliationsQuery.data]);
 
   const violationSummaryRows = useMemo<ViolationSummaryRow[]>(() => {
     const map = new Map<string, ViolationSummaryRow>();
-    violationsData.forEach((violation) => {
+    (violationsQuery.data ?? []).forEach((violation) => {
       const key = `${violation.status}|${violation.category ?? 'General'}`;
       if (!map.has(key)) {
         map.set(key, {
@@ -175,7 +156,7 @@ const ReportsPage: React.FC = () => {
       entry.count += 1;
     });
     return Array.from(map.values());
-  }, [violationsData]);
+  }, [violationsQuery.data]);
 
   const arcRows = useMemo<ArcRow[]>(() => {
     const differenceInDays = (start?: string | null, end?: string | null): number | null => {
@@ -185,7 +166,7 @@ const ReportsPage: React.FC = () => {
       if (Number.isNaN(startDate) || Number.isNaN(endDate)) return null;
       return Math.max(0, Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)));
     };
-    return arcRequests.map((request) => ({
+    return (arcRequestsQuery.data ?? []).map((request) => ({
       title: request.title,
       status: request.status,
       createdAt: request.created_at,
@@ -195,7 +176,7 @@ const ReportsPage: React.FC = () => {
       daysToDecision: differenceInDays(request.submitted_at, request.final_decision_at),
       daysToCompletion: differenceInDays(request.submitted_at ?? request.created_at, request.completed_at),
     }));
-  }, [arcRequests]);
+  }, [arcRequestsQuery.data]);
 
   const agingColumns = useMemo<SortableColumn<AgingRow>[]>(() => [
     {
@@ -376,6 +357,14 @@ const ReportsPage: React.FC = () => {
     downloadCsvFromData('arc-sla-view.csv', arcRows, columns);
   };
 
+  const loading =
+    invoicesQuery.isLoading || reconciliationsQuery.isLoading || violationsQuery.isLoading || arcRequestsQuery.isLoading;
+  const baseError =
+    invoicesQuery.isError || reconciliationsQuery.isError || violationsQuery.isError || arcRequestsQuery.isError
+      ? 'Unable to load report data.'
+      : null;
+  const effectiveError = error ?? baseError;
+
   if (!user) {
     return null;
   }
@@ -390,8 +379,8 @@ const ReportsPage: React.FC = () => {
       </header>
 
       {status && <p className="text-sm text-green-600">{status}</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
-      {loadingReports && <p className="text-sm text-slate-500">Loading report data…</p>}
+      {effectiveError && <p className="text-sm text-red-600">{effectiveError}</p>}
+      {loading && <p className="text-sm text-slate-500">Loading report data…</p>}
 
       <section className="space-y-3 rounded border border-slate-200 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">

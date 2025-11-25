@@ -1,27 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
 import Badge from '../components/Badge';
 import FilePreview from '../components/FilePreview';
 import Timeline, { TimelineEvent } from '../components/Timeline';
+import { ARCCondition, ARCInspection, ARCAttachment, ARCRequest, ARCStatus } from '../types';
 import {
-  addARCCondition,
-  createARCInspection,
-  createARCRequest,
-  fetchARCRequests,
-  fetchOwners,
-  resolveARCCondition,
-  transitionARCRequest,
-  uploadARCAttachment,
-} from '../services/api';
-import {
-  ARCCondition,
-  ARCInspection,
-  ARCAttachment,
-  ARCRequest,
-  ARCStatus,
-  Owner,
-} from '../types';
+  useArcRequestsQuery,
+  useCreateArcInspectionMutation,
+  useCreateArcRequestMutation,
+  useAddArcConditionMutation,
+  useResolveArcConditionMutation,
+  useTransitionArcRequestMutation,
+  useUploadArcAttachmentMutation,
+} from '../features/arc/hooks';
+import { useOwnersQuery } from '../features/billing/hooks';
 
 const STATUS_LABELS: Record<ARCStatus, string> = {
   DRAFT: 'Draft',
@@ -61,13 +54,23 @@ const TRANSITIONS: Record<ARCStatus, ARCStatus[]> = {
 
 const ARCPage: React.FC = () => {
   const { user } = useAuth();
-  const [requests, setRequests] = useState<ARCRequest[]>([]);
-  const [selected, setSelected] = useState<ARCRequest | null>(null);
-  const [owners, setOwners] = useState<Owner[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const arcRequestsQuery = useArcRequestsQuery(statusFilter !== 'ALL' ? statusFilter : undefined);
+  const requests = useMemo(() => arcRequestsQuery.data ?? [], [arcRequestsQuery.data]);
+  const loading = arcRequestsQuery.isLoading;
+  const requestsError = arcRequestsQuery.isError ? 'Unable to load ARC requests.' : null;
+  const createRequestMutation = useCreateArcRequestMutation();
+  const transitionMutation = useTransitionArcRequestMutation();
+  const uploadAttachmentMutation = useUploadArcAttachmentMutation();
+  const addConditionMutation = useAddArcConditionMutation();
+  const resolveConditionMutation = useResolveArcConditionMutation();
+  const createInspectionMutation = useCreateArcInspectionMutation();
+  const ownersQuery = useOwnersQuery(canReview);
+  const owners = useMemo(() => ownersQuery.data ?? [], [ownersQuery.data]);
+  const ownersError = ownersQuery.isError && canReview ? 'Unable to load owners.' : null;
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ title: '', project_type: '', description: '', owner_id: '' });
   const [transitionStatus, setTransitionStatus] = useState('');
@@ -78,43 +81,48 @@ const ARCPage: React.FC = () => {
   const [inspectionResult, setInspectionResult] = useState('');
   const [commentText, setCommentText] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const combinedError = error ?? requestsError ?? ownersError;
 
   const isHomeowner = user?.role.name === 'HOMEOWNER';
   const canReview = ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY'].includes(user?.role.name ?? '');
 
-  const loadRequests = async () => {
-    try {
-      setLoading(true);
-      const data = await fetchARCRequests(statusFilter !== 'ALL' ? statusFilter : undefined);
-      setRequests(data);
-      if (selected) {
-        const refreshed = data.find((item) => item.id === selected.id);
-        setSelected(refreshed ?? null);
-      }
-    } catch (err) {
-      setError('Unable to load ARC requests.');
-    } finally {
-      setLoading(false);
+  const reportError = useCallback((message: string, err: unknown) => {
+    console.error(message, err);
+    setError(message);
+  }, []);
+
+  const selected = useMemo(() => {
+    if (selectedId == null) return null;
+    return requests.find((req) => req.id === selectedId) ?? null;
+  }, [requests, selectedId]);
+
+  const handleSelect = useCallback(
+    (request: ARCRequest) => {
+      setSelectedId(request.id);
+      setTransitionStatus('');
+      setTransitionNotes('');
+      setReviewerId(request.reviewer_user_id ? String(request.reviewer_user_id) : '');
+      setInspectionDate('');
+      setInspectionNotes('');
+      setInspectionResult('');
+      setCommentText('');
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!requests.length) {
+      setSelectedId(null);
+      return;
     }
-  };
-
-  useEffect(() => {
-    void loadRequests();
-  }, [statusFilter]);
-
-  useEffect(() => {
-    const init = async () => {
-      if (canReview) {
-        try {
-          const ownerList = await fetchOwners();
-          setOwners(ownerList);
-        } catch (err) {
-          setError('Unable to load owners.');
-        }
-      }
-    };
-    void init();
-  }, [canReview]);
+    if (selectedId == null) {
+      handleSelect(requests[0]);
+      return;
+    }
+    if (!requests.some((request) => request.id === selectedId)) {
+      handleSelect(requests[0]);
+    }
+  }, [requests, selectedId, handleSelect]);
 
   const filteredRequests = useMemo(() => {
     if (statusFilter === 'ALL') return requests;
@@ -126,7 +134,7 @@ const ARCPage: React.FC = () => {
     setCreating(true);
     setError(null);
     try {
-      await createARCRequest({
+      await createRequestMutation.mutateAsync({
         title: form.title,
         project_type: form.project_type || undefined,
         description: form.description || undefined,
@@ -134,23 +142,11 @@ const ARCPage: React.FC = () => {
       });
       setSuccess('ARC request created.');
       setForm({ title: '', project_type: '', description: '', owner_id: '' });
-      await loadRequests();
     } catch (err) {
-      setError('Unable to create request.');
+      reportError('Unable to create request.', err);
     } finally {
       setCreating(false);
     }
-  };
-
-  const handleSelect = (request: ARCRequest) => {
-    setSelected(request);
-    setTransitionStatus('');
-    setTransitionNotes('');
-    setReviewerId(request.reviewer_user_id ? String(request.reviewer_user_id) : '');
-    setInspectionDate('');
-    setInspectionNotes('');
-    setInspectionResult('');
-    setCommentText('');
   };
 
   const handleTransition = async (event: React.FormEvent) => {
@@ -158,17 +154,17 @@ const ARCPage: React.FC = () => {
     if (!selected || !transitionStatus) return;
     setError(null);
     try {
-      await transitionARCRequest(selected.id, {
+      await transitionMutation.mutateAsync({
+        requestId: selected.id,
         target_status: transitionStatus,
         reviewer_user_id: reviewerId ? Number(reviewerId) : undefined,
         notes: transitionNotes || undefined,
       });
       setSuccess('Status updated.');
-      await loadRequests();
-      const refreshed = requests.find((item) => item.id === selected.id);
-      if (refreshed) handleSelect(refreshed);
+      setTransitionStatus('');
+      setTransitionNotes('');
     } catch (err) {
-      setError('Unable to update status. Check permissions and required fields.');
+      reportError('Unable to update status. Check permissions and required fields.', err);
     }
   };
 
@@ -176,14 +172,11 @@ const ARCPage: React.FC = () => {
     if (!selected || !event.target.files || event.target.files.length === 0) return;
     const file = event.target.files[0];
     try {
-      await uploadARCAttachment(selected.id, file);
+      await uploadAttachmentMutation.mutateAsync({ requestId: selected.id, file });
       setSuccess('Attachment uploaded.');
       if (fileInputRef.current) fileInputRef.current.value = '';
-      await loadRequests();
-      const refreshed = requests.find((item) => item.id === selected.id);
-      if (refreshed) handleSelect(refreshed);
     } catch (err) {
-      setError('Unable to upload attachment.');
+      reportError('Unable to upload attachment.', err);
     }
   };
 
@@ -191,27 +184,28 @@ const ARCPage: React.FC = () => {
     event.preventDefault();
     if (!selected || !commentText.trim()) return;
     try {
-      await addARCCondition(selected.id, { text: commentText.trim(), condition_type: 'COMMENT' });
+      await addConditionMutation.mutateAsync({
+        requestId: selected.id,
+        payload: { text: commentText.trim(), condition_type: 'COMMENT' },
+      });
       setCommentText('');
       setSuccess('Comment added.');
-      await loadRequests();
-      const refreshed = requests.find((item) => item.id === selected.id);
-      if (refreshed) handleSelect(refreshed);
     } catch (err) {
-      setError('Unable to add comment.');
+      reportError('Unable to add comment.', err);
     }
   };
 
   const handleConditionToggle = async (condition: ARCCondition) => {
     if (!selected) return;
     try {
-      await resolveARCCondition(selected.id, condition.id, condition.status === 'OPEN' ? 'RESOLVED' : 'OPEN');
+      await resolveConditionMutation.mutateAsync({
+        requestId: selected.id,
+        conditionId: condition.id,
+        status: condition.status === 'OPEN' ? 'RESOLVED' : 'OPEN',
+      });
       setSuccess('Condition updated.');
-      await loadRequests();
-      const refreshed = requests.find((item) => item.id === selected.id);
-      if (refreshed) handleSelect(refreshed);
     } catch (err) {
-      setError('Unable to update condition.');
+      reportError('Unable to update condition.', err);
     }
   };
 
@@ -219,20 +213,20 @@ const ARCPage: React.FC = () => {
     event.preventDefault();
     if (!selected) return;
     try {
-      await createARCInspection(selected.id, {
+      await createInspectionMutation.mutateAsync({
+        requestId: selected.id,
+        payload: {
         scheduled_date: inspectionDate || undefined,
         result: inspectionResult || undefined,
         notes: inspectionNotes || undefined,
+        },
       });
       setInspectionDate('');
       setInspectionNotes('');
       setInspectionResult('');
       setSuccess('Inspection recorded.');
-      await loadRequests();
-      const refreshed = requests.find((item) => item.id === selected.id);
-      if (refreshed) handleSelect(refreshed);
     } catch (err) {
-      setError('Unable to add inspection.');
+      reportError('Unable to add inspection.', err);
     }
   };
 
@@ -336,7 +330,7 @@ const ARCPage: React.FC = () => {
         </div>
       </header>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {combinedError && <p className="text-sm text-red-600">{combinedError}</p>}
       {success && <p className="text-sm text-green-600">{success}</p>}
 
       <div className="grid gap-6 lg:grid-cols-2">

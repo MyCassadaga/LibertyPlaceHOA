@@ -1,63 +1,52 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
-import { fetchPublicElection, submitPublicVote } from '../services/api';
-import { ElectionCandidate, ElectionPublicDetail } from '../types';
+import { ElectionCandidate } from '../types';
+import { usePublicElectionQuery, usePublicVoteMutation } from '../features/elections/hooks';
 
 const PublicVotePage: React.FC = () => {
   const { electionId } = useParams<{ electionId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get('token') ?? '';
+  const numericElectionId = useMemo(() => (electionId ? Number(electionId) : null), [electionId]);
 
-  const [election, setElection] = useState<ElectionPublicDetail | null>(null);
+  const publicElectionQuery = usePublicElectionQuery(numericElectionId, token || null);
+  const election = publicElectionQuery.data ?? null;
   const [selectedCandidate, setSelectedCandidate] = useState<number | null>(null);
   const [writeIn, setWriteIn] = useState('');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!electionId || !token) {
-      setError('Missing election token.');
-      return;
-    }
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await fetchPublicElection(Number(electionId), token);
-        setElection(data);
-        setStatus(null);
-        if (data.has_voted) {
-          setStatus('Our records show that this ballot has already been used.');
-        }
-      } catch (err) {
-        setError('Unable to load election for this token.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [electionId, token]);
+  const submitMutation = usePublicVoteMutation();
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!electionId || !token || !election) {
+    if (!numericElectionId || !token || !election) {
       setError('Missing election token.');
       return;
     }
+    const trimmedWriteIn = writeIn.trim();
+    if (selectedCandidate == null && !trimmedWriteIn) {
+      setError('Select a candidate or enter a write-in.');
+      return;
+    }
     setError(null);
+    setStatus(null);
     try {
-      await submitPublicVote(Number(electionId), {
-        token,
-        candidate_id: selectedCandidate ?? undefined,
-        write_in: writeIn.trim() || undefined,
+      await submitMutation.mutateAsync({
+        electionId: numericElectionId,
+        payload: {
+          token,
+          candidate_id: selectedCandidate ?? undefined,
+          write_in: trimmedWriteIn || undefined,
+        },
       });
       setStatus('Thank you! Your vote has been recorded.');
-      const data = await fetchPublicElection(Number(electionId), token);
-      setElection(data);
+      await publicElectionQuery.refetch();
+      setSelectedCandidate(null);
+      setWriteIn('');
     } catch (err) {
+      console.error('Unable to record public vote.', err);
       setError('Unable to record vote. The ballot may already be used or the election may be closed.');
     }
   };
@@ -94,11 +83,11 @@ const PublicVotePage: React.FC = () => {
           <p className="mt-2 text-sm text-slate-600 whitespace-pre-wrap">{election.description}</p>
         )}
 
-        {loading && <p className="mt-4 text-sm text-slate-500">Loading ballot…</p>}
+        {publicElectionQuery.isLoading && <p className="mt-4 text-sm text-slate-500">Loading ballot…</p>}
         {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
         {status && <p className="mt-4 text-sm text-green-600">{status}</p>}
 
-        {election && !loading && !election.has_voted && (
+        {election && !publicElectionQuery.isLoading && !election.has_voted && (
           <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
             <fieldset className="space-y-3">
               <legend className="text-sm font-semibold text-slate-600">Select a candidate</legend>
@@ -135,9 +124,10 @@ const PublicVotePage: React.FC = () => {
             </fieldset>
             <button
               type="submit"
-              className="w-full rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500"
+              className="w-full rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={submitMutation.isPending}
             >
-              Submit Vote
+              {submitMutation.isPending ? 'Submitting…' : 'Submit Vote'}
             </button>
           </form>
         )}

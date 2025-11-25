@@ -1,26 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import {
-  addBudgetLineItem,
-  addReserveItem,
-  approveBudget,
-  createBudget,
-  deleteBudgetAttachment,
-  deleteBudgetLineItem,
-  deleteReserveItem,
-  fetchBudgetDetail,
-  fetchBudgets,
-  lockBudget,
-  revokeBudgetApproval,
-  unlockBudget,
-  updateBudget,
-  updateBudgetLineItem,
-  updateReserveItem,
-  uploadBudgetAttachment,
-} from '../services/api';
-import { BudgetAttachment, BudgetDetail, BudgetLineItem, BudgetSummary, ReservePlanItem } from '../types';
+import { BudgetAttachment, BudgetSummary, ReservePlanItem } from '../types';
 import { userHasAnyRole, userHasRole } from '../utils/roles';
+import {
+  useBudgetAttachmentMutation,
+  useBudgetDetailQuery,
+  useBudgetLineItemMutation,
+  useBudgetStatusMutation,
+  useBudgetsQuery,
+  useReserveItemMutation,
+  useCreateBudgetMutation,
+  useUpdateBudgetMutation,
+} from '../features/budgets/hooks';
 
 const editorRoles = ['BOARD', 'TREASURER', 'SYSADMIN'];
 
@@ -59,12 +51,17 @@ const BudgetPage: React.FC = () => {
   const isBoardMember = useMemo(() => !!user && userHasRole(user, 'BOARD'), [user]);
   const isSysAdmin = useMemo(() => !!user && userHasRole(user, 'SYSADMIN'), [user]);
 
-  const [budgets, setBudgets] = useState<BudgetSummary[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<BudgetDetail | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const budgetsQuery = useBudgetsQuery();
+  const budgets = useMemo<BudgetSummary[]>(() => budgetsQuery.data ?? [], [budgetsQuery.data]);
+  const detailQuery = useBudgetDetailQuery(selectedId);
+  const detail = detailQuery.data ?? null;
+  const budgetsError = budgetsQuery.isError ? 'Unable to load budgets.' : null;
+  const detailError = selectedId != null && detailQuery.isError ? 'Unable to load budget details.' : null;
+  const combinedError = error ?? detailError ?? budgetsError;
+  const loading = budgetsQuery.isLoading || (selectedId != null && detailQuery.isLoading);
 
   const [newBudgetYear, setNewBudgetYear] = useState<number>(new Date().getFullYear());
   const [newBudgetHomes, setNewBudgetHomes] = useState<number>(0);
@@ -76,6 +73,10 @@ const BudgetPage: React.FC = () => {
   const [editingReserveId, setEditingReserveId] = useState<number | null>(null);
 
   const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const [metaForm, setMetaForm] = useState<{ home_count: number; notes: string }>({
+    home_count: 0,
+    notes: '',
+  });
 
   const categoryOptions = useMemo(() => {
     const options = [...BUDGET_CATEGORIES];
@@ -85,58 +86,60 @@ const BudgetPage: React.FC = () => {
     return options;
   }, [lineForm.category]);
 
-  const loadBudgets = useCallback(async () => {
-    setError(null);
-    try {
-      const data = await fetchBudgets();
-      setBudgets(data);
-      if (data.length > 0 && !selectedId) {
-        setSelectedId(data[0].id);
-      }
-    } catch (err) {
-      setError('Unable to load budgets.');
-    }
-  }, [selectedId]);
-
-  const loadBudgetDetail = useCallback(async (budgetId: number) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchBudgetDetail(budgetId);
-      setDetail(data);
-    } catch (err) {
-      setError('Unable to load budget details.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadBudgets();
-  }, [loadBudgets]);
-
-  useEffect(() => {
-    if (selectedId) {
-      void loadBudgetDetail(selectedId);
-    } else {
-      setDetail(null);
-    }
-  }, [loadBudgetDetail, selectedId]);
-
   const formatCurrency = (value: string | number) => {
     const num = typeof value === 'string' ? Number(value) : value;
     return num.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
   };
 
+  const createBudgetMutation = useCreateBudgetMutation();
+  const updateBudgetMutation = useUpdateBudgetMutation();
+  const approveMutation = useBudgetStatusMutation('approve');
+  const withdrawMutation = useBudgetStatusMutation('withdraw');
+  const lockMutation = useBudgetStatusMutation('lock');
+  const unlockMutation = useBudgetStatusMutation('unlock');
+  const lineAddMutation = useBudgetLineItemMutation('add');
+  const lineUpdateMutation = useBudgetLineItemMutation('update');
+  const lineDeleteMutation = useBudgetLineItemMutation('delete');
+  const reserveAddMutation = useReserveItemMutation('add');
+  const reserveUpdateMutation = useReserveItemMutation('update');
+  const reserveDeleteMutation = useReserveItemMutation('delete');
+  const uploadAttachmentMutation = useBudgetAttachmentMutation('upload');
+  const deleteAttachmentMutation = useBudgetAttachmentMutation('delete');
+
+  useEffect(() => {
+    if (!budgets.length) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId((current) => {
+      if (current && budgets.some((budget) => budget.id === current)) {
+        return current;
+      }
+      return budgets[0].id;
+    });
+  }, [budgets]);
+
+  useEffect(() => {
+    if (detail) {
+      setMetaForm({
+        home_count: detail.home_count ?? 0,
+        notes: detail.notes ?? '',
+      });
+    } else {
+      setMetaForm({ home_count: 0, notes: '' });
+    }
+  }, [detail]);
+
   const handleCreateBudget = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!canEdit) return;
     try {
-      const data = await createBudget({ year: newBudgetYear, home_count: newBudgetHomes });
+      const data = await createBudgetMutation.mutateAsync({ year: newBudgetYear, home_count: newBudgetHomes });
       setStatusMessage('Budget created.');
-      await loadBudgets();
       setSelectedId(data.id);
+      await budgetsQuery.refetch();
     } catch (err) {
+      console.error('Unable to create budget.', err);
       setError('Unable to create budget.');
     }
   };
@@ -144,31 +147,26 @@ const BudgetPage: React.FC = () => {
   const handleBudgetMetaUpdate = async () => {
     if (!detail || !canEdit) return;
     try {
-      const data = await updateBudget(detail.id, { home_count: detail.home_count, notes: detail.notes || undefined });
-      setDetail(data);
+      await updateBudgetMutation.mutateAsync({
+        budgetId: detail.id,
+        payload: { home_count: metaForm.home_count, notes: metaForm.notes || undefined },
+      });
       setStatusMessage('Budget updated.');
-      await loadBudgets();
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to update budget.', err);
       setError('Unable to update budget.');
     }
   };
 
-  const refreshBudget = useCallback(
-    async (budgetId: number) => {
-      await loadBudgetDetail(budgetId);
-      await loadBudgets();
-    },
-    [loadBudgetDetail, loadBudgets],
-  );
-
   const handleApproveBudget = async () => {
     if (!detail) return;
     try {
-      const data = await approveBudget(detail.id);
-      setDetail(data);
+      await approveMutation.mutateAsync(detail.id);
       setStatusMessage('Approval recorded.');
-      await loadBudgets();
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to record approval.', err);
       setError('Unable to record approval.');
     }
   };
@@ -176,11 +174,11 @@ const BudgetPage: React.FC = () => {
   const handleWithdrawApproval = async () => {
     if (!detail) return;
     try {
-      const data = await revokeBudgetApproval(detail.id);
-      setDetail(data);
+      await withdrawMutation.mutateAsync(detail.id);
       setStatusMessage('Approval withdrawn.');
-      await loadBudgets();
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to withdraw approval.', err);
       setError('Unable to withdraw approval.');
     }
   };
@@ -189,11 +187,11 @@ const BudgetPage: React.FC = () => {
     if (!detail) return;
     if (!window.confirm('Unlock this budget for edits?')) return;
     try {
-      const data = await unlockBudget(detail.id);
-      setDetail(data);
+      await unlockMutation.mutateAsync(detail.id);
       setStatusMessage('Budget unlocked.');
-      await loadBudgets();
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to unlock budget.', err);
       setError('Unable to unlock budget.');
     }
   };
@@ -202,11 +200,11 @@ const BudgetPage: React.FC = () => {
     if (!detail) return;
     if (!window.confirm('Lock and approve this budget immediately?')) return;
     try {
-      const data = await lockBudget(detail.id);
-      setDetail(data);
+      await lockMutation.mutateAsync(detail.id);
       setStatusMessage('Budget locked.');
-      await loadBudgets();
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to lock budget.', err);
       setError('Unable to lock budget.');
     }
   };
@@ -216,22 +214,27 @@ const BudgetPage: React.FC = () => {
     if (!detail || !canEdit) return;
     try {
       if (editingLineId) {
-        await updateBudgetLineItem(editingLineId, {
-          label: lineForm.label,
-          category: lineForm.category,
-          amount: lineForm.amount,
-          is_reserve: lineForm.is_reserve,
-          sort_order: lineForm.sort_order,
+        await lineUpdateMutation.mutateAsync({
+          budgetId: detail.id,
+          lineItemId: editingLineId,
+          payload: {
+            label: lineForm.label,
+            category: lineForm.category,
+            amount: lineForm.amount,
+            is_reserve: lineForm.is_reserve,
+            sort_order: lineForm.sort_order,
+          },
         });
         setStatusMessage('Line item updated.');
       } else {
-        await addBudgetLineItem(detail.id, lineForm);
+        await lineAddMutation.mutateAsync({ budgetId: detail.id, payload: lineForm });
         setStatusMessage('Line item added.');
       }
       setLineForm(emptyLineForm);
       setEditingLineId(null);
-      await refreshBudget(detail.id);
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to save line item.', err);
       setError('Unable to save line item.');
     }
   };
@@ -241,23 +244,28 @@ const BudgetPage: React.FC = () => {
     if (!detail || !canEdit) return;
     try {
       if (editingReserveId) {
-        await updateReserveItem(editingReserveId, {
-          name: reserveForm.name,
-          target_year: reserveForm.target_year,
-          estimated_cost: reserveForm.estimated_cost,
-          inflation_rate: reserveForm.inflation_rate,
-          current_funding: reserveForm.current_funding,
-          notes: reserveForm.notes,
+        await reserveUpdateMutation.mutateAsync({
+          budgetId: detail.id,
+          reserveId: editingReserveId,
+          payload: {
+            name: reserveForm.name,
+            target_year: reserveForm.target_year,
+            estimated_cost: reserveForm.estimated_cost,
+            inflation_rate: reserveForm.inflation_rate,
+            current_funding: reserveForm.current_funding,
+            notes: reserveForm.notes,
+          },
         });
         setStatusMessage('Reserve item updated.');
       } else {
-        await addReserveItem(detail.id, reserveForm);
+        await reserveAddMutation.mutateAsync({ budgetId: detail.id, payload: reserveForm });
         setStatusMessage('Reserve item added.');
       }
       setReserveForm(emptyReserveForm);
       setEditingReserveId(null);
-      await refreshBudget(detail.id);
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to save reserve item.', err);
       setError('Unable to save reserve item.');
     }
   };
@@ -266,9 +274,10 @@ const BudgetPage: React.FC = () => {
     if (!detail || !canEdit) return;
     if (!window.confirm('Remove this line item?')) return;
     try {
-      await deleteBudgetLineItem(itemId);
-      await refreshBudget(detail.id);
+      await lineDeleteMutation.mutateAsync({ budgetId: detail.id, lineItemId: itemId });
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to delete line item.', err);
       setError('Unable to delete line item.');
     }
   };
@@ -277,9 +286,10 @@ const BudgetPage: React.FC = () => {
     if (!detail || !canEdit) return;
     if (!window.confirm('Remove this reserve item?')) return;
     try {
-      await deleteReserveItem(itemId);
-      await refreshBudget(detail.id);
+      await reserveDeleteMutation.mutateAsync({ budgetId: detail.id, reserveId: itemId });
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to delete reserve item.', err);
       setError('Unable to delete reserve item.');
     }
   };
@@ -288,9 +298,10 @@ const BudgetPage: React.FC = () => {
     if (!detail || !canEdit || !event.target.files?.length) return;
     try {
       setAttachmentUploading(true);
-      await uploadBudgetAttachment(detail.id, event.target.files[0]);
-      await refreshBudget(detail.id);
+      await uploadAttachmentMutation.mutateAsync({ budgetId: detail.id, file: event.target.files[0] });
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to upload attachment.', err);
       setError('Unable to upload attachment.');
     } finally {
       setAttachmentUploading(false);
@@ -302,9 +313,10 @@ const BudgetPage: React.FC = () => {
     if (!canEdit || !detail) return;
     if (!window.confirm('Delete this attachment?')) return;
     try {
-      await deleteBudgetAttachment(attachment.id);
-      await loadBudgetDetail(detail.id);
+      await deleteAttachmentMutation.mutateAsync({ budgetId: detail.id, attachmentId: attachment.id });
+      await detailQuery.refetch();
     } catch (err) {
+      console.error('Unable to delete attachment.', err);
       setError('Unable to delete attachment.');
     }
   };
@@ -328,7 +340,8 @@ const BudgetPage: React.FC = () => {
         {statusMessage && <p className="text-sm text-emerald-600">{statusMessage}</p>}
       </header>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {combinedError && <p className="text-sm text-red-600">{combinedError}</p>}
+      {loading && <p className="text-sm text-slate-500">Loading budget data…</p>}
 
       <section className="grid gap-6 md:grid-cols-[260px,1fr]">
         <aside className="space-y-4">
@@ -490,8 +503,10 @@ const BudgetPage: React.FC = () => {
                       <input
                         type="number"
                         className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                        value={detail.home_count}
-                        onChange={(event) => setDetail({ ...detail, home_count: Number(event.target.value) })}
+                        value={metaForm.home_count}
+                        onChange={(event) =>
+                          setMetaForm((prev) => ({ ...prev, home_count: Number(event.target.value) }))
+                        }
                       />
                     </label>
                     <label className="block">
@@ -499,8 +514,8 @@ const BudgetPage: React.FC = () => {
                       <textarea
                         className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
                         rows={3}
-                        value={detail.notes ?? ''}
-                        onChange={(event) => setDetail({ ...detail, notes: event.target.value })}
+                        value={metaForm.notes}
+                        onChange={(event) => setMetaForm((prev) => ({ ...prev, notes: event.target.value }))}
                       />
                     </label>
                     <button

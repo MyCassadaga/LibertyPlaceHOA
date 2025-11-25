@@ -1,5 +1,5 @@
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List, Optional
 
@@ -78,7 +78,7 @@ def _serialize_budget(budget: Budget, db: Session, current_user: Optional[User] 
             "email": approval.user.email if approval.user else None,
             "approved_at": approval.approved_at,
         }
-        for approval in sorted(budget.approvals, key=lambda entry: entry.approved_at or datetime.utcnow())
+        for approval in sorted(budget.approvals, key=lambda entry: entry.approved_at or datetime.now(timezone.utc))
     ]
     required = budget_service.calculate_required_board_approvals(db)
     user_has_approved = any(approval["user_id"] == current_user.id for approval in approvals) if current_user else False
@@ -123,7 +123,7 @@ def _finalize_budget_lock(
     if budget.status.upper() == "APPROVED":
         return
     budget.status = "APPROVED"
-    budget.locked_at = datetime.utcnow()
+    budget.locked_at = datetime.now(timezone.utc)
     budget.locked_by_user_id = actor_user_id
     db.add(budget)
     db.commit()

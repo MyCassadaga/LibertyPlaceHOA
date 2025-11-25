@@ -1,25 +1,31 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import {
-  createMeeting,
-  deleteMeeting,
-  fetchMeetings,
-  getMeetingMinutesDownloadUrl,
-  updateMeeting,
-  uploadMeetingMinutes,
-} from '../services/api';
+import { getMeetingMinutesDownloadUrl } from '../services/api';
 import { Meeting } from '../types';
 import { userHasAnyRole } from '../utils/roles';
+import {
+  useCreateMeetingMutation,
+  useDeleteMeetingMutation,
+  useMeetingsQuery,
+  useUpdateMeetingMutation,
+  useUploadMinutesMutation,
+} from '../features/meetings/hooks';
 
 const MANAGER_ROLES = ['BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER'];
 
 const MeetingsPage: React.FC = () => {
   const { user } = useAuth();
   const canManage = userHasAnyRole(user, MANAGER_ROLES);
-  const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const meetingsQuery = useMeetingsQuery(true);
+  const meetings = useMemo(() => meetingsQuery.data ?? [], [meetingsQuery.data]);
+  const loading = meetingsQuery.isLoading;
+  const meetingsError = meetingsQuery.isError ? 'Unable to load meetings.' : null;
+  const createMeetingMutation = useCreateMeetingMutation();
+  const deleteMeetingMutation = useDeleteMeetingMutation();
+  const uploadMinutesMutation = useUploadMinutesMutation();
+  const updateMeetingMutation = useUpdateMeetingMutation();
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -33,23 +39,11 @@ const MeetingsPage: React.FC = () => {
     description: '',
   });
 
-  const loadMeetings = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchMeetings(true);
-      setMeetings(data);
-      setError(null);
-    } catch (err) {
-      setError('Unable to load meetings.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadMeetings();
+  const logError = useCallback((message: string, err: unknown) => {
+    console.error(message, err);
   }, []);
 
+  const combinedError = error ?? meetingsError;
   const upcomingMeetings = useMemo(
     () => meetings.filter((meeting) => new Date(meeting.start_time) >= new Date()),
     [meetings],
@@ -79,8 +73,9 @@ const MeetingsPage: React.FC = () => {
       setError('Title and start time are required.');
       return;
     }
+    setError(null);
     try {
-      await createMeeting({
+      await createMeetingMutation.mutateAsync({
         title: form.title,
         start_time: new Date(form.start_time).toISOString(),
         end_time: form.end_time ? new Date(form.end_time).toISOString() : undefined,
@@ -89,8 +84,8 @@ const MeetingsPage: React.FC = () => {
         description: form.description || undefined,
       });
       setForm({ title: '', start_time: '', end_time: '', location: '', zoom_link: '', description: '' });
-      await loadMeetings();
     } catch (err) {
+      logError('Unable to schedule meeting.', err);
       setError('Unable to schedule meeting.');
     }
   };
@@ -98,9 +93,10 @@ const MeetingsPage: React.FC = () => {
   const handleDeleteMeeting = async (meetingId: number) => {
     if (!window.confirm('Delete this meeting?')) return;
     try {
-      await deleteMeeting(meetingId);
-      await loadMeetings();
+      setError(null);
+      await deleteMeetingMutation.mutateAsync(meetingId);
     } catch (err) {
+      logError('Unable to delete meeting.', err);
       setError('Unable to delete meeting.');
     }
   };
@@ -111,10 +107,24 @@ const MeetingsPage: React.FC = () => {
       return;
     }
     try {
-      await uploadMeetingMinutes(meetingId, file);
-      await loadMeetings();
+      setError(null);
+      await uploadMinutesMutation.mutateAsync({ meetingId, file });
     } catch (err) {
+      logError('Unable to upload minutes.', err);
       setError('Unable to upload minutes.');
+    }
+  };
+
+  const handleUpdateMeeting = async (
+    meetingId: number,
+    updates: Partial<{ title: string; zoom_link: string | null; location: string | null }>,
+  ) => {
+    try {
+      setError(null);
+      await updateMeetingMutation.mutateAsync({ meetingId, payload: updates });
+    } catch (err) {
+      logError('Unable to update meeting.', err);
+      setError('Unable to update meeting.');
     }
   };
 
@@ -150,7 +160,7 @@ const MeetingsPage: React.FC = () => {
         </div>
       </header>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {combinedError && <p className="text-sm text-red-600">{combinedError}</p>}
       {loading && <p className="text-sm text-slate-500">Loading meetings…</p>}
 
       <section className="rounded border border-slate-200 p-4">
@@ -239,10 +249,7 @@ const MeetingsPage: React.FC = () => {
               canManage={canManage}
               onDelete={handleDeleteMeeting}
               onUploadMinutes={handleUploadMinutes}
-              onUpdate={async (updates) => {
-                await updateMeeting(meeting.id, updates);
-                await loadMeetings();
-              }}
+              onUpdate={(updates) => handleUpdateMeeting(meeting.id, updates)}
             />
           ))}
         </div>

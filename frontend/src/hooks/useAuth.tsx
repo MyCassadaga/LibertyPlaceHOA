@@ -112,7 +112,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const me = await fetchCurrentUser();
       setUser(me);
     } catch (error) {
-      console.warn('Access token invalid, attempting refresh');
+      console.warn('Access token invalid, attempting refresh', error);
       const refreshed = await attemptServerRefresh();
       if (refreshed) {
         try {

@@ -1,33 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
-import { fetchAuditLogs } from '../services/api';
 import { AuditLogEntry } from '../types';
+import { useAuditLogsQuery } from '../features/audit/hooks';
 
 const AuditLogPage: React.FC = () => {
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [total, setTotal] = useState(0);
   const [limit, setLimit] = useState(50);
   const [offset, setOffset] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const loadLogs = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchAuditLogs({ limit, offset });
-      setLogs(data.items);
-      setTotal(data.total);
-      setError(null);
-    } catch (err) {
-      setError('Unable to load audit log.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadLogs();
-  }, [limit, offset]);
+  const logsQuery = useAuditLogsQuery(limit, offset);
+  const logs: AuditLogEntry[] = logsQuery.data?.items ?? [];
+  const total = logsQuery.data?.total ?? 0;
+  const loading = logsQuery.isLoading;
+  const error = logsQuery.isError ? 'Unable to load audit log.' : null;
 
   const nextDisabled = offset + limit >= total;
   const prevDisabled = offset === 0;
@@ -60,9 +43,10 @@ const AuditLogPage: React.FC = () => {
           <button
             type="button"
             className="rounded border border-slate-300 px-3 py-1 text-slate-600 hover:bg-slate-50"
-            onClick={() => void loadLogs()}
+            onClick={() => logsQuery.refetch()}
+            disabled={logsQuery.isFetching}
           >
-            Refresh
+            {logsQuery.isFetching ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </header>

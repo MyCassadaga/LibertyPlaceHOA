@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -346,7 +346,7 @@ def decide_appeal(
 
     appeal.status = payload.status
     appeal.decision_notes = payload.decision_notes
-    appeal.decided_at = datetime.utcnow()
+    appeal.decided_at = datetime.now(timezone.utc)
     appeal.reviewed_by_user_id = actor.id
     db.add(appeal)
     db.commit()

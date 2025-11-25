@@ -1,39 +1,45 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
 import Layout from './components/Layout';
 import { RequireAuth, RequireRole } from './components/AuthGuards';
 import { useAuth } from './hooks/useAuth';
-import BillingPage from './pages/BillingPage';
-import CommunicationsPage from './pages/CommunicationsPage';
-import ContractsPage from './pages/ContractsPage';
-import DashboardPage from './pages/DashboardPage';
-import LoginPage from './pages/LoginPage';
-import AdminPage from './pages/AdminPage';
-import OwnerProfilePage from './pages/OwnerProfilePage';
-import OwnersPage from './pages/OwnersPage';
-import ViolationsPage from './pages/ViolationsPage';
-import ReportsPage from './pages/ReportsPage';
-import ElectionsPage from './pages/ElectionsPage';
-import PublicVotePage from './pages/PublicVotePage';
-import ReconciliationPage from './pages/ReconciliationPage';
-import ARCPage from './pages/ARCPage';
-import BudgetPage from './pages/BudgetPage';
-import PaperworkPage from './pages/PaperworkPage';
-import AuditLogPage from './pages/AuditLogPage';
-import DocumentsPage from './pages/DocumentsPage';
-import MeetingsPage from './pages/MeetingsPage';
+import FullPageSpinner from './components/feedback/FullPageSpinner';
+import AppErrorBoundary from './components/feedback/AppErrorBoundary';
+
+const BillingPage = lazy(() => import('./pages/BillingPage'));
+const CommunicationsPage = lazy(() => import('./pages/CommunicationsPage'));
+const ContractsPage = lazy(() => import('./pages/ContractsPage'));
+const DashboardPage = lazy(() => import('./pages/DashboardPage'));
+const LoginPage = lazy(() => import('./pages/LoginPage'));
+const AdminPage = lazy(() => import('./pages/AdminPage'));
+const OwnerProfilePage = lazy(() => import('./pages/OwnerProfilePage'));
+const OwnersPage = lazy(() => import('./pages/OwnersPage'));
+const ViolationsPage = lazy(() => import('./pages/ViolationsPage'));
+const ReportsPage = lazy(() => import('./pages/ReportsPage'));
+const ElectionsPage = lazy(() => import('./pages/ElectionsPage'));
+const PublicVotePage = lazy(() => import('./pages/PublicVotePage'));
+const ReconciliationPage = lazy(() => import('./pages/ReconciliationPage'));
+const ARCPage = lazy(() => import('./pages/ARCPage'));
+const BudgetPage = lazy(() => import('./pages/BudgetPage'));
+const PaperworkPage = lazy(() => import('./pages/PaperworkPage'));
+const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
+const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
+const MeetingsPage = lazy(() => import('./pages/MeetingsPage'));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 
 const App: React.FC = () => {
   const { user, loading } = useAuth();
-  const loadingScreen = <div className="p-6 text-sm text-slate-500">Loading…</div>;
+  const loadingScreen = <FullPageSpinner label="Bootstrapping session…" />;
 
   return (
-    <Routes>
-      <Route
-        path="/login"
-        element={user ? <Navigate to="/dashboard" replace /> : loading ? loadingScreen : <LoginPage />}
-      />
+    <AppErrorBoundary>
+      <Suspense fallback={<FullPageSpinner label="Loading page…" />}>
+        <Routes>
+        <Route
+          path="/login"
+          element={user ? <Navigate to="/dashboard" replace /> : loading ? loadingScreen : <LoginPage />}
+        />
       <Route
         path="/"
         element={
@@ -44,6 +50,7 @@ const App: React.FC = () => {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="billing" element={<BillingPage />} />
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="meetings" element={<MeetingsPage />} />
@@ -147,7 +154,9 @@ const App: React.FC = () => {
       </Route>
       <Route path="/vote/:electionId" element={<PublicVotePage />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+        </Routes>
+      </Suspense>
+    </AppErrorBoundary>
   );
 };
 

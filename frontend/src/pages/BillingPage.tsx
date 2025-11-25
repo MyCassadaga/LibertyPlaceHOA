@@ -1,35 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
+import { createPaymentSession } from '../services/api';
 import {
-  API_BASE_URL,
-  cancelAutopay,
-  contactOverdueOwner,
-  createPaymentSession,
-  createVendorPaymentRequest,
-  fetchAutopayEnrollment,
-  fetchBillingSummary,
-  fetchContracts,
-  fetchInvoices,
-  fetchMyOwnerRecord,
-  fetchOverdueAccounts,
-  fetchOwners,
-  fetchVendorPayments,
-  forwardOverdueToAttorney,
-  markVendorPaymentPaid,
-  sendVendorPayment,
-  upsertAutopayEnrollment,
-} from '../services/api';
-import {
-  AutopayEnrollment,
-  AutopayAmountType,
-  BillingSummary,
-  Contract,
-  Invoice,
-  OverdueAccount,
-  Owner,
-  VendorPayment,
-} from '../types';
+  useAutopayCancelMutation,
+  useAutopayQuery,
+  useAutopayUpsertMutation,
+  useBillingSummaryQuery,
+  useContractsQuery,
+  useContactOverdueMutation,
+  useCreateVendorPaymentMutation,
+  useForwardToAttorneyMutation,
+  useInvoicesQuery,
+  useMarkVendorPaymentPaidMutation,
+  useMyOwnerQuery,
+  useOverdueAccountsQuery,
+  useOwnersQuery,
+  useSendVendorPaymentMutation,
+  useVendorPaymentsQuery,
+} from '../features/billing/hooks';
+import { API_BASE_URL } from '../lib/api/client';
+import { AutopayAmountType, OverdueAccount } from '../types';
 import { userHasAnyRole } from '../utils/roles';
 
 type ActionMode = 'contact' | 'forward';
@@ -41,32 +32,21 @@ interface ActionPanelState {
 
 const BillingPage: React.FC = () => {
   const { user } = useAuth();
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [summary, setSummary] = useState<BillingSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [ownerAddresses, setOwnerAddresses] = useState<Record<number, string>>({});
   const [payingInvoiceId, setPayingInvoiceId] = useState<number | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
-  const [overdueAccounts, setOverdueAccounts] = useState<OverdueAccount[]>([]);
-  const [overdueLoading, setOverdueLoading] = useState(false);
-  const [overdueError, setOverdueError] = useState<string | null>(null);
   const [actionPanel, setActionPanel] = useState<ActionPanelState | null>(null);
   const [actionMessage, setActionMessage] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionLink, setActionLink] = useState<string | null>(null);
-  const [autopay, setAutopay] = useState<AutopayEnrollment | null>(null);
-  const [autopayLoading, setAutopayLoading] = useState(false);
-  const [autopaySaving, setAutopaySaving] = useState(false);
   const [autopayError, setAutopayError] = useState<string | null>(null);
+  const [autopayStatus, setAutopayStatus] = useState<string | null>(null);
   const [autopayForm, setAutopayForm] = useState<{ payment_day: number; amount_type: AutopayAmountType; fixed_amount: string }>({
     payment_day: 1,
     amount_type: 'STATEMENT_BALANCE',
     fixed_amount: '',
   });
-  const [contracts, setContracts] = useState<Contract[]>([]);
-  const [vendorPayments, setVendorPayments] = useState<VendorPayment[]>([]);
   const [vendorForm, setVendorForm] = useState<{ contractId: string; vendorName: string; amount: string; memo: string }>({
     contractId: '',
     vendorName: '',
@@ -76,11 +56,57 @@ const BillingPage: React.FC = () => {
   const [vendorBusy, setVendorBusy] = useState(false);
   const [vendorStatus, setVendorStatus] = useState<string | null>(null);
   const [vendorError, setVendorError] = useState<string | null>(null);
-  const [vendorLoading, setVendorLoading] = useState(false);
 
   const boardBillingRoles = useMemo(() => ['BOARD', 'TREASURER', 'SYSADMIN'], []);
   const isBoardBillingUser = useMemo(() => userHasAnyRole(user, boardBillingRoles), [user, boardBillingRoles]);
   const isHomeownerUser = useMemo(() => userHasAnyRole(user, ['HOMEOWNER']), [user]);
+
+  const invoicesQuery = useInvoicesQuery(!!user && isHomeownerUser);
+  const summaryQuery = useBillingSummaryQuery(isBoardBillingUser);
+  const ownersQuery = useOwnersQuery(isBoardBillingUser);
+  const contractsQuery = useContractsQuery(isBoardBillingUser);
+  const myOwnerQuery = useMyOwnerQuery(!!user && isHomeownerUser);
+  const overdueQuery = useOverdueAccountsQuery(isBoardBillingUser);
+  const vendorPaymentsQuery = useVendorPaymentsQuery(isBoardBillingUser);
+  const autopayQuery = useAutopayQuery(!!user && isHomeownerUser);
+
+  const autopayUpsert = useAutopayUpsertMutation();
+  const autopayCancel = useAutopayCancelMutation();
+  const createVendorPayment = useCreateVendorPaymentMutation();
+  const sendVendorPaymentMutation = useSendVendorPaymentMutation();
+  const markVendorPaymentPaidMutation = useMarkVendorPaymentPaidMutation();
+  const contactOverdueMutation = useContactOverdueMutation();
+  const forwardToAttorneyMutation = useForwardToAttorneyMutation();
+
+  const invoices = invoicesQuery.data ?? [];
+  const summary = summaryQuery.data ?? null;
+  const contracts = contractsQuery.data ?? [];
+  const overdueAccounts = overdueQuery.data ?? [];
+  const vendorPayments = vendorPaymentsQuery.data ?? [];
+  const autopay = autopayQuery.data ?? null;
+
+  const ownerAddresses = useMemo(() => {
+    const map: Record<number, string> = {};
+    ownersQuery.data?.forEach((owner) => {
+      if (owner.property_address) {
+        map[owner.id] = owner.property_address;
+      }
+    });
+    if (myOwnerQuery.data?.property_address) {
+      map[myOwnerQuery.data.id] = myOwnerQuery.data.property_address;
+    }
+    return map;
+  }, [ownersQuery.data, myOwnerQuery.data]);
+
+  const pageLoading =
+    invoicesQuery.isLoading ||
+    summaryQuery.isLoading ||
+    ownersQuery.isLoading ||
+    contractsQuery.isLoading ||
+    overdueQuery.isLoading ||
+    vendorPaymentsQuery.isLoading ||
+    myOwnerQuery.isLoading ||
+    autopayQuery.isLoading;
 
   const formatCurrency = useCallback((value: string | number) => {
     const parsedRaw = typeof value === 'string' ? Number(value) : value;
@@ -95,60 +121,8 @@ const BillingPage: React.FC = () => {
     return `${base}${normalized}`;
   }, []);
 
-  const refreshOverdue = useCallback(async () => {
-    if (!isBoardBillingUser) {
-      setOverdueAccounts([]);
-      setOverdueLoading(false);
-      return;
-    }
-    setOverdueLoading(true);
-    setOverdueError(null);
-    try {
-      const data = await fetchOverdueAccounts();
-      setOverdueAccounts(data);
-    } catch {
-      setOverdueError('Unable to load overdue accounts.');
-    } finally {
-      setOverdueLoading(false);
-    }
-  }, [isBoardBillingUser]);
-
-  const refreshVendorPayments = useCallback(async () => {
-    if (!isBoardBillingUser) {
-      setVendorPayments([]);
-      setVendorLoading(false);
-      return;
-    }
-    setVendorLoading(true);
-    setVendorError(null);
-    try {
-      const data = await fetchVendorPayments();
-      setVendorPayments(data);
-    } catch {
-      setVendorError('Unable to load vendor payments.');
-    } finally {
-      setVendorLoading(false);
-    }
-  }, [isBoardBillingUser]);
-
-  const loadAutopay = useCallback(async () => {
-    if (!isHomeownerUser) {
-      setAutopay(null);
-      setAutopayLoading(false);
-      return;
-    }
-    setAutopayLoading(true);
-    setAutopayError(null);
-    try {
-      const data = await fetchAutopayEnrollment();
-      setAutopay(data);
-    } catch {
-      setAutopay(null);
-      setAutopayError('Unable to load autopay status.');
-    } finally {
-      setAutopayLoading(false);
-    }
-  }, [isHomeownerUser]);
+  const refreshOverdue = overdueQuery.refetch;
+  const refreshVendorPayments = vendorPaymentsQuery.refetch;
 
   useEffect(() => {
     if (!isBoardBillingUser) {
@@ -159,63 +133,6 @@ const BillingPage: React.FC = () => {
       setActionLink(null);
     }
   }, [isBoardBillingUser]);
-
-  useEffect(() => {
-    const load = async () => {
-      if (!user) return;
-      setLoading(true);
-      try {
-        const invoiceData = await fetchInvoices();
-        setInvoices(invoiceData);
-
-        const addressMap: Record<number, string> = {};
-        if (isBoardBillingUser) {
-          try {
-            const [summaryData, owners, contractRows] = await Promise.all([
-              fetchBillingSummary(),
-              fetchOwners(),
-              fetchContracts(),
-            ]);
-            setSummary(summaryData);
-            setContracts(contractRows);
-            owners.forEach((owner: Owner) => {
-              if (owner.property_address) {
-                addressMap[owner.id] = owner.property_address;
-              }
-            });
-          } catch {
-            setSummary(null);
-            setContracts([]);
-          }
-          await refreshOverdue();
-          await refreshVendorPayments();
-        } else {
-          setSummary(null);
-          setContracts([]);
-          setOverdueAccounts([]);
-          setOverdueError(null);
-          setVendorPayments([]);
-          setVendorError(null);
-          try {
-            const myOwner = await fetchMyOwnerRecord();
-            if (myOwner.property_address) {
-              addressMap[myOwner.id] = myOwner.property_address;
-            }
-          } catch {
-            // ignore if homeowner record not available
-          }
-        }
-        setOwnerAddresses(addressMap);
-      } finally {
-        setLoading(false);
-      }
-    };
-    void load();
-  }, [user, isBoardBillingUser, refreshOverdue, refreshVendorPayments]);
-
-  useEffect(() => {
-    void loadAutopay();
-  }, [loadAutopay]);
 
   useEffect(() => {
     if (!autopay) {
@@ -236,6 +153,7 @@ const BillingPage: React.FC = () => {
       const { checkoutUrl } = await createPaymentSession(invoiceId);
       window.location.href = checkoutUrl;
     } catch (err) {
+      console.error('Unable to start payment session.', err);
       setPaymentError('Unable to start payment session. Please try again.');
     } finally {
       setPayingInvoiceId(null);
@@ -245,29 +163,25 @@ const BillingPage: React.FC = () => {
   const handleAutopaySubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setAutopayError(null);
-    setAutopaySaving(true);
+    setAutopayStatus(null);
     try {
       const payload = {
         payment_day: autopayForm.payment_day,
         amount_type: autopayForm.amount_type,
         fixed_amount: autopayForm.amount_type === 'FIXED' ? autopayForm.fixed_amount || '0' : undefined,
       };
-      const result = await upsertAutopayEnrollment(payload);
-      setAutopay(result);
-      setStatusMessage('Autopay preferences saved.');
+      await autopayUpsert.mutateAsync(payload);
+      setAutopayStatus('Autopay preferences saved.');
     } catch {
       setAutopayError('Unable to save autopay preferences.');
-    } finally {
-      setAutopaySaving(false);
     }
   };
 
   const handleAutopayCancel = async () => {
     if (!window.confirm('Cancel autopay enrollment?')) return;
     try {
-      const result = await cancelAutopay();
-      setAutopay(result);
-      setStatusMessage('Autopay canceled.');
+      await autopayCancel.mutateAsync();
+      setAutopayStatus('Autopay canceled.');
     } catch {
       setAutopayError('Unable to cancel autopay at this time.');
     }
@@ -310,7 +224,7 @@ const BillingPage: React.FC = () => {
       if (vendorForm.memo.trim()) {
         payload.memo = vendorForm.memo.trim();
       }
-      const record = await createVendorPaymentRequest(payload);
+      const record = await createVendorPayment.mutateAsync(payload);
       setVendorStatus(`Drafted payment for ${record.vendor_name}.`);
       setVendorForm({ contractId: '', vendorName: '', amount: '', memo: '' });
       await refreshVendorPayments();
@@ -325,7 +239,7 @@ const BillingPage: React.FC = () => {
     setVendorStatus(null);
     setVendorError(null);
     try {
-      await sendVendorPayment(paymentId);
+      await sendVendorPaymentMutation.mutateAsync(paymentId);
       setVendorStatus('Vendor payment submitted to Stripe (stub).');
       await refreshVendorPayments();
     } catch {
@@ -337,7 +251,7 @@ const BillingPage: React.FC = () => {
     setVendorStatus(null);
     setVendorError(null);
     try {
-      await markVendorPaymentPaid(paymentId);
+      await markVendorPaymentPaidMutation.mutateAsync(paymentId);
       setVendorStatus('Vendor payment marked as paid.');
       await refreshVendorPayments();
     } catch {
@@ -402,10 +316,13 @@ const BillingPage: React.FC = () => {
     try {
       const payload = actionMessage.trim() || undefined;
       if (actionPanel.mode === 'contact') {
-        await contactOverdueOwner(actionPanel.account.owner_id, payload);
+        await contactOverdueMutation.mutateAsync({ ownerId: actionPanel.account.owner_id, message: payload });
         setActionStatus('Message sent to linked homeowner accounts.');
       } else {
-        const response = await forwardOverdueToAttorney(actionPanel.account.owner_id, payload);
+        const response = await forwardToAttorneyMutation.mutateAsync({
+          ownerId: actionPanel.account.owner_id,
+          notes: payload,
+        });
         const absolute = toAbsoluteUrl(response.notice_url);
         setActionStatus('Attorney packet generated.');
         setActionLink(absolute);
@@ -423,7 +340,7 @@ const BillingPage: React.FC = () => {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-slate-700">Billing & Assessments</h2>
       </div>
-      {loading && <p className="text-sm text-slate-500">Loading billing data…</p>}
+      {pageLoading && <p className="text-sm text-slate-500">Loading billing data…</p>}
       {summary && (
         <div className="rounded border border-slate-200 p-4">
           <h3 className="mb-2 text-lg font-semibold text-slate-700">Summary</h3>
@@ -456,8 +373,10 @@ const BillingPage: React.FC = () => {
               </span>
             )}
           </div>
+          {autopayStatus && <p className="mt-2 text-sm text-emerald-600">{autopayStatus}</p>}
+          {autopayQuery.isError && <p className="mt-2 text-sm text-red-600">Unable to load autopay status.</p>}
           {autopayError && <p className="mt-2 text-sm text-red-600">{autopayError}</p>}
-          {autopayLoading ? (
+          {autopayQuery.isLoading ? (
             <p className="mt-3 text-sm text-slate-500">Loading autopay status…</p>
           ) : (
             <form className="mt-4 grid gap-3 md:grid-cols-3" onSubmit={handleAutopaySubmit}>
@@ -503,17 +422,18 @@ const BillingPage: React.FC = () => {
                 <button
                   type="submit"
                   className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
-                  disabled={autopaySaving}
+                  disabled={autopayUpsert.isLoading}
                 >
-                  {autopaySaving ? 'Saving…' : 'Save Autopay'}
+                  {autopayUpsert.isLoading ? 'Saving…' : 'Save Autopay'}
                 </button>
                 {autopay && autopay.status !== 'NOT_ENROLLED' && (
                   <button
                     type="button"
-                    className="ml-3 rounded border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 hover:bg-slate-50"
+                    className="ml-3 rounded border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                     onClick={handleAutopayCancel}
+                    disabled={autopayCancel.isLoading}
                   >
-                    Cancel Autopay
+                    {autopayCancel.isLoading ? 'Cancelling…' : 'Cancel Autopay'}
                   </button>
                 )}
               </div>
@@ -541,12 +461,12 @@ const BillingPage: React.FC = () => {
               onClick={() => {
                 void refreshOverdue();
               }}
-              disabled={overdueLoading}
+              disabled={overdueQuery.isFetching}
             >
-              {overdueLoading ? 'Refreshing…' : 'Refresh'}
+              {overdueQuery.isFetching ? 'Refreshing…' : 'Refresh'}
             </button>
           </div>
-          {overdueError && <p className="mt-3 text-sm text-red-600">{overdueError}</p>}
+          {overdueQuery.isError && <p className="mt-3 text-sm text-red-600">Unable to load overdue accounts.</p>}
           {overdueAccounts.length > 0 ? (
             <div className="mt-4 overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -616,7 +536,7 @@ const BillingPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
-          ) : overdueLoading ? (
+          ) : overdueQuery.isLoading ? (
             <p className="mt-4 text-sm text-slate-500">Loading overdue accounts…</p>
           ) : (
             <p className="mt-4 text-sm text-slate-500">All homeowner assessments are current.</p>
@@ -692,6 +612,9 @@ const BillingPage: React.FC = () => {
             {vendorStatus && <span className="text-xs text-emerald-600">{vendorStatus}</span>}
           </div>
           {vendorError && <p className="mt-2 text-sm text-red-600">{vendorError}</p>}
+          {vendorPaymentsQuery.isError && (
+            <p className="mt-2 text-sm text-red-600">Unable to load vendor payments.</p>
+          )}
           <form className="mt-3 grid gap-3 md:grid-cols-4" onSubmit={handleCreateVendorPayment}>
             <label className="text-sm">
               <span className="text-xs uppercase text-slate-500">Contract</span>
@@ -749,7 +672,7 @@ const BillingPage: React.FC = () => {
             </div>
           </form>
           <div className="mt-4 overflow-x-auto">
-            {vendorLoading ? (
+            {vendorPaymentsQuery.isLoading ? (
               <p className="text-sm text-slate-500">Loading vendor payments…</p>
             ) : (
               <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -853,7 +776,7 @@ const BillingPage: React.FC = () => {
             ))}
           </tbody>
         </table>
-        {invoices.length === 0 && !loading && (
+        {invoices.length === 0 && !pageLoading && (
           <p className="px-3 py-4 text-sm text-slate-500">No invoices available.</p>
         )}
       </div>

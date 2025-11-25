@@ -1,8 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket
 from jose import JWTError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..api.dependencies import get_db
@@ -22,6 +23,8 @@ router = APIRouter()
 def list_notifications(
     limit: int = Query(50, ge=1, le=200),
     include_read: bool = Query(True),
+    levels: Optional[List[str]] = Query(None, description="Filter by notification level."),
+    categories: Optional[List[str]] = Query(None, description="Filter by category."),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> List[Notification]:
@@ -32,6 +35,14 @@ def list_notifications(
     )
     if not include_read:
         query = query.filter(Notification.read_at.is_(None))
+    if levels:
+        normalized_levels = sorted({level.lower() for level in levels if level})
+        if normalized_levels:
+            query = query.filter(func.lower(Notification.level).in_(normalized_levels))
+    if categories:
+        normalized_categories = sorted({category.lower() for category in categories if category})
+        if normalized_categories:
+            query = query.filter(func.lower(Notification.category).in_(normalized_categories))
     notifications = query.limit(limit).all()
     return notifications
 
@@ -50,7 +61,7 @@ def mark_notification_read(
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found.")
     if notification.read_at is None:
-        notification.read_at = datetime.utcnow()
+        notification.read_at = datetime.now(timezone.utc)
         db.add(notification)
         db.commit()
         db.refresh(notification)
@@ -70,7 +81,7 @@ def mark_all_notifications_read(
     )
     if not unread_notifications:
         return {"updated": 0}
-    timestamp = datetime.utcnow()
+    timestamp = datetime.now(timezone.utc)
     for notification in unread_notifications:
         notification.read_at = timestamp
         db.add(notification)

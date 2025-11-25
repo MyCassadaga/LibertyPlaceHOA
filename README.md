@@ -1,6 +1,6 @@
 # Liberty Place HOA Management Platform (Phases 1–3)
 
-The Liberty Place HOA portal modernises self-managed board tasks across multiple phases. Phase 1 delivered homeowner directory, billing, communications, contracts, and RBAC foundations. Phase 2 built out covenant violations, compliance notices, reporting, and admin tooling. Phase 3 introduces elections and ballot management, paving the way for maintenance workflows and real-time notifications. The stack remains FastAPI + SQLAlchemy + Alembic on the backend with a Vite + React + TypeScript frontend.
+The Liberty Place HOA portal modernises self-managed board tasks across multiple phases. Phase 1 delivered homeowner directory, billing, communications, contracts, and RBAC foundations. Phase 2 built out covenant violations, compliance notices, reporting, and admin tooling. Phase 3 focuses on elections, enhanced budgeting, and real-time notifications (the HOA does not manage maintenance work orders). The stack remains FastAPI + SQLAlchemy + Alembic on the backend with a Vite + React + TypeScript frontend.
 
 ## Prerequisites
 
@@ -66,6 +66,8 @@ All runtime configuration now lives in `.env` files. Copy `.env.template` (backe
 | `STRIPE_API_KEY` | Placeholder for future payment integration. |
 | `SENDGRID_API_KEY` | Enables the SendGrid email backend. |
 | `FILE_STORAGE_BACKEND` | `local` (default) or `s3` for production uploads. |
+| `EMAIL_BACKEND` | `smtp` for SendGrid/SMTP, `local` for dev stubs. |
+| `ADDITIONAL_CORS_ORIGINS` | Comma-separated list for extra dashboards/admin hosts. |
 
 Additional optional keys cover S3 bucket details, email defaults, PDF/email output directories, and extra CORS origins. Never commit actual secrets—`.env.template` is the canonical source of required keys.
 
@@ -89,6 +91,15 @@ Every generated account uses the password `changeme`. Re-run the script with a h
 ## Default Roles & Access
 
 Roles are seeded at startup (`SYSADMIN`, `BOARD`, `TREASURER`, `SECRETARY`, `ARC`, `AUDITOR`, `ATTORNEY`, `HOMEOWNER`). RBAC gates routers and actions based on minimum privileges. All sensitive operations create audit log entries.
+
+## Deployment & Troubleshooting (Vercel + Render + Cloudflare)
+
+- **Vercel (frontend)**: project root `frontend/`; `vercel.json` rewrites `/(.*)` → `/index.html` so deep links don’t 404. Set secret/env `VITE_API_URL=https://api.libertyplacehoa.com`.
+- **Render (backend)**: start command runs Alembic then `uvicorn backend.main:app`. Free tier idles after ~15 minutes—first request can take ~60s. Add a ping monitor or upgrade for always-on.
+- **Cloudflare DNS**: keep `api.libertyplacehoa.com` DNS-only (no proxy) for Render TLS; proxy is OK for `app.` and `www.`. Redirect rule for `www` → `https://app.libertyplacehoa.com/$1`. Avoid `https://https://` double protocol errors.
+- **CORS**: `FRONTEND_URL` and `API_BASE` must match deployed origins; use `ADDITIONAL_CORS_ORIGINS` for temporary admin tools.
+- **Uploads**: if S3 is used, verify the bucket policy allows public read of the prefixed objects or serve through Cloudflare Workers; otherwise keep `FILE_STORAGE_BACKEND=local` and proxy via Cloudflare.
+- **SPA cache busting**: ensure each frontend deploy includes `vercel.json`; missing rewrites cause refresh 404s.
 
 ## Initial Data Flow
 
@@ -118,6 +129,7 @@ docs/           Phase scope and extended documentation
 - **Elections dashboard**: The `/elections` page surfaces upcoming ballots, closed results, candidate management, and ballot issuance for board/sysadmin roles. Managers can generate/export ballots while homeowners see guidance for their emailed ballot link.
 - **Public ballot page**: `/vote/:id?token=` renders the election, candidates, optional write-in, and posts a one-time vote backed by `/elections/public/*` APIs.
 - **Real-time notification center**: A dedicated `/notifications` API and WebSocket stream (`/notifications/ws?token=`) push alerts without polling. Violation state changes and election status updates broadcast to homeowners/board members, while sysadmins can send manual announcements. The React navbar now hosts a live notifications menu fed by the socket connection.
+- **Election analytics & exports**: Managers get turnout dashboards (ballots issued, votes cast, write-ins, abstentions) plus downloadable CSVs via `/elections/{id}/results.csv`, enabling quick audits without digging through raw data.
 - **2FA + refresh tokens**: Login supports TOTP-based two-factor authentication with full setup/enable/disable flows, and refresh tokens extend session persistence. The auth pytest suite exercises OTP validation, refresh issuance, and toggle endpoints.
 - **Expanded test coverage**: Pytest suite covers elections, notifications, ARC workflows, RBAC, and violation state machines to guard regressions across critical services.
 
@@ -144,12 +156,16 @@ docs/           Phase scope and extended documentation
 - `PATCH /auth/me`, `POST /auth/me/change-password` — authenticated users update profile/email and rotate passwords.
 - `PUT /owners/me` — homeowners (and any user linked to an owner record) update contact, address, and phone details.
 - `POST /owners/{id}/archive`, `POST /owners/{id}/restore` — SYSADMIN workflows to freeze/reactivate an owner account (optionally reactivating linked logins on restore).
+- `GET /notifications/?include_read=false&levels=warning&categories=violations` — filter notifications by read status, level, and category; `POST /notifications/read-all` marks a user’s unread items.
+- `GET /notifications/ws?token=...` — WebSocket stream for live alerts; used by the navbar menu and notification center page.
 - `GET /reports/ar-aging`, `GET /reports/cash-flow` — financial CSV exports (BOARD/TREASURER/SYSADMIN).
 - `GET /reports/violations-summary`, `GET /reports/arc-sla` — compliance and ARC SLA analytics CSVs.
 - `/banking/reconciliations` & `/banking/transactions` — review bank statement imports, matched/unmatched items, and reconciliation details.
 - `GET /elections/` — list elections (board/sysadmin roles see all, homeowners see open/scheduled events).
 - `POST /elections/` — create elections, `POST /elections/{id}/candidates` add candidates, `POST /elections/{id}/ballots/generate` issue one-time ballot tokens.
 - `POST /elections/{id}/vote` — homeowners submit ballots directly inside the portal; `GET/POST /elections/public/{id}` still support tokenised links for email workflows.
+- `GET /elections/{id}/stats` — manager-only turnout snapshot (ballots issued, votes cast, write-ins, abstentions, percent turnout).
+- `GET /elections/{id}/results.csv` — manager-only CSV export of election results, including vote percentages and abstentions.
 - `GET /documents` & related CRUD routes — governance document library with folder hierarchy (board/admin manage, homeowners view/download).
 - `GET /meetings` + `/meetings/{id}/minutes` — HOA meeting calendar with zoom links and minutes uploads.
 
@@ -180,7 +196,7 @@ Use the `CLICK2MAIL_DEFAULT_*` variables when legacy owner data only contains a 
 
 - Run `pytest` for election, notifications, ARC, RBAC, and violation regression coverage.
 - Integrate a production-grade email/PDF provider in place of the current stubs.
-- Re-scope the maintenance/work-order module (if needed) and wire CI/CD automation to execute linting/tests on push.
+- Wire CI/CD automation to execute linting/tests on push.
 
 ## Deployment blueprints
 

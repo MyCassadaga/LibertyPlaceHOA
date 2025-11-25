@@ -1,7 +1,7 @@
 import logging
 import smtplib
 import ssl
-from datetime import datetime
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 def _write_local_email(subject: str, body: str, recipients: List[str]) -> str:
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
     safe_subject = "".join(ch for ch in subject if ch.isalnum() or ch in (" ", "_", "-")).strip() or "email"
     filename = f"{timestamp}_{safe_subject.replace(' ', '_')}.txt"
     output_dir = Path(settings.email_output_dir)

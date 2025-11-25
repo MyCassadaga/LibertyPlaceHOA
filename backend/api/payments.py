@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -158,7 +158,7 @@ def cancel_autopay_enrollment(
         return _serialize_autopay(owner.id, None)
     enrollment.status = "CANCELLED"
     enrollment.provider_status = "CANCELLED"
-    enrollment.cancelled_at = datetime.utcnow()
+    enrollment.cancelled_at = datetime.now(timezone.utc)
     db.add(enrollment)
     db.commit()
     audit_log(
@@ -257,8 +257,8 @@ def submit_vendor_payment(
         return _serialize_vendor_payment(payment)
     payment.status = "SUBMITTED"
     payment.provider_status = "QUEUED"
-    payment.provider_reference = f"SIM-{payment.id}-{int(datetime.utcnow().timestamp())}"
-    payment.submitted_at = datetime.utcnow()
+    payment.provider_reference = f"SIM-{payment.id}-{int(datetime.now(timezone.utc).timestamp())}"
+    payment.submitted_at = datetime.now(timezone.utc)
     db.add(payment)
     db.commit()
     audit_log(
@@ -283,7 +283,7 @@ def mark_vendor_payment_paid(
         return _serialize_vendor_payment(payment)
     payment.status = "PAID"
     payment.provider_status = "PAID"
-    payment.paid_at = datetime.utcnow()
+    payment.paid_at = datetime.now(timezone.utc)
     db.add(payment)
     db.commit()
     audit_log(

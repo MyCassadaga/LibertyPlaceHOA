@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -31,47 +31,55 @@ const ReconciliationPage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isAuthorized = !!user && userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN']);
+  const logError = useCallback((message: string, err: unknown) => {
+    console.error(message, err);
+  }, []);
 
-  const loadReconciliations = async () => {
+  const loadReconciliations = useCallback(async () => {
     try {
       const data = await fetchReconciliations();
       setReconciliations(data);
-      if (selected) {
-        const refreshed = data.find((item) => item.id === selected.id);
-        if (refreshed) setSelected(refreshed);
-      }
+      setSelected((current) => {
+        if (!current) {
+          return current;
+        }
+        return data.find((item) => item.id === current.id) ?? current;
+      });
     } catch (err) {
+      logError('Unable to load reconciliations.', err);
       setError('Unable to load reconciliations.');
     }
-  };
+  }, [logError]);
 
-  const loadTransactions = async (status?: string) => {
+  const loadTransactions = useCallback(async (status?: string) => {
     try {
       setLoading(true);
       const data = await fetchBankTransactions(status && status !== 'ALL' ? status : undefined);
       setTransactions(data);
     } catch (err) {
+      logError('Unable to load transactions.', err);
       setError('Unable to load transactions.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [logError]);
 
   useEffect(() => {
     if (!isAuthorized) return;
     void loadReconciliations();
-  }, [isAuthorized]);
+  }, [isAuthorized, loadReconciliations]);
 
   useEffect(() => {
     if (!isAuthorized) return;
     void loadTransactions(statusFilter !== 'ALL' ? statusFilter : undefined);
-  }, [statusFilter, isAuthorized]);
+  }, [statusFilter, isAuthorized, loadTransactions]);
 
   const handleSelect = async (reconciliation: Reconciliation) => {
     try {
       const detail = await fetchReconciliationById(reconciliation.id);
       setSelected(detail);
     } catch (err) {
+      logError('Unable to load reconciliation detail.', err);
       setError('Unable to load reconciliation detail.');
     }
   };
@@ -101,6 +109,7 @@ const ReconciliationPage: React.FC = () => {
       setStatementDate('');
       setNote('');
     } catch (err) {
+      logError('Unable to import bank statement.', err);
       setError('Unable to import statement. Ensure the CSV has date, description, amount columns.');
     } finally {
       setUploading(false);

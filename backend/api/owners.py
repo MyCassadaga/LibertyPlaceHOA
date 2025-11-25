@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -341,7 +341,7 @@ def archive_owner(
     if owner.is_archived:
         raise HTTPException(status_code=400, detail="Owner already archived.")
 
-    archived_at = datetime.utcnow()
+    archived_at = datetime.now(timezone.utc)
     original_lot = owner.lot
 
     before = OwnerRead.from_orm(owner).dict()
@@ -656,7 +656,7 @@ def review_proposal(
 
     request.status = payload.status
     request.reviewer_user_id = actor.id
-    request.reviewed_at = datetime.utcnow()
+    request.reviewed_at = datetime.now(timezone.utc)
     db.add(request)
     db.commit()
     db.refresh(request)

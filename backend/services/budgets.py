@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Tuple
 
@@ -66,7 +66,7 @@ def calculate_required_board_approvals(session: Session) -> int:
 
 
 def ensure_next_year_draft(session: Session) -> None:
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
     if today.month < 12:
         return
     target_year = today.year + 1

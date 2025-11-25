@@ -227,6 +227,16 @@ export interface ElectionDetail {
   my_status?: ElectionMyStatus | null;
 }
 
+export interface ElectionStats {
+  election_id: number;
+  ballot_count: number;
+  votes_cast: number;
+  turnout_percent: number;
+  abstentions: number;
+  write_in_count: number;
+  results: ElectionResult[];
+}
+
 export interface ElectionAdminBallot {
   id: number;
   owner_id: number;

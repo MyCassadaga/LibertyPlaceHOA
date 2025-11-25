@@ -1,7 +1,10 @@
-from datetime import datetime
+import csv
+import io
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload
 
 from ..api.dependencies import get_db, get_owner_for_user
@@ -18,24 +21,31 @@ from ..schemas.schemas import (
     ElectionPublicRead,
     ElectionRead,
     ElectionResultRead,
+    ElectionStatsRead,
     ElectionUpdate,
     ElectionVoteCast,
 )
-from ..services.elections import compute_results, generate_ballots, get_or_create_owner_ballot, record_vote
+from ..services.elections import (
+    calculate_election_stats,
+    compute_results,
+    generate_ballots,
+    get_or_create_owner_ballot,
+    record_vote,
+)
 from ..services.notifications import create_notification
 
 router = APIRouter()
 
 
 def _load_election(db: Session, election_id: int) -> Election:
-    election = (
-        db.query(Election)
-        .options(
+    election = db.get(
+        Election,
+        election_id,
+        options=[
             joinedload(Election.candidates),
             joinedload(Election.ballots),
             joinedload(Election.votes),
-        )
-        .get(election_id)
+        ],
     )
     if not election:
         raise HTTPException(status_code=404, detail="Election not found.")
@@ -155,7 +165,7 @@ def update_election(
 
     for field, value in updates.items():
         setattr(election, field, value)
-    election.updated_at = datetime.utcnow()
+    election.updated_at = datetime.now(timezone.utc)
     db.add(election)
     db.commit()
     db.refresh(election)
@@ -294,6 +304,52 @@ def get_election(
     include_results = user.has_any_role(*manager_roles)
     owner = get_owner_for_user(db, user)
     return _summarize_election(election, include_results=include_results, db=db, owner=owner)
+
+
+@router.get("/{election_id}/stats", response_model=ElectionStatsRead)
+def get_election_stats(
+    election_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("BOARD", "SYSADMIN", "SECRETARY", "TREASURER", "ATTORNEY")),
+) -> ElectionStatsRead:
+    election = _load_election(db, election_id)
+    stats = calculate_election_stats(db, election)
+    return ElectionStatsRead(**stats)
+
+
+@router.get("/{election_id}/results.csv")
+def download_election_results_csv(
+    election_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("BOARD", "SYSADMIN", "SECRETARY", "TREASURER", "ATTORNEY")),
+) -> StreamingResponse:
+    election = _load_election(db, election_id)
+    stats = calculate_election_stats(db, election)
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["Election", election.title])
+    writer.writerow(["Status", election.status])
+    writer.writerow(["Ballots issued", stats["ballot_count"]])
+    writer.writerow(["Votes cast", stats["votes_cast"]])
+    writer.writerow(["Turnout %", f'{stats["turnout_percent"]:.2f}'])
+    writer.writerow(["Abstentions", stats["abstentions"]])
+    writer.writerow(["Write-in votes", stats["write_in_count"]])
+    writer.writerow([])
+    writer.writerow(["Candidate", "Votes", "% of votes"])
+    total_votes = stats["votes_cast"] or 0
+    for result in stats["results"]:
+        percent = (result["vote_count"] / total_votes * 100) if total_votes else 0.0
+        candidate_name = result["candidate_name"] or "Write-in"
+        writer.writerow([candidate_name, result["vote_count"], f"{percent:.2f}%"])
+    if stats["abstentions"]:
+        abstain_percent = (stats["abstentions"] / stats["ballot_count"] * 100) if stats["ballot_count"] else 0.0
+        writer.writerow(["Abstentions (no vote recorded)", stats["abstentions"], f"{abstain_percent:.2f}%"])
+
+    buffer.seek(0)
+    filename = f"election-{election.id}-results.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(iter([buffer.getvalue()]), media_type="text/csv", headers=headers)
 
 
 @router.get("/public/{election_id}", response_model=ElectionPublicRead)

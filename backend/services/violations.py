@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Dict, Optional
 
@@ -147,7 +147,7 @@ def transition_violation(
     if fine_amount is not None:
         violation.fine_amount = fine_amount
     violation.status = target_status
-    violation.updated_at = datetime.utcnow()
+    violation.updated_at = datetime.now(timezone.utc)
     session.add(violation)
     session.flush()
 

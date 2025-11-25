@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 import {
   createAnnouncement,
@@ -8,9 +9,9 @@ import {
   fetchEmailBroadcasts,
 } from '../services/api';
 import { Announcement, EmailBroadcast, EmailBroadcastSegment } from '../types';
+import { queryKeys } from '../lib/api/queryKeys';
 
 const CommunicationsPage: React.FC = () => {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcementSubject, setAnnouncementSubject] = useState('');
   const [announcementMessage, setAnnouncementMessage] = useState('');
   const [deliveryEmail, setDeliveryEmail] = useState(true);
@@ -18,49 +19,42 @@ const CommunicationsPage: React.FC = () => {
   const [announcementStatus, setAnnouncementStatus] = useState<string | null>(null);
   const [announcementError, setAnnouncementError] = useState<string | null>(null);
 
-  const [broadcasts, setBroadcasts] = useState<EmailBroadcast[]>([]);
-  const [broadcastSegments, setBroadcastSegments] = useState<EmailBroadcastSegment[]>([]);
   const [selectedSegment, setSelectedSegment] = useState('');
   const [broadcastSubject, setBroadcastSubject] = useState('');
   const [broadcastBody, setBroadcastBody] = useState('');
   const [broadcastStatus, setBroadcastStatus] = useState<string | null>(null);
   const [broadcastFormError, setBroadcastFormError] = useState<string | null>(null);
-  const [broadcastSegmentsError, setBroadcastSegmentsError] = useState<string | null>(null);
-  const [broadcastHistoryError, setBroadcastHistoryError] = useState<string | null>(null);
+  const announcementsQuery = useQuery<Announcement[]>({
+    queryKey: queryKeys.announcements,
+    queryFn: fetchAnnouncements,
+  });
 
-  const loadAnnouncements = async () => {
-    const data = await fetchAnnouncements();
-    setAnnouncements(data);
-  };
+  const broadcastsQuery = useQuery<EmailBroadcast[]>({
+    queryKey: queryKeys.broadcasts,
+    queryFn: fetchEmailBroadcasts,
+  });
 
-  const loadBroadcastSegments = async () => {
-    try {
-      const data = await fetchBroadcastSegments();
-      setBroadcastSegments(data);
-      if (!selectedSegment || !data.some((segment) => segment.key === selectedSegment)) {
-        setSelectedSegment(data[0]?.key ?? '');
-      }
-      setBroadcastSegmentsError(null);
-    } catch (err) {
-      setBroadcastSegmentsError('Unable to load broadcast segments.');
+  const segmentsQuery = useQuery<EmailBroadcastSegment[]>({
+    queryKey: queryKeys.broadcastSegments,
+    queryFn: fetchBroadcastSegments,
+  });
+
+  const announcements = announcementsQuery.data ?? [];
+  const broadcasts = broadcastsQuery.data ?? [];
+  const broadcastSegments = useMemo(
+    () => segmentsQuery.data ?? [],
+    [segmentsQuery.data],
+  );
+
+  const resolvedSegment = useMemo(() => {
+    if (!broadcastSegments.length) {
+      return '';
     }
-  };
-
-  const loadBroadcasts = async () => {
-    try {
-      const data = await fetchEmailBroadcasts();
-      setBroadcasts(data);
-      setBroadcastHistoryError(null);
-    } catch (err) {
-      setBroadcastHistoryError('Unable to load recorded broadcasts.');
+    if (selectedSegment && broadcastSegments.some((segment) => segment.key === selectedSegment)) {
+      return selectedSegment;
     }
-  };
-
-  useEffect(() => {
-    void loadAnnouncements();
-    void loadBroadcastSegments();
-    void loadBroadcasts();
-  }, []);
+    return broadcastSegments[0]?.key ?? '';
+  }, [broadcastSegments, selectedSegment]);
 
   const handleAnnouncementSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -83,8 +77,9 @@ const CommunicationsPage: React.FC = () => {
       setDeliveryPrint(false);
       setAnnouncementError(null);
       setAnnouncementStatus('Announcement queued successfully.');
-      await loadAnnouncements();
+      await announcementsQuery.refetch();
     } catch (err) {
+      console.error('Unable to create announcement', err);
       setAnnouncementStatus(null);
       setAnnouncementError('Unable to create announcement.');
     }
@@ -94,7 +89,7 @@ const CommunicationsPage: React.FC = () => {
     event.preventDefault();
     setBroadcastStatus(null);
     setBroadcastFormError(null);
-    if (!selectedSegment) {
+    if (!resolvedSegment) {
       setBroadcastFormError('Choose at least one recipient segment.');
       return;
     }
@@ -107,22 +102,23 @@ const CommunicationsPage: React.FC = () => {
       await createEmailBroadcast({
         subject: broadcastSubject,
         body: broadcastBody,
-        segment: selectedSegment,
+        segment: resolvedSegment,
       });
       setBroadcastSubject('');
       setBroadcastBody('');
       setBroadcastStatus('Broadcast recorded for compliance.');
       setBroadcastFormError(null);
-      await Promise.all([loadBroadcasts(), loadBroadcastSegments()]);
+      await Promise.all([broadcastsQuery.refetch(), segmentsQuery.refetch()]);
     } catch (err) {
+      console.error('Unable to record broadcast', err);
       setBroadcastStatus(null);
       setBroadcastFormError('Unable to record the broadcast.');
     }
   };
 
   const selectedSegmentDetails = useMemo(
-    () => broadcastSegments.find((segment) => segment.key === selectedSegment),
-    [broadcastSegments, selectedSegment],
+    () => broadcastSegments.find((segment) => segment.key === resolvedSegment),
+    [broadcastSegments, resolvedSegment],
   );
 
   const segmentLookup = useMemo(() => {
@@ -153,11 +149,11 @@ const CommunicationsPage: React.FC = () => {
             <select
               id="broadcast-segment"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-              value={selectedSegment}
+              value={resolvedSegment}
               onChange={(event) => setSelectedSegment(event.target.value)}
-              disabled={broadcastSegments.length === 0}
+              disabled={segmentsQuery.isLoading || broadcastSegments.length === 0}
             >
-              {broadcastSegments.length === 0 && <option value="">Loading segments...</option>}
+              {segmentsQuery.isLoading && <option value="">Loading segments...</option>}
               {broadcastSegments.map((segment) => (
                 <option key={segment.key} value={segment.key}>
                   {segment.label} ({segment.recipient_count})
@@ -172,8 +168,8 @@ const CommunicationsPage: React.FC = () => {
                 </span>
               </p>
             )}
-            {broadcastSegmentsError && (
-              <p className="mt-2 text-xs text-red-600">{broadcastSegmentsError}</p>
+            {segmentsQuery.isError && (
+              <p className="mt-2 text-xs text-red-600">Unable to load broadcast segments.</p>
             )}
           </div>
 
@@ -219,12 +215,12 @@ const CommunicationsPage: React.FC = () => {
 
       <section className="rounded border border-slate-200 p-4">
         <h3 className="mb-3 text-lg font-semibold text-slate-700">Broadcast History</h3>
-        {broadcastHistoryError && broadcasts.length > 0 && (
-          <p className="mb-3 text-sm text-red-600">{broadcastHistoryError}</p>
+        {broadcastsQuery.isError && (
+          <p className="mb-3 text-sm text-red-600">Unable to load recorded broadcasts.</p>
         )}
         {broadcasts.length === 0 ? (
           <p className="text-sm text-slate-500">
-            {broadcastHistoryError ?? 'No outbound email broadcasts have been recorded.'}
+            {broadcastsQuery.isLoading ? 'Loading history…' : 'No outbound email broadcasts have been recorded.'}
           </p>
         ) : (
           <ul className="space-y-3 text-sm">
@@ -328,7 +324,9 @@ const CommunicationsPage: React.FC = () => {
         <div className="mt-6">
           <h4 className="mb-2 text-base font-semibold text-slate-700">Recent Announcements</h4>
           {announcements.length === 0 ? (
-            <p className="text-sm text-slate-500">No announcements yet.</p>
+            <p className="text-sm text-slate-500">
+              {announcementsQuery.isLoading ? 'Loading announcements…' : 'No announcements yet.'}
+            </p>
           ) : (
             <ul className="space-y-3 text-sm">
               {announcements.map((announcement) => (

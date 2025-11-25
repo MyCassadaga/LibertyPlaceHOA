@@ -1,5 +1,3 @@
-import axios from 'axios';
-
 import {
   Announcement,
   Appeal,
@@ -17,6 +15,7 @@ import {
   ElectionCandidate,
   ElectionDetail,
   ElectionListItem,
+  ElectionStats,
   ElectionPublicDetail,
   EmailBroadcast,
   EmailBroadcastSegment,
@@ -39,6 +38,10 @@ import {
   BudgetLineItem,
   ReservePlanItem,
   BudgetAttachment,
+  DocumentFolder,
+  DocumentTreeResponse,
+  GovernanceDocument,
+  Meeting,
   PaperworkItem,
   PaperworkFeatures,
   Reminder,
@@ -56,24 +59,9 @@ import {
   AuditLogResponse,
   VendorPayment,
 } from '../types';
+import { api, publicApi, API_BASE_URL, setAuthToken } from '../lib/api/client';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-});
-
-const publicApi = axios.create({
-  baseURL: API_BASE_URL,
-});
-
-export const setAuthToken = (token: string | null) => {
-  if (token) {
-    api.defaults.headers.common.Authorization = `Bearer ${token}`;
-  } else {
-    delete api.defaults.headers.common.Authorization;
-  }
-};
+export { API_BASE_URL, setAuthToken };
 
 export const fetchLoginBackground = async (): Promise<LoginBackgroundResponse> => {
   const { data } = await publicApi.get<LoginBackgroundResponse>('/system/login-background');
@@ -694,13 +682,34 @@ export const fetchViolations = async (filters: ViolationFilters = {}): Promise<V
   return data;
 };
 
-export const fetchNotifications = async (options: { includeRead?: boolean; limit?: number } = {}): Promise<Notification[]> => {
+export const fetchNotifications = async (
+  options: {
+    includeRead?: boolean;
+    limit?: number;
+    levels?: string[];
+    categories?: string[];
+  } = {},
+): Promise<Notification[]> => {
   const params = new URLSearchParams();
   if (options.includeRead === false) {
     params.append('include_read', 'false');
   }
   if (options.limit) {
     params.append('limit', String(options.limit));
+  }
+  if (options.levels?.length) {
+    options.levels.forEach((level) => {
+      if (level) {
+        params.append('levels', level);
+      }
+    });
+  }
+  if (options.categories?.length) {
+    options.categories.forEach((category) => {
+      if (category) {
+        params.append('categories', category);
+      }
+    });
   }
   const query = params.toString();
   const url = query ? `/notifications/?${query}` : '/notifications/';
@@ -898,6 +907,16 @@ export const generateElectionBallots = async (electionId: number): Promise<Elect
 export const fetchElectionDetail = async (electionId: number): Promise<ElectionDetail> => {
   const { data } = await api.get<ElectionDetail>(`/elections/${electionId}`);
   return data;
+};
+
+export const fetchElectionStats = async (electionId: number): Promise<ElectionStats> => {
+  const { data } = await api.get<ElectionStats>(`/elections/${electionId}/stats`);
+  return data;
+};
+
+export const downloadElectionResultsCsv = async (electionId: number): Promise<Blob> => {
+  const response = await api.get(`/elections/${electionId}/results.csv`, { responseType: 'blob' });
+  return response.data as Blob;
 };
 
 export const fetchElectionBallots = async (electionId: number): Promise<ElectionAdminBallot[]> => {

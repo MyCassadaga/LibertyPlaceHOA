@@ -1,17 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import {
-  createDocumentFolder,
-  deleteDocumentFolder,
-  deleteGovernanceDocument,
-  fetchDocumentTree,
-  getGovernanceDocumentDownloadUrl,
-  uploadGovernanceDocument,
-  updateDocumentFolder,
-} from '../services/api';
+import { getGovernanceDocumentDownloadUrl } from '../services/api';
 import { DocumentFolder, DocumentTreeResponse, GovernanceDocument } from '../types';
 import { userHasAnyRole } from '../utils/roles';
+import {
+  useCreateFolderMutation,
+  useDeleteDocumentMutation,
+  useDeleteFolderMutation,
+  useDocumentTreeQuery,
+  useUpdateFolderMutation,
+  useUploadDocumentMutation,
+} from '../features/documents/hooks';
 
 type FolderOption = {
   id: number | null;
@@ -23,10 +23,8 @@ const MANAGER_ROLES = ['BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER'];
 const DocumentsPage: React.FC = () => {
   const { user } = useAuth();
   const canManage = userHasAnyRole(user, MANAGER_ROLES);
-  const [tree, setTree] = useState<DocumentTreeResponse | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [folderForm, setFolderForm] = useState({ name: '', description: '', parent_id: null as number | null });
   const [uploadForm, setUploadForm] = useState<{ title: string; description: string; file: File | null }>({
@@ -34,26 +32,25 @@ const DocumentsPage: React.FC = () => {
     description: '',
     file: null,
   });
-
-  const loadTree = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchDocumentTree();
-      setTree(data);
-      if (selectedFolderId !== null && !folderExists(data, selectedFolderId)) {
-        setSelectedFolderId(null);
-      }
-      setError(null);
-    } catch (err) {
-      setError('Unable to load documents.');
-    } finally {
-      setLoading(false);
+  const documentTreeQuery = useDocumentTreeQuery();
+  const tree = documentTreeQuery.data ?? null;
+  const loading = documentTreeQuery.isLoading;
+  const queryError = documentTreeQuery.isError ? 'Unable to load documents.' : null;
+  const effectiveError = actionError ?? queryError;
+  const createFolderMutation = useCreateFolderMutation();
+  const updateFolderMutation = useUpdateFolderMutation();
+  const deleteFolderMutation = useDeleteFolderMutation();
+  const uploadDocumentMutation = useUploadDocumentMutation();
+  const deleteDocumentMutation = useDeleteDocumentMutation();
+  const resolvedFolderId = useMemo(() => {
+    if (!tree) {
+      return selectedFolderId;
     }
-  };
-
-  useEffect(() => {
-    void loadTree();
-  }, []);
+    if (selectedFolderId !== null && !folderExists(tree, selectedFolderId)) {
+      return null;
+    }
+    return selectedFolderId;
+  }, [tree, selectedFolderId]);
 
   const folderOptions = useMemo<FolderOption[]>(() => {
     if (!tree) return [{ id: null, label: 'Root' }];
@@ -72,100 +69,106 @@ const DocumentsPage: React.FC = () => {
 
   const currentDocuments = useMemo<GovernanceDocument[]>(() => {
     if (!tree) return [];
-    if (selectedFolderId === null) {
+    if (resolvedFolderId === null) {
       return tree.root_documents;
     }
-    const folder = findFolderById(tree.folders, selectedFolderId);
+    const folder = findFolderById(tree.folders, resolvedFolderId);
     return folder ? folder.documents : [];
-  }, [tree, selectedFolderId]);
+  }, [tree, resolvedFolderId]);
 
   const currentFolderName = useMemo(() => {
-    if (selectedFolderId === null) return 'Community Library';
-    const folder = tree ? findFolderById(tree.folders, selectedFolderId) : null;
+    if (resolvedFolderId === null) return 'Community Library';
+    const folder = tree ? findFolderById(tree.folders, resolvedFolderId) : null;
     return folder ? folder.name : 'Community Library';
-  }, [tree, selectedFolderId]);
+  }, [tree, resolvedFolderId]);
 
-  const handleFolderSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!folderForm.name.trim()) {
-      setError('Folder name is required.');
-      return;
-    }
-    try {
-      await createDocumentFolder({
-        name: folderForm.name,
-        description: folderForm.description || undefined,
-        parent_id: folderForm.parent_id,
-      });
-      setFolderForm({ name: '', description: '', parent_id: null });
-      await loadTree();
-    } catch (err) {
-      setError('Unable to create folder.');
-    }
-  };
+const handleFolderSubmit = async (event: React.FormEvent) => {
+  event.preventDefault();
+  if (!folderForm.name.trim()) {
+    setActionError('Folder name is required.');
+    return;
+  }
+  setActionError(null);
+  try {
+    await createFolderMutation.mutateAsync({
+      name: folderForm.name,
+      description: folderForm.description || undefined,
+      parent_id: folderForm.parent_id,
+    });
+    setFolderForm({ name: '', description: '', parent_id: null });
+  } catch (err) {
+    console.error('Unable to create folder.', err);
+    setActionError('Unable to create folder.');
+  }
+};
 
-  const handleFolderUpdate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (selectedFolderId == null) return;
-    if (!folderForm.name.trim()) {
-      setError('Folder name is required.');
-      return;
-    }
-    try {
-      await updateDocumentFolder(selectedFolderId, {
+const handleFolderUpdate = async (event: React.FormEvent) => {
+  event.preventDefault();
+    if (resolvedFolderId == null) return;
+  if (!folderForm.name.trim()) {
+    setActionError('Folder name is required.');
+    return;
+  }
+  setActionError(null);
+  try {
+      await updateFolderMutation.mutateAsync({
+        folderId: resolvedFolderId,
+      payload: {
         name: folderForm.name,
         description: folderForm.description,
         parent_id: folderForm.parent_id,
-      });
-      await loadTree();
-    } catch (err) {
-      setError('Unable to update folder.');
-    }
-  };
+      },
+    });
+  } catch (err) {
+    console.error('Unable to update folder.', err);
+    setActionError('Unable to update folder.');
+  }
+};
 
-  const handleDeleteFolder = async (folderId: number) => {
-    if (!window.confirm('Delete this folder? Documents will move to the parent level.')) return;
-    try {
-      await deleteDocumentFolder(folderId);
-      if (selectedFolderId === folderId) {
-        setSelectedFolderId(null);
-      }
-      await loadTree();
-    } catch (err) {
-      setError('Unable to delete folder.');
+const handleDeleteFolder = async (folderId: number) => {
+  if (!window.confirm('Delete this folder? Documents will move to the parent level.')) return;
+  try {
+    await deleteFolderMutation.mutateAsync(folderId);
+    if (resolvedFolderId === folderId) {
+      setSelectedFolderId(null);
     }
-  };
+  } catch (err) {
+    console.error('Unable to delete folder.', err);
+    setActionError('Unable to delete folder.');
+  }
+};
 
   const handleUpload = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!uploadForm.file) {
-      setError('Choose a file to upload.');
+      setActionError('Choose a file to upload.');
       return;
     }
+    setActionError(null);
     try {
       setUploadStatus('Uploading…');
-      await uploadGovernanceDocument({
+      await uploadDocumentMutation.mutateAsync({
         title: uploadForm.title || uploadForm.file.name,
         description: uploadForm.description || undefined,
-        folder_id: selectedFolderId,
+        folder_id: resolvedFolderId,
         file: uploadForm.file,
       });
       setUploadForm({ title: '', description: '', file: null });
       setUploadStatus('Document uploaded.');
-      await loadTree();
     } catch (err) {
+      console.error('Unable to upload document.', err);
       setUploadStatus(null);
-      setError('Unable to upload document.');
+      setActionError('Unable to upload document.');
     }
   };
 
   const handleDeleteDocument = async (documentId: number) => {
     if (!window.confirm('Remove this document?')) return;
     try {
-      await deleteGovernanceDocument(documentId);
-      await loadTree();
+      await deleteDocumentMutation.mutateAsync(documentId);
     } catch (err) {
-      setError('Unable to delete document.');
+      console.error('Unable to delete document.', err);
+      setActionError('Unable to delete document.');
     }
   };
 
@@ -174,7 +177,7 @@ const DocumentsPage: React.FC = () => {
       <div key={folder.id} className="mb-1" style={{ marginLeft: depth * 16 }}>
         <button
           type="button"
-          className={`text-sm font-medium ${selectedFolderId === folder.id ? 'text-primary-600' : 'text-slate-600'}`}
+          className={`text-sm font-medium ${resolvedFolderId === folder.id ? 'text-primary-600' : 'text-slate-600'}`}
           onClick={() => {
             setSelectedFolderId(folder.id);
             setFolderForm({
@@ -209,7 +212,7 @@ const DocumentsPage: React.FC = () => {
         </div>
       </header>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {effectiveError && <p className="text-sm text-red-600">{effectiveError}</p>}
       {loading && <p className="text-sm text-slate-500">Loading documents…</p>}
 
       {!loading && tree && (
@@ -220,7 +223,7 @@ const DocumentsPage: React.FC = () => {
               <button
                 type="button"
                 className={`text-sm font-medium ${
-                  selectedFolderId === null ? 'text-primary-600' : 'text-slate-600'
+                  resolvedFolderId === null ? 'text-primary-600' : 'text-slate-600'
                 }`}
                 onClick={() => {
                   setSelectedFolderId(null);
@@ -276,7 +279,7 @@ const DocumentsPage: React.FC = () => {
                   </form>
                 </div>
 
-                {selectedFolderId !== null && (
+                {resolvedFolderId !== null && (
                   <div>
                     <h4 className="text-xs font-semibold uppercase text-slate-500">Update selected folder</h4>
                     <form className="mt-2 space-y-2" onSubmit={handleFolderUpdate}>

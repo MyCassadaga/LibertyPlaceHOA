@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -104,7 +104,7 @@ def claim_paperwork(
         raise HTTPException(status_code=409, detail="Already claimed by another board member")
     item.status = "CLAIMED"
     item.claimed_by_board_member_id = user.id
-    item.claimed_at = datetime.utcnow()
+    item.claimed_at = datetime.now(timezone.utc)
     db.add(item)
     db.commit()
     db.refresh(item)
@@ -132,7 +132,7 @@ def mark_paperwork_mailed(
     if item.status == "MAILED":
         return _serialize_paperwork(item)
     item.status = "MAILED"
-    item.mailed_at = datetime.utcnow()
+    item.mailed_at = datetime.now(timezone.utc)
     item.notice.status = "MAILED"
     item.notice.mailed_at = item.mailed_at
     db.add_all([item, item.notice])
@@ -181,7 +181,7 @@ def dispatch_click2mail(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     item.status = "MAILED"
-    item.mailed_at = datetime.utcnow()
+    item.mailed_at = datetime.now(timezone.utc)
     item.delivery_provider = "CLICK2MAIL"
     item.provider_job_id = str(job.get("id") or job.get("jobId") or "")
     item.provider_status = job.get("status") or "QUEUED"

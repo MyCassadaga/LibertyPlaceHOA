@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -20,6 +20,10 @@ from ..config import Base
 from ..constants import ROLE_PRIORITY
 
 
+def utcnow():
+    return datetime.now(timezone.utc)
+
+
 role_permissions = Table(
     "role_permissions",
     Base.metadata,
@@ -32,7 +36,7 @@ user_roles = Table(
     Base.metadata,
     Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
     Column("role_id", Integer, ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True),
-    Column("assigned_at", DateTime, default=datetime.utcnow, nullable=False),
+    Column("assigned_at", DateTime, default=utcnow, nullable=False),
 )
 
 
@@ -75,8 +79,8 @@ class User(Base):
     full_name = Column(String, nullable=True)
     hashed_password = Column(String, nullable=False)
     role_id = Column(Integer, ForeignKey("roles.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     archived_at = Column(DateTime, nullable=True)
     archived_reason = Column(Text, nullable=True)
@@ -142,7 +146,7 @@ class AuditLog(Base):
     __tablename__ = "audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True, nullable=False)
+    timestamp = Column(DateTime, default=utcnow, index=True, nullable=False)
     actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     action = Column(String, nullable=False)
     target_entity_type = Column(String, nullable=True)
@@ -171,8 +175,8 @@ class Owner(Base):
     is_rental = Column(Boolean, default=False)
     lease_document_path = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
     is_archived = Column(Boolean, default=False, nullable=False)
     archived_at = Column(DateTime, nullable=True)
     archived_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -199,7 +203,7 @@ class OwnerUserLink(Base):
     owner_id = Column(Integer, ForeignKey("owners.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     link_type = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     owner = orm_relationship("Owner", back_populates="user_links")
     user = orm_relationship("User", back_populates="owner_links")
@@ -214,7 +218,7 @@ class OwnerUpdateRequest(Base):
     proposed_changes = Column(JSON, nullable=False)
     status = Column(String, default="PENDING", nullable=False)
     reviewer_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     reviewed_at = Column(DateTime, nullable=True)
 
     owner = orm_relationship("Owner", back_populates="update_requests")
@@ -237,8 +241,8 @@ class Invoice(Base):
     notes = Column(Text, nullable=True)
     last_late_fee_applied_at = Column(DateTime, nullable=True)
     last_reminder_sent_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     owner = orm_relationship("Owner", back_populates="invoices")
     payments = orm_relationship("Payment", back_populates="invoice")
@@ -252,7 +256,7 @@ class Payment(Base):
     owner_id = Column(Integer, ForeignKey("owners.id", ondelete="CASCADE"), nullable=False)
     invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
     amount = Column(Numeric(10, 2), nullable=False)
-    date_received = Column(DateTime, default=datetime.utcnow, nullable=False)
+    date_received = Column(DateTime, default=utcnow, nullable=False)
     method = Column(String, nullable=True)
     reference = Column(String, nullable=True)
     notes = Column(Text, nullable=True)
@@ -280,8 +284,8 @@ class AutopayEnrollment(Base):
     last_run_at = Column(DateTime, nullable=True)
     paused_at = Column(DateTime, nullable=True)
     cancelled_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     owner = orm_relationship("Owner", back_populates="autopay_enrollment")
     user = orm_relationship("User")
@@ -296,7 +300,7 @@ class LedgerEntry(Base):
     amount = Column(Numeric(10, 2), nullable=False)
     balance_after = Column(Numeric(10, 2), nullable=True)
     description = Column(String, nullable=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime, default=utcnow, nullable=False)
 
     owner = orm_relationship("Owner", back_populates="ledger_entries")
 
@@ -308,8 +312,8 @@ class BillingPolicy(Base):
     name = Column(String, nullable=False, unique=True)
     grace_period_days = Column(Integer, nullable=False, default=5)
     dunning_schedule_days = Column(JSON, nullable=False, default=[5, 15, 30])
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     tiers = orm_relationship("LateFeeTier", back_populates="policy", cascade="all, delete-orphan", order_by="LateFeeTier.sequence_order")
 
@@ -325,8 +329,8 @@ class LateFeeTier(Base):
     fee_amount = Column(Numeric(10, 2), nullable=False, default=0)
     fee_percent = Column(Float, nullable=False, default=0)  # stored as percentage e.g. 5 = 5%
     description = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     policy = orm_relationship("BillingPolicy", back_populates="tiers")
     invoice_fees = orm_relationship("InvoiceLateFee", back_populates="tier")
@@ -338,7 +342,7 @@ class InvoiceLateFee(Base):
     id = Column(Integer, primary_key=True, index=True)
     invoice_id = Column(Integer, ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False)
     tier_id = Column(Integer, ForeignKey("late_fee_tiers.id", ondelete="CASCADE"), nullable=False)
-    applied_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    applied_at = Column(DateTime, default=utcnow, nullable=False)
     fee_amount = Column(Numeric(10, 2), nullable=False)
 
     invoice = orm_relationship("Invoice", back_populates="late_fees")
@@ -358,8 +362,8 @@ class Contract(Base):
     file_path = Column(String, nullable=True)
     value = Column(Numeric(12, 2), nullable=True)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
     vendor_payments = orm_relationship("VendorPayment", back_populates="contract", cascade="all, delete-orphan")
 
 
@@ -369,7 +373,7 @@ class Announcement(Base):
     id = Column(Integer, primary_key=True, index=True)
     subject = Column(String, nullable=False)
     body = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     delivery_methods = Column(JSON, nullable=False, default=["email"])
     pdf_path = Column(String, nullable=True)
@@ -386,7 +390,7 @@ class EmailBroadcast(Base):
     segment = Column(String, nullable=False)
     recipient_snapshot = Column(JSON, nullable=False, default=list)
     recipient_count = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
     creator = orm_relationship("User", back_populates="email_broadcasts")
@@ -403,7 +407,7 @@ class Reminder(Base):
     entity_id = Column(Integer, nullable=False)
     due_date = Column(Date, nullable=True)
     context = Column(JSON, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     resolved_at = Column(DateTime, nullable=True)
 
 
@@ -416,8 +420,8 @@ class FineSchedule(Base):
     base_amount = Column(Numeric(10, 2), nullable=False, default=0)
     escalation_amount = Column(Numeric(10, 2), nullable=True)
     escalation_days = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     violations = orm_relationship("Violation", back_populates="fine_schedule")
 
@@ -433,8 +437,8 @@ class Violation(Base):
     category = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     location = Column(String, nullable=True)
-    opened_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    opened_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
     due_date = Column(Date, nullable=True)
     hearing_date = Column(Date, nullable=True)
     fine_amount = Column(Numeric(10, 2), nullable=True)
@@ -460,10 +464,10 @@ class VendorPayment(Base):
     provider = Column(String, nullable=False, default="STRIPE")
     provider_status = Column(String, nullable=True)
     provider_reference = Column(String, nullable=True)
-    requested_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    requested_at = Column(DateTime, default=utcnow, nullable=False)
     submitted_at = Column(DateTime, nullable=True)
     paid_at = Column(DateTime, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     contract = orm_relationship("Contract", back_populates="vendor_payments")
     requested_by = orm_relationship("User", foreign_keys=[requested_by_user_id])
@@ -480,7 +484,7 @@ class ViolationNotice(Base):
     subject = Column(String, nullable=False)
     body = Column(Text, nullable=False)
     pdf_path = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     violation = orm_relationship("Violation", back_populates="notices")
     sender = orm_relationship("User", foreign_keys=[sent_by_user_id])
@@ -495,7 +499,7 @@ class Appeal(Base):
     status = Column(String, nullable=False, default="PENDING")
     reason = Column(Text, nullable=False)
     decision_notes = Column(Text, nullable=True)
-    submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    submitted_at = Column(DateTime, default=utcnow, nullable=False)
     decided_at = Column(DateTime, nullable=True)
     reviewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
@@ -522,8 +526,8 @@ class ARCRequest(Base):
     revision_requested_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     archived_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     owner = orm_relationship("Owner", backref="arc_requests")
     applicant = orm_relationship("User", foreign_keys=[submitted_by_user_id])
@@ -544,7 +548,7 @@ class ARCAttachment(Base):
     stored_filename = Column(String, nullable=False)
     content_type = Column(String, nullable=True)
     file_size = Column(Integer, nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    uploaded_at = Column(DateTime, default=utcnow, nullable=False)
 
     request = orm_relationship("ARCRequest", back_populates="attachments")
     uploader = orm_relationship("User")
@@ -559,7 +563,7 @@ class ARCCondition(Base):
     condition_type = Column(String, nullable=False, default="COMMENT")  # COMMENT | REQUIREMENT
     text = Column(Text, nullable=False)
     status = Column(String, nullable=False, default="OPEN")  # OPEN | RESOLVED
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     resolved_at = Column(DateTime, nullable=True)
 
     request = orm_relationship("ARCRequest", back_populates="conditions")
@@ -576,7 +580,7 @@ class ARCInspection(Base):
     completed_at = Column(DateTime, nullable=True)
     result = Column(String, nullable=True)  # PASSED | FAILED | N/A
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     request = orm_relationship("ARCRequest", back_populates="inspections")
     inspector = orm_relationship("User")
@@ -594,7 +598,7 @@ class Reconciliation(Base):
     unmatched_transactions = Column(Integer, nullable=False, default=0)
     matched_amount = Column(Numeric(12, 2), nullable=False, default=0)
     unmatched_amount = Column(Numeric(12, 2), nullable=False, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     creator = orm_relationship("User")
     transactions = orm_relationship("BankTransaction", back_populates="reconciliation", cascade="all, delete-orphan")
@@ -614,7 +618,7 @@ class BankTransaction(Base):
     matched_payment_id = Column(Integer, ForeignKey("payments.id"), nullable=True)
     matched_invoice_id = Column(Integer, ForeignKey("invoices.id"), nullable=True)
     source_file = Column(String, nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    uploaded_at = Column(DateTime, default=utcnow, nullable=False)
 
     reconciliation = orm_relationship("Reconciliation", back_populates="transactions")
     uploader = orm_relationship("User")
@@ -630,8 +634,8 @@ class Election(Base):
     opens_at = Column(DateTime, nullable=True)
     closes_at = Column(DateTime, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     candidates = orm_relationship("ElectionCandidate", back_populates="election", cascade="all, delete-orphan")
     ballots = orm_relationship("ElectionBallot", back_populates="election", cascade="all, delete-orphan")
@@ -647,7 +651,7 @@ class ElectionCandidate(Base):
     owner_id = Column(Integer, ForeignKey("owners.id"), nullable=True)
     display_name = Column(String, nullable=False)
     statement = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     election = orm_relationship("Election", back_populates="candidates")
     owner = orm_relationship("Owner")
@@ -661,7 +665,7 @@ class ElectionBallot(Base):
     election_id = Column(Integer, ForeignKey("elections.id", ondelete="CASCADE"), nullable=False)
     owner_id = Column(Integer, ForeignKey("owners.id", ondelete="CASCADE"), nullable=False)
     token = Column(String, unique=True, nullable=False)
-    issued_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    issued_at = Column(DateTime, default=utcnow, nullable=False)
     voted_at = Column(DateTime, nullable=True)
     invalidated_at = Column(DateTime, nullable=True)
 
@@ -677,7 +681,7 @@ class ElectionVote(Base):
     election_id = Column(Integer, ForeignKey("elections.id", ondelete="CASCADE"), nullable=False)
     candidate_id = Column(Integer, ForeignKey("election_candidates.id", ondelete="SET NULL"), nullable=True)
     ballot_id = Column(Integer, ForeignKey("election_ballots.id", ondelete="CASCADE"), nullable=False)
-    submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    submitted_at = Column(DateTime, default=utcnow, nullable=False)
     write_in = Column(String, nullable=True)
 
     election = orm_relationship("Election", back_populates="votes")
@@ -695,7 +699,7 @@ class Notification(Base):
     level = Column(String, default="info", nullable=False)
     category = Column(String, nullable=True)
     link_url = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     read_at = Column(DateTime, nullable=True)
 
     user = orm_relationship("User", back_populates="notifications")
@@ -711,8 +715,8 @@ class Budget(Base):
     notes = Column(Text, nullable=True)
     locked_at = Column(DateTime, nullable=True)
     locked_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     locked_by = orm_relationship("User")
     line_items = orm_relationship("BudgetLineItem", back_populates="budget", cascade="all, delete-orphan")
@@ -731,8 +735,8 @@ class BudgetLineItem(Base):
     amount = Column(Numeric(12, 2), nullable=False)
     is_reserve = Column(Boolean, default=False, nullable=False)
     sort_order = Column(Integer, default=0, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     budget = orm_relationship("Budget", back_populates="line_items")
 
@@ -748,8 +752,8 @@ class ReservePlanItem(Base):
     inflation_rate = Column(Float, nullable=False, default=0.0)
     current_funding = Column(Numeric(14, 2), nullable=False, default=0)
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     budget = orm_relationship("Budget", back_populates="reserve_items")
 
@@ -763,7 +767,7 @@ class BudgetAttachment(Base):
     stored_path = Column(String, nullable=False)
     content_type = Column(String, nullable=True)
     file_size = Column(Integer, nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    uploaded_at = Column(DateTime, default=utcnow, nullable=False)
 
     budget = orm_relationship("Budget", back_populates="attachments")
 
@@ -774,7 +778,7 @@ class BudgetApproval(Base):
     id = Column(Integer, primary_key=True, index=True)
     budget_id = Column(Integer, ForeignKey("budgets.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    approved_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    approved_at = Column(DateTime, default=utcnow, nullable=False)
 
     budget = orm_relationship("Budget", back_populates="approvals")
     user = orm_relationship("User")
@@ -790,8 +794,8 @@ class NoticeType(Base):
     allow_electronic = Column(Boolean, nullable=False, default=True)
     requires_paper = Column(Boolean, nullable=False, default=False)
     default_delivery = Column(String, nullable=False, default="AUTO")
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     notices = orm_relationship("Notice", back_populates="notice_type")
 
@@ -806,7 +810,7 @@ class Notice(Base):
     body_html = Column(Text, nullable=False)
     delivery_channel = Column(String, nullable=False)
     status = Column(String, nullable=False, default="PENDING")
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
     sent_email_at = Column(DateTime, nullable=True)
     mailed_at = Column(DateTime, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -833,7 +837,7 @@ class PaperworkItem(Base):
     provider_status = Column(String, nullable=True)
     provider_meta = Column(JSON, nullable=True)
     pdf_path = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
 
     notice = orm_relationship("Notice", back_populates="paperwork_item")
     owner = orm_relationship("Owner")
@@ -848,8 +852,8 @@ class DocumentFolder(Base):
     description = Column(Text, nullable=True)
     parent_id = Column(Integer, ForeignKey("document_folders.id", ondelete="SET NULL"), nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     parent = orm_relationship("DocumentFolder", remote_side=[id], backref="children")
     created_by = orm_relationship("User")
@@ -867,8 +871,8 @@ class GovernanceDocument(Base):
     content_type = Column(String, nullable=True)
     file_size = Column(Integer, nullable=True)
     uploaded_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     folder = orm_relationship("DocumentFolder", back_populates="documents")
     uploaded_by = orm_relationship("User")
@@ -889,7 +893,7 @@ class Meeting(Base):
     minutes_file_size = Column(Integer, nullable=True)
     minutes_uploaded_at = Column(DateTime, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 
     created_by = orm_relationship("User")

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,8 +15,8 @@ def _create_election(db_session, creator, status="OPEN") -> Election:
         title="2026 Board Election",
         description="Annual board seats",
         status=status,
-        opens_at=datetime.utcnow() - timedelta(days=1),
-        closes_at=datetime.utcnow() + timedelta(days=7),
+        opens_at=datetime.now(timezone.utc) - timedelta(days=1),
+        closes_at=datetime.now(timezone.utc) + timedelta(days=7),
         created_by_user_id=creator.id,
     )
     db_session.add(election)
@@ -139,6 +139,55 @@ def test_authenticated_vote_endpoint(db_session, create_user, create_owner):
             json={"candidate_id": candidate.id},
         )
         assert repeat.status_code == 400
+    finally:
+        client.close()
+        app.dependency_overrides.clear()
+
+
+def test_election_stats_and_export(db_session, create_user, create_owner):
+    manager = create_user(email="manager-stats@example.com", role_name="SYSADMIN")
+    election = _create_election(db_session, manager)
+    candidate_owner = create_owner(name="Candidate Export", email="candidate3@example.com")
+    candidate = ElectionCandidate(
+        election_id=election.id,
+        owner_id=candidate_owner.id,
+        display_name="Candidate Export",
+    )
+    db_session.add(candidate)
+    db_session.commit()
+
+    owner_one = create_owner(name="Owner Alpha", email="alpha@example.com")
+    owner_two = create_owner(name="Owner Beta", email="beta@example.com")
+    generate_ballots(db_session, election, owners=[owner_one, owner_two])
+    ballot_one = (
+        db_session.query(ElectionBallot)
+        .filter(ElectionBallot.election_id == election.id, ElectionBallot.owner_id == owner_one.id)
+        .one()
+    )
+    ballot_two = (
+        db_session.query(ElectionBallot)
+        .filter(ElectionBallot.election_id == election.id, ElectionBallot.owner_id == owner_two.id)
+        .one()
+    )
+    record_vote(db_session, election, ballot_one, candidate, None)
+    record_vote(db_session, election, ballot_two, None, "Write In Name")
+    db_session.commit()
+
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(manager)
+    client = TestClient(app)
+    try:
+        stats = client.get(f"/elections/{election.id}/stats")
+        assert stats.status_code == 200
+        payload = stats.json()
+        assert payload["votes_cast"] == 2
+        assert payload["ballot_count"] == 2
+        assert payload["write_in_count"] == 1
+
+        csv_response = client.get(f"/elections/{election.id}/results.csv")
+        assert csv_response.status_code == 200
+        assert csv_response.headers["content-type"].startswith("text/csv")
+        assert f"Candidate Export" in csv_response.text
     finally:
         client.close()
         app.dependency_overrides.clear()

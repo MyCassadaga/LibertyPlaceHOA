@@ -1,27 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import {
-  addElectionCandidate,
-  createElection,
-  deleteElectionCandidate,
-  fetchElectionBallots,
-  fetchElectionDetail,
-  fetchElections,
-  fetchOwners,
-  generateElectionBallots,
-  submitElectionVote,
-  updateElection,
-} from '../services/api';
-import {
-  ElectionAdminBallot,
-  ElectionCandidate,
-  ElectionDetail,
-  ElectionListItem,
-  ElectionStatus,
-  Owner,
-} from '../types';
+import { ElectionCandidate, ElectionStatus } from '../types';
 import { formatUserRoles, userHasAnyRole } from '../utils/roles';
+import { useOwnersQuery } from '../features/billing/hooks';
+import {
+  useAddCandidateMutation,
+  useCreateElectionMutation,
+  useDeleteCandidateMutation,
+  useElectionBallotsQuery,
+  useElectionDetailQuery,
+  useElectionResultsExportMutation,
+  useElectionStatsQuery,
+  useElectionsQuery,
+  useGenerateBallotsMutation,
+  useSubmitElectionVoteMutation,
+  useUpdateElectionMutation,
+} from '../features/elections/hooks';
 
 const MANAGER_ROLES = ['BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER', 'ATTORNEY'];
 
@@ -36,14 +31,25 @@ const statusBadge: Record<ElectionStatus, string> = {
 const ElectionsPage: React.FC = () => {
   const { user } = useAuth();
   const isManager = userHasAnyRole(user, MANAGER_ROLES);
-
-  const [elections, setElections] = useState<ElectionListItem[]>([]);
+  const electionsQuery = useElectionsQuery();
+  const elections = useMemo(() => electionsQuery.data ?? [], [electionsQuery.data]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<ElectionDetail | null>(null);
-  const [ballots, setBallots] = useState<ElectionAdminBallot[]>([]);
-  const [loading, setLoading] = useState(false);
+  const detailQuery = useElectionDetailQuery(selectedId);
+  const detail = detailQuery.data ?? null;
+  const ballotsQuery = useElectionBallotsQuery(selectedId, isManager);
+  const ballots = useMemo(() => ballotsQuery.data ?? [], [ballotsQuery.data]);
+  const statsQuery = useElectionStatsQuery(selectedId, isManager);
+  const stats = statsQuery.data ?? null;
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const electionsError = electionsQuery.isError ? 'Unable to load elections.' : null;
+  const detailError = selectedId != null && detailQuery.isError ? 'Unable to load election details.' : null;
+  const ballotsError = isManager && ballotsQuery.isError ? 'Unable to load ballots.' : null;
+  const statsError = isManager && statsQuery.isError ? 'Unable to load election stats.' : null;
+  const ownersLoading = isManager && ownersQuery.isLoading;
+  const ownersError = isManager && ownersQuery.isError ? 'Unable to load owners.' : null;
+  const loading = electionsQuery.isLoading || (selectedId != null && detailQuery.isLoading);
+  const combinedError = error ?? detailError ?? electionsError ?? ownersError ?? ballotsError ?? statsError;
 
   const [createForm, setCreateForm] = useState({
     title: '',
@@ -57,7 +63,15 @@ const ElectionsPage: React.FC = () => {
     statement: '',
     owner_id: '',
   });
-  const [owners, setOwners] = useState<Owner[]>([]);
+  const ownersQuery = useOwnersQuery(isManager);
+  const owners = useMemo(() => ownersQuery.data ?? [], [ownersQuery.data]);
+  const createElectionMutation = useCreateElectionMutation();
+  const updateElectionMutation = useUpdateElectionMutation();
+  const addCandidateMutation = useAddCandidateMutation();
+  const deleteCandidateMutation = useDeleteCandidateMutation();
+  const generateBallotsMutation = useGenerateBallotsMutation();
+  const submitVoteMutation = useSubmitElectionVoteMutation();
+  const exportResultsMutation = useElectionResultsExportMutation();
   const [statusForm, setStatusForm] = useState({
     status: 'DRAFT',
     opens_at: '',
@@ -68,67 +82,34 @@ const ElectionsPage: React.FC = () => {
   const [voteError, setVoteError] = useState<string | null>(null);
   const [voteFeedback, setVoteFeedback] = useState<string | null>(null);
   const [voteSubmitting, setVoteSubmitting] = useState(false);
-
-  const refreshElectionList = useCallback(async (preferredId?: number | null) => {
-    const data = await fetchElections();
-    setElections(data);
-    setSelectedId((current) => {
-      if (preferredId != null) {
-        return preferredId;
-      }
-      if (current != null && data.some((item) => item.id === current)) {
-        return current;
-      }
-      return data.length > 0 ? data[0].id : null;
-    });
+  const logError = useCallback((message: string, err: unknown) => {
+    console.error(message, err);
   }, []);
 
   useEffect(() => {
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        await refreshElectionList();
-      } catch (err) {
-        setError('Unable to load elections.');
-      } finally {
-        setLoading(false);
+    if (elections.length === 0) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId((current) => {
+      if (current && elections.some((item) => item.id === current)) {
+        return current;
       }
-    };
-    void load();
-  }, [refreshElectionList]);
+      return elections[0].id;
+    });
+  }, [elections]);
 
   useEffect(() => {
-    if (selectedId == null) {
-      setDetail(null);
-      setBallots([]);
+    if (!detail) {
       setStatusForm({ status: 'DRAFT', opens_at: '', closes_at: '' });
       return;
     }
-
-    const loadDetail = async () => {
-      setError(null);
-      try {
-        const data = await fetchElectionDetail(selectedId);
-        setDetail(data);
-        setStatusForm({
-          status: data.status,
-          opens_at: data.opens_at ? data.opens_at.slice(0, 16) : '',
-          closes_at: data.closes_at ? data.closes_at.slice(0, 16) : '',
-        });
-        if (isManager) {
-          const ballotData = await fetchElectionBallots(selectedId);
-          setBallots(ballotData);
-        } else {
-          setBallots([]);
-        }
-      } catch (err) {
-        setError('Unable to load election details.');
-      }
-    };
-
-    void loadDetail();
-  }, [selectedId, isManager]);
+    setStatusForm({
+      status: detail.status,
+      opens_at: detail.opens_at ? detail.opens_at.slice(0, 16) : '',
+      closes_at: detail.closes_at ? detail.closes_at.slice(0, 16) : '',
+    });
+  }, [detail]);
 
   useEffect(() => {
     setVoteCandidateId(null);
@@ -136,6 +117,12 @@ const ElectionsPage: React.FC = () => {
     setVoteError(null);
     setVoteFeedback(null);
   }, [detail?.id]);
+
+  const handleSelectElection = useCallback((electionId: number) => {
+    setStatus(null);
+    setError(null);
+    setSelectedId(electionId);
+  }, []);
 
   const upcomingElections = useMemo(
     () => elections.filter((election) => ['DRAFT', 'SCHEDULED', 'OPEN'].includes(election.status)),
@@ -147,23 +134,39 @@ const ElectionsPage: React.FC = () => {
     [elections],
   );
   const myStatus = detail?.my_status ?? null;
-  const canVoteInPortal = Boolean(detail && detail.status === 'OPEN' && myStatus && !myStatus.has_voted);
   const alreadyVoted = Boolean(myStatus?.has_voted);
+  const writeInResult = useMemo(() => {
+    if (!detail) return null;
+    return detail.results.find(
+      (item) => item.candidate_id == null && (item.candidate_name ?? '').toLowerCase().includes('write'),
+    );
+  }, [detail]);
+
+  const statsLoading = isManager && statsQuery.isLoading;
+  const showStatsPanel = isManager && selectedId != null;
 
   const handleUpdateStatus = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!detail) return;
     setError(null);
     try {
-      const updated = await updateElection(detail.id, {
+      const updated = await updateElectionMutation.mutateAsync({
+        electionId: detail.id,
+        payload: {
         status: statusForm.status,
         opens_at: statusForm.opens_at || undefined,
         closes_at: statusForm.closes_at || undefined,
+        },
       });
-      setDetail(updated);
       setStatus('Election updated.');
-      await refreshElectionList(updated.id);
+      setStatusForm({
+        status: updated.status,
+        opens_at: updated.opens_at ? updated.opens_at.slice(0, 16) : '',
+        closes_at: updated.closes_at ? updated.closes_at.slice(0, 16) : '',
+      });
+      await electionsQuery.refetch();
     } catch (err) {
+      logError('Unable to update election.', err);
       setError('Unable to update election.');
     }
   };
@@ -183,11 +186,13 @@ const ElectionsPage: React.FC = () => {
         opens_at: createForm.opens_at || undefined,
         closes_at: createForm.closes_at || undefined,
       };
-      const created = await createElection(payload);
+      const created = await createElectionMutation.mutateAsync(payload);
       setStatus('Election created.');
       setCreateForm({ title: '', description: '', opens_at: '', closes_at: '' });
-      await refreshElectionList(created.id);
+      setSelectedId(created.id);
+      await electionsQuery.refetch();
     } catch (err) {
+      logError('Unable to create election.', err);
       setError('Unable to create election.');
     }
   };
@@ -206,18 +211,18 @@ const ElectionsPage: React.FC = () => {
     }
     setError(null);
     try {
-      const candidate = await addElectionCandidate(detail.id, {
-        display_name: displayName,
-        statement: candidateForm.statement.trim() || undefined,
-        owner_id: ownerId,
-      });
-      setDetail({
-        ...detail,
-        candidates: [...detail.candidates, candidate],
+      await addCandidateMutation.mutateAsync({
+        electionId: detail.id,
+        payload: {
+          display_name: displayName,
+          statement: candidateForm.statement.trim() || undefined,
+          owner_id: ownerId,
+        },
       });
       setCandidateForm({ display_name: '', statement: '', owner_id: '' });
       setStatus('Candidate added.');
     } catch (err) {
+      logError('Unable to add candidate.', err);
       setError('Unable to add candidate.');
     }
   };
@@ -227,13 +232,10 @@ const ElectionsPage: React.FC = () => {
     const confirm = window.confirm(`Remove candidate ${candidate.display_name}?`);
     if (!confirm) return;
     try {
-      await deleteElectionCandidate(detail.id, candidate.id);
-      setDetail({
-        ...detail,
-        candidates: detail.candidates.filter((item) => item.id !== candidate.id),
-      });
+      await deleteCandidateMutation.mutateAsync({ electionId: detail.id, candidateId: candidate.id });
       setStatus('Candidate removed.');
     } catch (err) {
+      logError('Unable to remove candidate.', err);
       setError('Unable to remove candidate.');
     }
   };
@@ -242,26 +244,33 @@ const ElectionsPage: React.FC = () => {
     if (!detail) return;
     setError(null);
     try {
-      const data = await generateElectionBallots(detail.id);
-      setBallots(data);
+      await generateBallotsMutation.mutateAsync(detail.id);
       setStatus('Ballots generated.');
     } catch (err) {
+      logError('Unable to generate ballots.', err);
       setError('Unable to generate ballots.');
     }
   };
 
-  useEffect(() => {
-    if (!isManager) return;
-    const loadOwners = async () => {
-      try {
-        const data = await fetchOwners();
-        setOwners(data);
-      } catch (err) {
-        console.warn('Unable to load owners for candidate selection');
-      }
-    };
-    void loadOwners();
-  }, [isManager]);
+  const handleExportResults = async () => {
+    if (!selectedId) return;
+    setError(null);
+    try {
+      const blob = await exportResultsMutation.mutateAsync(selectedId);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `election-${selectedId}-results.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setStatus('Election results exported.');
+    } catch (err) {
+      logError('Unable to export election results.', err);
+      setError('Unable to export election results.');
+    }
+  };
 
   const handleOwnerChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const value = event.target.value;
@@ -285,16 +294,20 @@ const ElectionsPage: React.FC = () => {
     setVoteError(null);
     setVoteFeedback(null);
     try {
-      await submitElectionVote(detail.id, {
-        candidate_id: voteCandidateId ?? undefined,
-        write_in: trimmedWriteIn || undefined,
+      await submitVoteMutation.mutateAsync({
+        electionId: detail.id,
+        payload: {
+          candidate_id: voteCandidateId ?? undefined,
+          write_in: trimmedWriteIn || undefined,
+        },
       });
       setVoteFeedback('Thanks for casting your ballot.');
       setStatus('Vote recorded.');
-      await refreshElectionList(detail.id);
-      const updated = await fetchElectionDetail(detail.id);
-      setDetail(updated);
+      setVoteCandidateId(null);
+      setWriteInValue('');
+      await Promise.all([electionsQuery.refetch(), detailQuery.refetch()]);
     } catch (err) {
+      logError('Unable to record your vote.', err);
       setVoteError('Unable to record your vote. Please try again.');
     } finally {
       setVoteSubmitting(false);
@@ -313,7 +326,7 @@ const ElectionsPage: React.FC = () => {
         <div className="text-xs text-slate-500">{user ? `Roles: ${formatUserRoles(user)}` : ''}</div>
       </header>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {combinedError && <p className="text-sm text-red-600">{combinedError}</p>}
       {status && <p className="text-sm text-green-600">{status}</p>}
       {loading && <p className="text-sm text-slate-500">Loading elections…</p>}
 
@@ -331,7 +344,7 @@ const ElectionsPage: React.FC = () => {
                   <li
                     key={election.id}
                     className={`cursor-pointer px-3 py-3 hover:bg-primary-50 ${selectedId === election.id ? 'bg-primary-50' : ''}`}
-                    onClick={() => setSelectedId(election.id)}
+                    onClick={() => handleSelectElection(election.id)}
                   >
                     <div className="flex items-center justify-between">
                       <div>
@@ -362,7 +375,7 @@ const ElectionsPage: React.FC = () => {
                   <li
                     key={election.id}
                     className={`cursor-pointer px-3 py-3 hover:bg-primary-50 ${selectedId === election.id ? 'bg-primary-50' : ''}`}
-                    onClick={() => setSelectedId(election.id)}
+                    onClick={() => handleSelectElection(election.id)}
                   >
                     <div className="flex items-center justify-between">
                       <div>
@@ -449,6 +462,81 @@ const ElectionsPage: React.FC = () => {
                 </span>
               </header>
 
+              {showStatsPanel && (
+                <section className="mt-4 rounded border border-primary-100 bg-primary-50/60 p-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-semibold uppercase text-primary-700">Turnout Snapshot</h4>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded border border-primary-300 px-3 py-1 text-xs font-semibold text-primary-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={() => statsQuery.refetch()}
+                        disabled={statsLoading}
+                      >
+                        {statsLoading ? 'Refreshing…' : 'Refresh stats'}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded border border-primary-300 px-3 py-1 text-xs font-semibold text-primary-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                        onClick={handleExportResults}
+                        disabled={exportResultsMutation.isPending || !stats || statsLoading}
+                      >
+                        {exportResultsMutation.isPending ? 'Exporting…' : 'Download CSV'}
+                      </button>
+                    </div>
+                  </div>
+                  {statsLoading ? (
+                    <p className="mt-3 text-xs text-primary-700">Calculating turnout…</p>
+                  ) : stats ? (
+                    <>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {[
+                          { label: 'Turnout', value: `${stats.turnout_percent.toFixed(1)}%` },
+                          { label: 'Votes cast', value: `${stats.votes_cast} / ${stats.ballot_count}` },
+                          { label: 'Abstentions', value: String(stats.abstentions) },
+                          { label: 'Write-ins', value: String(stats.write_in_count) },
+                        ].map((card) => (
+                          <div key={card.label} className="rounded border border-primary-200 bg-white/90 p-3">
+                            <p className="text-[11px] uppercase text-primary-500">{card.label}</p>
+                            <p className="text-lg font-semibold text-primary-700">{card.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 space-y-2 rounded border border-primary-200 bg-white/90 p-3">
+                        <p className="text-[11px] uppercase text-primary-500">Vote share</p>
+                        <div className="space-y-2">
+                          {(stats.results || []).map((result) => {
+                            const total = stats.votes_cast || 1;
+                            const percent = Math.min(100, Math.max(0, (result.vote_count / total) * 100));
+                            return (
+                              <div key={`${result.candidate_id ?? 'write-in'}-${result.candidate_name ?? 'write-in'}`}>
+                                <div className="flex items-center justify-between text-xs text-primary-700">
+                                  <span className="font-semibold">
+                                    {result.candidate_name || 'Write-in'}
+                                  </span>
+                                  <span className="tabular-nums">{percent.toFixed(1)}%</span>
+                                </div>
+                                <div className="mt-1 h-2 overflow-hidden rounded bg-primary-100">
+                                  <div
+                                    className="h-full bg-primary-500 transition-all"
+                                    style={{ width: `${percent}%` }}
+                                  />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <p className="mt-3 text-[11px] uppercase text-primary-500">
+                        Snapshot refreshes automatically as ballots are issued and votes recorded.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-3 text-xs text-primary-700">No turnout metrics yet.</p>
+                  )}
+                </section>
+              )}
+
               {detail.description && (
                 <p className="mt-3 whitespace-pre-wrap text-sm text-slate-700">{detail.description}</p>
               )}
@@ -491,6 +579,13 @@ const ElectionsPage: React.FC = () => {
                   </ul>
                 )}
 
+                {writeInResult && (
+                  <p className="mt-3 text-xs text-slate-500">
+                    Write-in ballots recorded:{' '}
+                    <span className="font-semibold text-slate-700">{writeInResult.vote_count}</span>
+                  </p>
+                )}
+
                 {isManager && (
                   <form className="mt-3 grid gap-2" onSubmit={handleAddCandidate}>
                     <h5 className="text-xs font-semibold uppercase text-slate-500">Add Candidate</h5>
@@ -498,14 +593,16 @@ const ElectionsPage: React.FC = () => {
                       className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                       value={candidateForm.owner_id}
                       onChange={handleOwnerChange}
+                      disabled={ownersLoading}
                     >
-                      <option value="">Select owner…</option>
+                      <option value="">{ownersLoading ? 'Loading owners…' : 'Select owner…'}</option>
                       {owners.map((owner) => (
                         <option key={owner.id} value={owner.id}>
                           {owner.property_address} • {owner.primary_name}
                         </option>
                       ))}
                     </select>
+                    {ownersError && <p className="text-xs text-red-600">{ownersError}</p>}
                     <input
                       className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                       placeholder="Custom candidate name"
@@ -589,7 +686,9 @@ const ElectionsPage: React.FC = () => {
                       Generate / Refresh Ballots
                     </button>
                   </div>
-                  {ballots.length === 0 ? (
+                  {ballotsQuery.isLoading ? (
+                    <p className="mt-2 text-xs text-slate-500">Loading ballots…</p>
+                  ) : ballots.length === 0 ? (
                     <p className="mt-2 text-xs text-slate-500">No ballots have been issued yet.</p>
                   ) : (
                     <div className="mt-2 overflow-x-auto">

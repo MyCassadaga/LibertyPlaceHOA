@@ -6,13 +6,13 @@ import { useNotifications } from '../hooks/useNotifications';
 const formatTimestamp = (isoString: string): string => {
   try {
     return new Date(isoString).toLocaleString();
-  } catch (error) {
+  } catch {
     return isoString;
   }
 };
 
 const NotificationsMenu: React.FC = () => {
-  const { notifications, unreadCount, loading, markAsRead, markAllAsRead } = useNotifications();
+  const { notifications, unreadCount, loading, markAsRead, markAllAsRead, connectionState } = useNotifications();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
@@ -48,13 +48,33 @@ const NotificationsMenu: React.FC = () => {
     }
   };
 
+  const connectionTone: Record<typeof connectionState, string> = {
+    online: 'bg-emerald-500',
+    connecting: 'bg-amber-400 animate-pulse',
+    offline: 'bg-rose-500',
+    idle: 'bg-slate-400',
+  };
+
+  const connectionLabel: Record<typeof connectionState, string> = {
+    online: 'Live updates connected',
+    connecting: 'Connecting to live updates…',
+    offline: 'Offline – attempting to reconnect',
+    idle: 'Live updates idle',
+  };
+
   return (
     <div className="relative" ref={containerRef}>
       <button
         type="button"
         onClick={handleToggle}
-        className="relative rounded border border-primary-600 px-3 py-1 text-primary-600 hover:bg-primary-50"
+        className="relative flex items-center gap-2 rounded border border-primary-600 px-3 py-1 text-primary-600 hover:bg-primary-50"
+        aria-label={`Notifications (${connectionLabel[connectionState]})`}
       >
+        <span
+          className={`inline-flex h-2 w-2 rounded-full ${connectionTone[connectionState]}`}
+          aria-hidden="true"
+          title={connectionLabel[connectionState]}
+        />
         Notifications
         {unreadCount > 0 && (
           <span className="ml-2 rounded-full bg-primary-600 px-2 py-0.5 text-xs font-semibold text-white">
@@ -104,7 +124,12 @@ const NotificationsMenu: React.FC = () => {
             )}
           </div>
           <footer className="border-t border-slate-200 px-3 py-2 text-right text-xs text-slate-500">
-            Showing {sortedNotifications.length} recent
+            <div className="flex items-center justify-between gap-3">
+              <span title={connectionLabel[connectionState]}>
+                Status: <span className="font-semibold">{connectionLabel[connectionState]}</span>
+              </span>
+              <span>Showing {sortedNotifications.length} recent</span>
+            </div>
           </footer>
         </div>
       )}

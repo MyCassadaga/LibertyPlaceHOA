@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Optional, Set
 
 from fastapi import WebSocket
@@ -91,7 +91,7 @@ class NotificationCenter:
         payload = {
             "type": "notification.bulk_read",
             "ids": notification_ids,
-            "read_at": datetime.utcnow().isoformat(),
+            "read_at": datetime.now(timezone.utc).isoformat(),
         }
         asyncio.run_coroutine_threadsafe(self._send_to_user(user_id, payload), loop)
 
@@ -159,7 +159,7 @@ def create_notification(
         return []
 
     notifications: List[Notification] = []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     for recipient_id in recipient_ids:
         notification = Notification(
             user_id=recipient_id,

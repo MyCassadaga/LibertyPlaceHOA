@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
@@ -44,7 +44,7 @@ def list_meetings(
 ) -> list[MeetingRead]:
     query = db.query(Meeting).order_by(Meeting.start_time.asc())
     if not include_past:
-        query = query.filter(Meeting.start_time >= datetime.utcnow())
+        query = query.filter(Meeting.start_time >= datetime.now(timezone.utc))
     meetings = query.all()
     return [_serialize_meeting(meeting) for meeting in meetings]
 
@@ -118,14 +118,14 @@ async def upload_minutes(
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Minutes file is empty")
-    relative_path = f"meetings/{meeting_id}/minutes_{datetime.utcnow().timestamp()}_{file.filename or 'minutes.txt'}"
+    relative_path = f"meetings/{meeting_id}/minutes_{datetime.now(timezone.utc).timestamp()}_{file.filename or 'minutes.txt'}"
     stored = storage_service.save_file(relative_path, content, content_type=file.content_type)
     if meeting.minutes_file_path:
         storage_service.delete_file(meeting.minutes_file_path)
     meeting.minutes_file_path = stored.relative_path
     meeting.minutes_content_type = file.content_type
     meeting.minutes_file_size = len(content)
-    meeting.minutes_uploaded_at = datetime.utcnow()
+    meeting.minutes_uploaded_at = datetime.now(timezone.utc)
     db.add(meeting)
     db.commit()
     db.refresh(meeting)

@@ -45,4 +45,8 @@ DEFAULT_LATE_FEE_POLICY = {
     ],
 }
 
-CORS_ALLOW_ORIGINS = ["https://app.libertyplacehoa.com"]
+CORS_ALLOW_ORIGINS = [
+    "https://app.libertyplacehoa.com",
+    "https://www.libertyplacehoa.com",
+    "https://libertyplacehoa.com",
+]

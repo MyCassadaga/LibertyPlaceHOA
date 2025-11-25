@@ -82,6 +82,7 @@ const Layout: React.FC = () => {
         <aside className="w-52">
           <nav className="space-y-4">
             {renderLink('/dashboard', 'Dashboard', 0)}
+            {renderLink('/notifications', 'Notifications', 1)}
 
             {isHomeowner && homeownerLinks.length > 0 && (
               <div>

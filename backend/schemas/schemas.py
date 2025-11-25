@@ -244,6 +244,16 @@ class ElectionResultRead(BaseModel):
     vote_count: int
 
 
+class ElectionStatsRead(BaseModel):
+    election_id: int
+    ballot_count: int
+    votes_cast: int
+    turnout_percent: float
+    abstentions: int
+    write_in_count: int
+    results: List[ElectionResultRead] = []
+
+
 class ElectionRead(BaseModel):
     id: int
     title: str

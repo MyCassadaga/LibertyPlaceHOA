@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from decimal import Decimal
 from math import ceil
 from pathlib import Path
@@ -398,7 +398,7 @@ def send_reminder_notice(
         next_notice_in_days=next_notice,
     )
 
-    invoice.last_reminder_sent_at = datetime.utcnow()
+    invoice.last_reminder_sent_at = datetime.now(timezone.utc)
     db.add(invoice)
     db.commit()
 

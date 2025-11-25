@@ -8,7 +8,8 @@ import React, {
   useState,
 } from 'react';
 
-import { API_BASE_URL, fetchNotifications, markAllNotificationsRead, markNotificationRead } from '../services/api';
+import { fetchNotifications, markAllNotificationsRead, markNotificationRead } from '../services/api';
+import { API_BASE_URL } from '../lib/api/client';
 import { Notification } from '../types';
 import { useAuth } from './useAuth';
 import type { AxiosError } from 'axios';
@@ -17,6 +18,7 @@ type NotificationsContextValue = {
   notifications: Notification[];
   unreadCount: number;
   loading: boolean;
+  connectionState: 'idle' | 'connecting' | 'online' | 'offline';
   markAsRead: (notificationId: number) => Promise<void>;
   markAllAsRead: () => Promise<void>;
   refresh: () => Promise<void>;
@@ -38,14 +40,20 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
   const { token, loading: authLoading, refresh: refreshAuth } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
+  const [connectionState, setConnectionState] = useState<'idle' | 'connecting' | 'online' | 'offline'>('idle');
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<number | null>(null);
   const refreshingSocketRef = useRef(false);
+  const keepaliveRef = useRef<number | null>(null);
 
   const clearSocket = useCallback(() => {
     if (reconnectTimeout.current !== null) {
       window.clearTimeout(reconnectTimeout.current);
       reconnectTimeout.current = null;
+    }
+    if (keepaliveRef.current !== null) {
+      window.clearInterval(keepaliveRef.current);
+      keepaliveRef.current = null;
     }
     if (wsRef.current) {
       wsRef.current.close();
@@ -67,13 +75,28 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
     clearSocket();
+    setConnectionState('connecting');
     const socket = new WebSocket(buildWebSocketUrl(token));
     wsRef.current = socket;
+
+    socket.onopen = () => {
+      setConnectionState('online');
+      if (keepaliveRef.current === null) {
+        keepaliveRef.current = window.setInterval(() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 25000);
+      }
+    };
 
     socket.onmessage = (event) => {
       try {
         const payload = JSON.parse(event.data);
         switch (payload.type) {
+          case 'notification.connected':
+            setConnectionState('online');
+            break;
           case 'notification.created':
             if (payload.notification) {
               applyNotificationUpdate(payload.notification as Notification);
@@ -107,6 +130,11 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
 
     socket.onclose = (event) => {
       wsRef.current = null;
+      if (token) {
+        setConnectionState('offline');
+      } else {
+        setConnectionState('idle');
+      }
       if (!token) {
         return;
       }
@@ -131,6 +159,7 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
     };
 
     socket.onerror = () => {
+      setConnectionState('offline');
       socket.close();
     };
   }, [applyNotificationUpdate, clearSocket, refreshAuth, token]);
@@ -169,6 +198,7 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
       clearSocket();
       setNotifications([]);
       setLoading(false);
+      setConnectionState('idle');
       return;
     }
     void refresh();
@@ -209,11 +239,12 @@ export const NotificationsProvider: React.FC<{ children: React.ReactNode }> = ({
       notifications,
       unreadCount,
       loading,
+      connectionState,
       markAsRead,
       markAllAsRead: markAllAsReadFn,
       refresh,
     }),
-    [notifications, unreadCount, loading, markAsRead, markAllAsReadFn, refresh],
+    [notifications, unreadCount, loading, connectionState, markAsRead, markAllAsReadFn, refresh],
   );
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

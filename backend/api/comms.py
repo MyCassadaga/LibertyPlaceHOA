@@ -1,3 +1,4 @@
+import logging
 from enum import Enum
 from typing import Dict, List, Optional
 
@@ -20,10 +21,18 @@ from ..services.audit import audit_log
 from ..utils.pdf_utils import generate_announcement_packet
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _queue_email(background: BackgroundTasks, subject: str, body: str, recipients: List[str]) -> None:
-    background.add_task(email.send_announcement, subject, body, recipients)
+    def _send() -> None:
+        try:
+            email.send_announcement(subject, body, recipients)
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception("Announcement email dispatch failed.")
+            raise
+
+    background.add_task(_send)
 
 
 class BroadcastSegment(str, Enum):

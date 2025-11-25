@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal, Optional
 
 from sqlalchemy.orm import Session
@@ -70,7 +70,7 @@ def create_notice(
     if channel in {'EMAIL', 'EMAIL_AND_PAPER'}:
         _send_notice_email(owner, subject, body_html)
         notice.status = 'SENT_EMAIL' if channel == 'EMAIL' else 'IN_PAPERWORK'
-        notice.sent_email_at = datetime.utcnow()
+        notice.sent_email_at = datetime.now(timezone.utc)
 
     if channel in {'PAPER', 'EMAIL_AND_PAPER'}:
         paperwork = PaperworkItem(

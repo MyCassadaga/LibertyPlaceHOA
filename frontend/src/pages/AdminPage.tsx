@@ -1,26 +1,37 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import {
-  fetchRoles,
-  fetchUsers,
-  registerUser,
-  updateUserRoles,
-  fetchLoginBackground,
-  uploadLoginBackground,
-  RegisterUserPayload,
-} from '../services/api';
-import { API_BASE_URL } from '../services/api';
-import { RoleOption, User } from '../types';
+import { RegisterUserPayload, API_BASE_URL } from '../services/api';
+import { User } from '../types';
 import { formatUserRoles } from '../utils/roles';
+import {
+  useRolesQuery,
+  useUsersQuery,
+  useRegisterUserMutation,
+  useUpdateUserRolesMutation,
+  useLoginBackgroundQuery,
+  useUploadLoginBackgroundMutation,
+} from '../features/admin/hooks';
+import { useNotificationBroadcastMutation } from '../features/notifications/hooks';
 
 const AdminPage: React.FC = () => {
   const { user } = useAuth();
-  const [roles, setRoles] = useState<RoleOption[]>([]);
-  const [loadingRoles, setLoadingRoles] = useState(true);
-  const [users, setUsers] = useState<User[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(true);
-  const [usersError, setUsersError] = useState<string | null>(null);
+  const rolesQuery = useRolesQuery();
+  const roles = useMemo(() => rolesQuery.data ?? [], [rolesQuery.data]);
+  const loadingRoles = rolesQuery.isLoading;
+  const usersQuery = useUsersQuery();
+  const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
+  const loadingUsers = usersQuery.isLoading;
+  const usersFetchError = usersQuery.isError ? 'Unable to load user accounts.' : null;
+  const rolesFetchError = rolesQuery.isError ? 'Unable to load roles.' : null;
+  const registerUserMutation = useRegisterUserMutation();
+  const updateUserRolesMutation = useUpdateUserRolesMutation();
+  const loginBackgroundQuery = useLoginBackgroundQuery();
+  const uploadBackgroundMutation = useUploadLoginBackgroundMutation();
+  const broadcastMutation = useNotificationBroadcastMutation();
+  const loginBackgroundUrl = toAbsoluteBackgroundUrl(loginBackgroundQuery.data?.url);
+  const backgroundUploading = uploadBackgroundMutation.isPending;
+  const combinedFormError = error ?? rolesFetchError;
   const [roleEdits, setRoleEdits] = useState<Record<number, number[]>>({});
   const [savingUserId, setSavingUserId] = useState<number | null>(null);
   const [roleStatus, setRoleStatus] = useState<string | null>(null);
@@ -35,11 +46,18 @@ const AdminPage: React.FC = () => {
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [loginBackgroundUrl, setLoginBackgroundUrl] = useState<string | null>(null);
   const [backgroundStatus, setBackgroundStatus] = useState<string | null>(null);
   const [backgroundError, setBackgroundError] = useState<string | null>(null);
-  const [backgroundUploading, setBackgroundUploading] = useState(false);
   const [backgroundFile, setBackgroundFile] = useState<File | null>(null);
+  const [broadcastForm, setBroadcastForm] = useState({
+    title: '',
+    message: '',
+    level: 'INFO',
+    link_url: '',
+    role_names: [] as string[],
+  });
+  const [broadcastStatus, setBroadcastStatus] = useState<string | null>(null);
+  const [broadcastError, setBroadcastError] = useState<string | null>(null);
 
   const toAbsoluteBackgroundUrl = useCallback((url?: string | null) => {
     if (!url) return null;
@@ -80,21 +98,6 @@ const AdminPage: React.FC = () => {
     [normalizeRoleIds],
   );
 
-  useEffect(() => {
-    const loadRoles = async () => {
-      try {
-        setLoadingRoles(true);
-        const data = await fetchRoles();
-        setRoles(data);
-      } catch (err) {
-        setError('Unable to load roles.');
-      } finally {
-        setLoadingRoles(false);
-      }
-    };
-    void loadRoles();
-  }, []);
-
   const defaultRoleId = useMemo(() => {
     if (roles.length === 0) {
       return 0;
@@ -109,39 +112,17 @@ const AdminPage: React.FC = () => {
     }
   }, [loadingRoles, roles, defaultRoleId, form.role_ids.length]);
 
-  const loadUsers = useCallback(async () => {
-    try {
-      setLoadingUsers(true);
-      setUsersError(null);
-      const data = await fetchUsers();
-      setUsers(data);
-      const mapped: Record<number, number[]> = {};
-      data.forEach((account) => {
-        mapped[account.id] = getRoleIdsForUser(account);
-      });
-      setRoleEdits(mapped);
-    } catch (err) {
-      setUsersError('Unable to load user accounts.');
-    } finally {
-      setLoadingUsers(false);
+  useEffect(() => {
+    if (!users.length) {
+      setRoleEdits({});
+      return;
     }
-  }, [getRoleIdsForUser]);
-
-  useEffect(() => {
-    void loadUsers();
-  }, [loadUsers]);
-
-  useEffect(() => {
-    const loadBackground = async () => {
-      try {
-        const data = await fetchLoginBackground();
-        setLoginBackgroundUrl(toAbsoluteBackgroundUrl(data.url));
-      } catch {
-        setLoginBackgroundUrl(null);
-      }
-    };
-    void loadBackground();
-  }, [toAbsoluteBackgroundUrl]);
+    const mapped: Record<number, number[]> = {};
+    users.forEach((account) => {
+      mapped[account.id] = getRoleIdsForUser(account);
+    });
+    setRoleEdits(mapped);
+  }, [users, getRoleIdsForUser]);
 
   const handleTextChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
@@ -193,15 +174,14 @@ const AdminPage: React.FC = () => {
     setRoleError(null);
     setSavingUserId(userId);
     try {
-      const updated = await updateUserRoles(userId, selections);
-      setUsers((prev) => prev.map((entry) => (entry.id === userId ? updated : entry)));
+      const updated = await updateUserRolesMutation.mutateAsync({ userId, roleIds: selections });
       setRoleEdits((prev) => ({
         ...prev,
         [userId]: getRoleIdsForUser(updated),
       }));
-      setUsersError(null);
       setRoleStatus(`Updated roles for ${updated.email}.`);
     } catch (err) {
+      console.error('Unable to update roles for user', err);
       setRoleError('Unable to update roles. Ensure the account retains at least one role and a SYSADMIN remains active.');
     } finally {
       setSavingUserId(null);
@@ -222,20 +202,45 @@ const AdminPage: React.FC = () => {
       setBackgroundError('Select an image before uploading.');
       return;
     }
-    setBackgroundUploading(true);
     setBackgroundStatus(null);
     setBackgroundError(null);
     try {
-      const data = await uploadLoginBackground(backgroundFile);
-      setLoginBackgroundUrl(toAbsoluteBackgroundUrl(data.url));
+      await uploadBackgroundMutation.mutateAsync(backgroundFile);
       setBackgroundStatus('Login background updated successfully.');
       setBackgroundFile(null);
       formElement.reset();
     } catch (err) {
+      console.error('Unable to upload background image.', err);
       const message = err instanceof Error ? err.message : 'Unable to upload background image.';
       setBackgroundError(message);
-    } finally {
-      setBackgroundUploading(false);
+    }
+  };
+
+  const handleBroadcastSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBroadcastStatus(null);
+    setBroadcastError(null);
+    if (!broadcastForm.title.trim() || !broadcastForm.message.trim()) {
+      setBroadcastError('Title and message are required.');
+      return;
+    }
+    if (broadcastForm.role_names.length === 0) {
+      setBroadcastError('Select at least one recipient role.');
+      return;
+    }
+    try {
+      await broadcastMutation.mutateAsync({
+        title: broadcastForm.title.trim(),
+        message: broadcastForm.message.trim(),
+        level: broadcastForm.level,
+        link_url: broadcastForm.link_url.trim() || undefined,
+        roles: broadcastForm.role_names,
+      });
+      setBroadcastStatus('Notification broadcast queued.');
+      setBroadcastForm({ title: '', message: '', level: 'INFO', link_url: '', role_names: [] });
+    } catch (err) {
+      console.error('Unable to send notification broadcast.', err);
+      setBroadcastError('Unable to send notification broadcast.');
     }
   };
 
@@ -253,7 +258,7 @@ const AdminPage: React.FC = () => {
     }
     setSubmitting(true);
     try {
-      await registerUser({
+      await registerUserMutation.mutateAsync({
         email: form.email,
         full_name: form.full_name?.trim() ? form.full_name.trim() : undefined,
         password: form.password,
@@ -266,8 +271,8 @@ const AdminPage: React.FC = () => {
         password: '',
         role_ids: defaultRoleId ? [defaultRoleId] : [],
       });
-      await loadUsers();
     } catch (err) {
+      console.error('Unable to create user account.', err);
       setError('Unable to create user. Ensure the email is unique and you are authorized.');
     } finally {
       setSubmitting(false);
@@ -364,7 +369,7 @@ const AdminPage: React.FC = () => {
           </div>
 
       {status && <p className="text-sm text-green-600">{status}</p>}
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {combinedFormError && <p className="text-sm text-red-600">{combinedFormError}</p>}
 
       <button
         type="submit"
@@ -427,7 +432,7 @@ const AdminPage: React.FC = () => {
         </p>
         {roleStatus && <p className="text-sm text-green-600">{roleStatus}</p>}
         {roleError && <p className="text-sm text-red-600">{roleError}</p>}
-        {usersError && <p className="text-sm text-red-600">{usersError}</p>}
+        {usersFetchError && <p className="text-sm text-red-600">{usersFetchError}</p>}
         {loadingUsers ? (
           <p className="text-sm text-slate-500">Loading user directory…</p>
         ) : users.length === 0 ? (
@@ -494,6 +499,93 @@ const AdminPage: React.FC = () => {
             </table>
           </div>
         )}
+      </section>
+
+      <section className="rounded border border-slate-200 p-4">
+        <h3 className="text-lg font-semibold text-slate-700">Broadcast Notification</h3>
+        <p className="mb-4 text-sm text-slate-500">
+          Send a manual alert to selected roles. Recipients will receive an in-app notification (and WebSocket ping if
+          connected).
+        </p>
+        <form className="space-y-3" onSubmit={handleBroadcastSubmit}>
+          <label className="block text-sm">
+            <span className="mb-1 block text-slate-600">Title</span>
+            <input
+              className="w-full rounded border border-slate-300 px-3 py-2"
+              value={broadcastForm.title}
+              onChange={(event) => setBroadcastForm((prev) => ({ ...prev, title: event.target.value }))}
+              required
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-slate-600">Message</span>
+            <textarea
+              className="w-full rounded border border-slate-300 px-3 py-2"
+              rows={3}
+              value={broadcastForm.message}
+              onChange={(event) => setBroadcastForm((prev) => ({ ...prev, message: event.target.value }))}
+              required
+            />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Level</span>
+              <select
+                className="w-full rounded border border-slate-300 px-3 py-2"
+                value={broadcastForm.level}
+                onChange={(event) => setBroadcastForm((prev) => ({ ...prev, level: event.target.value }))}
+              >
+                <option value="INFO">Info</option>
+                <option value="SUCCESS">Success</option>
+                <option value="WARNING">Warning</option>
+                <option value="DANGER">Danger</option>
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="mb-1 block text-slate-600">Link URL (optional)</span>
+              <input
+                className="w-full rounded border border-slate-300 px-3 py-2"
+                value={broadcastForm.link_url}
+                onChange={(event) => setBroadcastForm((prev) => ({ ...prev, link_url: event.target.value }))}
+                placeholder="https://example.com/details"
+              />
+            </label>
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-semibold uppercase text-slate-500">Recipient Roles</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {roles.map((role) => (
+                <label key={role.id} className="flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={broadcastForm.role_names.includes(role.name)}
+                    onChange={(event) =>
+                      setBroadcastForm((prev) => {
+                        const current = new Set(prev.role_names);
+                        if (event.target.checked) {
+                          current.add(role.name);
+                        } else {
+                          current.delete(role.name);
+                        }
+                        return { ...prev, role_names: Array.from(current) };
+                      })
+                    }
+                  />
+                  {role.name}
+                </label>
+              ))}
+            </div>
+          </div>
+          {broadcastError && <p className="text-sm text-red-600">{broadcastError}</p>}
+          {broadcastStatus && <p className="text-sm text-green-600">{broadcastStatus}</p>}
+          <button
+            type="submit"
+            className="rounded bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={broadcastMutation.isPending}
+          >
+            {broadcastMutation.isPending ? 'Sending…' : 'Send Notification'}
+          </button>
+        </form>
       </section>
     </div>
   );

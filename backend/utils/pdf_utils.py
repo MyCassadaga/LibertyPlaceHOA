@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from textwrap import wrap
 from typing import Iterable, Optional
@@ -140,7 +140,7 @@ def generate_attorney_notice_pdf(owner, invoices, notes: Optional[str] = None) -
     from decimal import Decimal
 
     total_due = sum((invoice.amount for invoice in invoices), Decimal("0"))
-    today = datetime.utcnow().date().isoformat()
+    today = datetime.now(timezone.utc).date().isoformat()
     lines = [
         "Liberty Place HOA",
         "Attorney Engagement Packet",
@@ -165,7 +165,7 @@ def generate_attorney_notice_pdf(owner, invoices, notes: Optional[str] = None) -
         lines.extend(notes.splitlines())
         lines.append("")
     lines.append("This packet was generated automatically for legal review.")
-    filename = f"attorney_owner_{owner.id}_{int(datetime.utcnow().timestamp())}.pdf"
+    filename = f"attorney_owner_{owner.id}_{int(datetime.now(timezone.utc).timestamp())}.pdf"
     return _write_pdf(filename, lines)
 
 
@@ -174,7 +174,7 @@ def generate_notice_letter_pdf(notice, owner) -> str:
     lines = [
         "Liberty Place HOA",
         "",
-        f"Date: {datetime.utcnow().date().isoformat()}",
+        f"Date: {datetime.now(timezone.utc).date().isoformat()}",
         f"To: {owner.primary_name}",
         f"Property: {address}",
         "",

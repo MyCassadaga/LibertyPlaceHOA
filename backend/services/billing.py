@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import List, Optional, Sequence
 
@@ -53,7 +53,7 @@ def _create_ledger_entry(
         amount=amount,
         balance_after=running_balance,
         description=description,
-        timestamp=timestamp or datetime.utcnow(),
+        timestamp=timestamp or datetime.now(timezone.utc),
     )
     session.add(ledger_entry)
     session.flush()
@@ -123,7 +123,7 @@ def apply_manual_late_fee(session: Session, invoice: Invoice, fee_amount: Decima
     invoice.amount = _ensure_decimal(invoice.amount) + fee_amount
     invoice.late_fee_total = _ensure_decimal(invoice.late_fee_total) + fee_amount
     invoice.late_fee_applied = True
-    invoice.last_late_fee_applied_at = datetime.utcnow()
+    invoice.last_late_fee_applied_at = datetime.now(timezone.utc)
     session.add(invoice)
     session.flush()
 
@@ -149,7 +149,7 @@ def apply_late_fee(session: Session, invoice: Invoice, tier: LateFeeTier) -> boo
     invoice.amount = _ensure_decimal(invoice.amount) + fee_amount
     invoice.late_fee_total = _ensure_decimal(invoice.late_fee_total) + fee_amount
     invoice.late_fee_applied = True
-    invoice.last_late_fee_applied_at = datetime.utcnow()
+    invoice.last_late_fee_applied_at = datetime.now(timezone.utc)
     session.add(invoice)
     session.flush()  # ensure invoice id for ledger references
 

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     stripe_api_key: Optional[str] = Field(None, env="STRIPE_API_KEY")
     email_from_address: Optional[EmailStr] = Field(None, env="EMAIL_FROM_ADDRESS")
     email_from_name: str = Field("Liberty Place HOA", env="EMAIL_FROM_NAME")
+    log_level: str = Field("INFO", env="LOG_LEVEL")
 
     # --- Upload Locations ---
     uploads_dir: str = Field("uploads", env="UPLOADS_DIR")

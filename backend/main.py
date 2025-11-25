@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from io import BytesIO
 
 from fastapi import FastAPI, Request
@@ -43,7 +44,10 @@ from .services.audit import audit_log
 from .services.notifications import notification_center
 from .services.backup import perform_sqlite_backup
 from .services.storage import StorageBackend, storage_service
+from .core.logging import configure_logging
+from .core.errors import register_exception_handlers
 
+configure_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 
 
@@ -86,7 +90,40 @@ def ensure_homeowner_owner_records(session: Session) -> None:
             session.add(OwnerUserLink(owner_id=owner.id, user_id=user.id, link_type="PRIMARY"))
             session.commit()
 
-app = FastAPI(title="Liberty Place HOA - Phase 1")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: ensure schema and seed data
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as session:
+        ensure_default_roles(session)
+        ensure_user_role_links(session)
+        ensure_billing_policy(session)
+        ensure_notice_types(session)
+        created_reminders = generate_contract_renewal_reminders(session)
+        if created_reminders:
+            session.commit()
+        ensure_homeowner_owner_records(session)
+        budget_service.ensure_next_year_draft(session)
+
+    notification_center.configure_loop(asyncio.get_running_loop())
+
+    try:
+        yield
+    finally:
+        try:
+            backup_path = perform_sqlite_backup()
+            if backup_path:
+                logger.info("SQLite backup created at %s", backup_path)
+        except Exception:
+            logger.exception("Failed to create SQLite backup during shutdown.")
+        try:
+            await notification_center.shutdown()
+        except Exception:
+            logger.exception("Failed to shutdown notification center.")
+
+
+app = FastAPI(title="Liberty Place HOA - Phase 1", lifespan=lifespan)
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -257,22 +294,6 @@ def ensure_notice_types(session: Session) -> None:
         session.commit()
 
 
-@app.on_event("startup")
-def startup() -> None:
-    # In dev we make sure tables exist. Alembic migrations should be used for real schema evolution.
-    Base.metadata.create_all(bind=engine)
-    with SessionLocal() as session:
-        ensure_default_roles(session)
-        ensure_user_role_links(session)
-        ensure_billing_policy(session)
-        ensure_notice_types(session)
-        created_reminders = generate_contract_renewal_reminders(session)
-        if created_reminders:
-            session.commit()
-        ensure_homeowner_owner_records(session)
-        budget_service.ensure_next_year_draft(session)
-
-
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
 app.include_router(owners.router, prefix="/owners", tags=["owners"])
 app.include_router(billing.router, prefix="/billing", tags=["billing"])
@@ -335,24 +356,3 @@ async def audit_trail(request: Request, call_next):
             after={"status": response.status_code},
         )
     return response
-
-
-@app.on_event("shutdown")
-def shutdown() -> None:
-    """Create a SQLite backup when the application stops."""
-    try:
-        backup_path = perform_sqlite_backup()
-        if backup_path:
-            logger.info("SQLite backup created at %s", backup_path)
-    except Exception:
-        logger.exception("Failed to create SQLite backup during shutdown.")
-
-
-@app.on_event("startup")
-async def configure_notification_center() -> None:
-    notification_center.configure_loop(asyncio.get_running_loop())
-
-
-@app.on_event("shutdown")
-async def shutdown_notification_center() -> None:
-    await notification_center.shutdown()

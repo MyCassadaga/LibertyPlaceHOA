@@ -1,17 +1,15 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import {
-  claimPaperworkItem,
-  fetchPaperwork,
-  fetchPaperworkFeatures,
-  getPaperworkPrintUrl,
-  getPaperworkDownloadUrl,
-  mailPaperworkItem,
-  sendPaperworkViaClick2Mail,
-} from '../services/api';
-import { PaperworkItem } from '../types';
+import { getPaperworkPrintUrl, getPaperworkDownloadUrl } from '../services/api';
 import { userHasAnyRole } from '../utils/roles';
+import {
+  useClick2MailMutation,
+  useClaimPaperworkMutation,
+  useMailPaperworkMutation,
+  usePaperworkFeaturesQuery,
+  usePaperworkQuery,
+} from '../features/paperwork/hooks';
 
 const BOARD_ROLES = ['BOARD', 'TREASURER', 'SECRETARY', 'SYSADMIN'];
 const STATUS_TABS = ['PENDING', 'CLAIMED', 'MAILED'] as const;
@@ -21,69 +19,52 @@ type StatusFilter = typeof STATUS_TABS[number];
 const PaperworkPage: React.FC = () => {
   const { user } = useAuth();
   const canManage = useMemo(() => userHasAnyRole(user, BOARD_ROLES), [user]);
-  const [items, setItems] = useState<PaperworkItem[]>([]);
   const [status, setStatus] = useState<StatusFilter>('PENDING');
   const [requiredOnly, setRequiredOnly] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [click2mailEnabled, setClick2mailEnabled] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [dispatchingId, setDispatchingId] = useState<number | null>(null);
-
-  const loadPaperwork = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchPaperwork({ status, requiredOnly });
-      setItems(data);
-    } catch (err) {
-      setError('Unable to load paperwork.');
-    } finally {
-      setLoading(false);
-    }
-  }, [status, requiredOnly]);
-
-  useEffect(() => {
-    void loadPaperwork();
-  }, [loadPaperwork]);
-
-  useEffect(() => {
-    const loadFeatures = async () => {
-      try {
-        const data = await fetchPaperworkFeatures();
-        setClick2mailEnabled(Boolean(data.click2mail_enabled));
-      } catch {
-        setClick2mailEnabled(false);
-      }
-    };
-    void loadFeatures();
+  const logError = useCallback((message: string, err: unknown) => {
+    console.error(message, err);
   }, []);
+  const paperworkQuery = usePaperworkQuery(status, requiredOnly);
+  const paperworkFeaturesQuery = usePaperworkFeaturesQuery();
+  const items = useMemo(() => paperworkQuery.data ?? [], [paperworkQuery.data]);
+  const loading = paperworkQuery.isLoading;
+  const queryError = paperworkQuery.isError ? 'Unable to load paperwork.' : null;
+  const click2mailEnabled = Boolean(paperworkFeaturesQuery.data?.click2mail_enabled);
+  const effectiveError = actionError ?? queryError;
+  const claimMutation = useClaimPaperworkMutation();
+  const mailMutation = useMailPaperworkMutation();
+  const click2MailMutation = useClick2MailMutation();
 
   const handleClaim = async (paperworkId: number) => {
     try {
-      await claimPaperworkItem(paperworkId);
-      await loadPaperwork();
+      setActionError(null);
+      await claimMutation.mutateAsync(paperworkId);
     } catch (err) {
-      setError('Unable to claim item.');
+      logError('Unable to claim item.', err);
+      setActionError('Unable to claim item.');
     }
   };
 
   const handleMail = async (paperworkId: number) => {
     try {
-      await mailPaperworkItem(paperworkId);
-      await loadPaperwork();
+      setActionError(null);
+      await mailMutation.mutateAsync(paperworkId);
     } catch (err) {
-      setError('Unable to mark mailed.');
+      logError('Unable to mark mailed.', err);
+      setActionError('Unable to mark mailed.');
     }
   };
 
   const handleSendClick2Mail = async (paperworkId: number) => {
     setDispatchingId(paperworkId);
-    setError(null);
+    setActionError(null);
     try {
-      await sendPaperworkViaClick2Mail(paperworkId);
-      await loadPaperwork();
+      await click2MailMutation.mutateAsync(paperworkId);
     } catch (err) {
-      setError('Unable to send via Click2Mail.');
+      logError('Unable to send via Click2Mail.', err);
+      setActionError('Unable to send via Click2Mail.');
     } finally {
       setDispatchingId(null);
     }
@@ -138,7 +119,7 @@ const PaperworkPage: React.FC = () => {
         ))}
       </div>
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {effectiveError && <p className="text-sm text-red-600">{effectiveError}</p>}
       {loading && <p className="text-sm text-slate-500">Loading paperwork…</p>}
 
       {status !== 'MAILED' && (

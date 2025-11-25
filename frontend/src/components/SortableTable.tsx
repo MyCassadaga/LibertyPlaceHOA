@@ -1,11 +1,12 @@
 import React, { useMemo, useState } from 'react';
 
 type SortDirection = 'asc' | 'desc';
+type SortableValue = string | number | Date | boolean | null | undefined;
 
 export interface SortableColumn<T> {
   header: string;
   accessor: (row: T) => React.ReactNode;
-  sortValue?: (row: T) => string | number | Date | null | undefined;
+  sortValue?: (row: T) => SortableValue;
   align?: 'left' | 'right' | 'center';
 }
 
@@ -15,7 +16,7 @@ interface SortableTableProps<T> {
   emptyMessage?: string;
 }
 
-const getComparableValue = (value: ReturnType<SortableColumn<any>['sortValue']>): number | string | null => {
+const getComparableValue = (value: SortableValue): number | string | null => {
   if (value instanceof Date) {
     return value.getTime();
   }
@@ -42,11 +43,12 @@ const SortableTable = <T extends object>({ columns, data, emptyMessage = 'No rec
       return data;
     }
 
-    const extractor = column.sortValue ?? column.accessor;
+    const extractor: (row: T) => SortableValue =
+      column.sortValue ?? ((row: T) => column.accessor(row) as SortableValue);
 
     const sorted = [...data].sort((a, b) => {
-      const aValue = getComparableValue(extractor(a) as any);
-      const bValue = getComparableValue(extractor(b) as any);
+      const aValue = getComparableValue(extractor(a));
+      const bValue = getComparableValue(extractor(b));
 
       if (aValue === bValue) return 0;
       if (aValue === null || aValue === undefined) return 1;

@@ -1,6 +1,6 @@
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -31,7 +31,7 @@ def perform_sqlite_backup(destination_dir: Path | None = None) -> Optional[Path]
     target_dir = destination_dir or BACKUP_DIR
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup_path = target_dir / f"{db_path.stem}_{timestamp}.sqlite3"
 
     logger.info("Backing up SQLite database %s -> %s", db_path, backup_path)

@@ -32,6 +32,7 @@ from ..schemas.schemas import (
     UserSelfUpdate,
 )
 from ..services.audit import audit_log
+from ..core.rate_limit import rate_limit_dependency
 
 router = APIRouter()
 
@@ -210,6 +211,7 @@ def register_user(
 def login(
     form_data: OAuth2PasswordRequestFormWithOTP = Depends(),
     db: Session = Depends(get_db),
+    _: None = Depends(rate_limit_dependency(scope="auth:login", limit=5, window_seconds=60)),
 ):
     user = (
         db.query(User)
@@ -233,6 +235,7 @@ def login(
 def refresh_token(
     payload: TokenRefreshRequest,
     db: Session = Depends(get_db),
+    _: None = Depends(rate_limit_dependency(scope="auth:refresh", limit=20, window_seconds=300)),
 ):
     credentials_exception = HTTPException(status_code=401, detail="Invalid refresh token")
     try:
