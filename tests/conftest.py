@@ -12,10 +12,28 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.config import Base  # noqa: E402
+import backend.config as app_config  # noqa: E402
+import backend.main as app_main  # noqa: E402
 from backend.auth.jwt import get_password_hash  # noqa: E402
 # Import the full models module so all tables (including audit_logs) register with Base metadata.
 from backend.models import models as _all_models  # noqa: E402,F401
 from backend.models.models import Owner, Role, User  # noqa: E402
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _configure_global_test_db(tmp_path_factory):
+    """Configure the app-wide SessionLocal/engine so TestClient uses a DB with all tables."""
+    db_dir = tmp_path_factory.mktemp("globaldb")
+    db_path = db_dir / "app.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+    app_config.SessionLocal = SessionLocal
+    app_config.engine = engine
+    app_main.SessionLocal = SessionLocal
+    app_main.engine = engine
+    yield
+    engine.dispose()
 
 
 @pytest.fixture
