@@ -13,6 +13,8 @@ if str(ROOT) not in sys.path:
 
 from backend.config import Base  # noqa: E402
 from backend.auth.jwt import get_password_hash  # noqa: E402
+# Import the full models module so all tables (including audit_logs) register with Base metadata.
+from backend.models import models as _all_models  # noqa: E402,F401
 from backend.models.models import Owner, Role, User  # noqa: E402
 
 
