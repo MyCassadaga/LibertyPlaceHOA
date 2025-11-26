@@ -308,9 +308,14 @@ def submit_appeal(
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found.")
 
-    owner = get_owner_for_user(db, user) if user.has_role("HOMEOWNER") else db.get(Owner, violation.owner_id)
-    if not owner or owner.id != violation.owner_id:
-        raise HTTPException(status_code=403, detail="Cannot appeal violations for another owner.")
+    staff_roles = {"BOARD", "TREASURER", "SYSADMIN", "SECRETARY"}
+    is_homeowner_only = user.has_role("HOMEOWNER") and not user.has_any_role(*staff_roles)
+    owner = get_owner_for_user(db, user) if is_homeowner_only else db.get(Owner, violation.owner_id)
+    if is_homeowner_only:
+        if not owner or owner.id != violation.owner_id:
+            raise HTTPException(status_code=403, detail="Cannot appeal violations for another owner.")
+    if not owner:
+        raise HTTPException(status_code=404, detail="Owner record not found for this violation.")
 
     appeal = create_appeal(db, violation, owner, payload.reason)
     db.commit()
