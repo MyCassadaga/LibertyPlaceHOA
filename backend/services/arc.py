@@ -160,27 +160,30 @@ def transition_arc_request(
     reviewer_user_id: Optional[int] = None,
     notes: Optional[str] = None,
 ) -> ARCRequest:
-    if target_status not in ARC_STATES:
+    normalized_target = target_status.strip().upper().replace(" ", "_")
+    current_status = (arc_request.status or "").strip().upper().replace(" ", "_")
+
+    if normalized_target not in ARC_STATES:
         raise ValueError("Invalid ARC status.")
-    allowed = ARC_TRANSITIONS.get(arc_request.status, set())
-    if target_status not in allowed:
-        raise ValueError(f"Cannot transition from {arc_request.status} to {target_status}.")
+    allowed = ARC_TRANSITIONS.get(current_status, set())
+    if normalized_target not in allowed:
+        raise ValueError(f"Cannot transition from {arc_request.status} to {normalized_target}.")
 
     before_status = arc_request.status
-    arc_request.status = target_status
+    arc_request.status = normalized_target
     arc_request.updated_at = datetime.now(timezone.utc)
 
-    if target_status == "SUBMITTED":
+    if normalized_target == "SUBMITTED":
         arc_request.submitted_at = datetime.now(timezone.utc)
-    if target_status == "REVISION_REQUESTED":
+    if normalized_target == "REVISION_REQUESTED":
         arc_request.revision_requested_at = datetime.now(timezone.utc)
-    if target_status in {"APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED"}:
+    if normalized_target in {"APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED"}:
         arc_request.final_decision_at = datetime.now(timezone.utc)
         arc_request.final_decision_by_user_id = actor.id
         arc_request.decision_notes = notes
-    if target_status == "COMPLETED":
+    if normalized_target == "COMPLETED":
         arc_request.completed_at = datetime.now(timezone.utc)
-    if target_status == "ARCHIVED":
+    if normalized_target == "ARCHIVED":
         arc_request.archived_at = datetime.now(timezone.utc)
 
     if reviewer_user_id:
