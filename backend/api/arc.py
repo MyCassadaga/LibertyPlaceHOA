@@ -43,6 +43,8 @@ def list_arc_requests(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> List[ARCRequest]:
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    is_manager = user.has_any_role(*manager_roles)
     query = (
         db.query(ARCRequest)
         .options(
@@ -54,14 +56,13 @@ def list_arc_requests(
         .order_by(ARCRequest.created_at.desc())
     )
 
-    if user.has_role("HOMEOWNER"):
+    if user.has_role("HOMEOWNER") and not is_manager:
         owner = get_owner_for_user(db, user)
         if not owner:
             return []
         query = query.filter(ARCRequest.owner_id == owner.id)
     else:
-        allowed = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
-        if not user.has_any_role(*allowed):
+        if not is_manager:
             raise HTTPException(status_code=403, detail="Insufficient privileges for ARC requests.")
 
     if status_filter:
@@ -76,8 +77,11 @@ def create_arc_request(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles("HOMEOWNER", "ARC", "BOARD", "SYSADMIN", "SECRETARY")),
 ) -> ARCRequest:
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    is_manager = user.has_any_role(*manager_roles)
+
     owner = get_owner_for_user(db, user) if user.has_role("HOMEOWNER") else None
-    if user.has_role("HOMEOWNER"):
+    if user.has_role("HOMEOWNER") and not is_manager:
         if not owner:
             raise HTTPException(status_code=400, detail="Owner record not linked to user.")
         owner_id = owner.id
@@ -122,17 +126,18 @@ def get_arc_request(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ARCRequest:
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    is_manager = user.has_any_role(*manager_roles)
     arc_request = _get_request_with_relations(db, arc_request_id)
     if not arc_request:
         raise HTTPException(status_code=404, detail="ARC request not found.")
 
-    if user.has_role("HOMEOWNER"):
+    if user.has_role("HOMEOWNER") and not is_manager:
         owner = get_owner_for_user(db, user)
         if not owner or owner.id != arc_request.owner_id:
             raise HTTPException(status_code=403, detail="Not permitted to view this request.")
     else:
-        allowed = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
-        if not user.has_any_role(*allowed):
+        if not is_manager:
             raise HTTPException(status_code=403, detail="Not permitted to view this request.")
 
     return arc_request
@@ -145,6 +150,8 @@ def update_arc_request(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ARCRequest:
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    is_manager = user.has_any_role(*manager_roles)
     arc_request = db.get(ARCRequest, arc_request_id)
     if not arc_request:
         raise HTTPException(status_code=404, detail="ARC request not found.")
@@ -153,12 +160,11 @@ def update_arc_request(
         raise HTTPException(status_code=400, detail="Cannot update request once in review.")
 
     owner = get_owner_for_user(db, user) if user.has_role("HOMEOWNER") else None
-    if user.has_role("HOMEOWNER"):
+    if user.has_role("HOMEOWNER") and not is_manager:
         if not owner or owner.id != arc_request.owner_id:
             raise HTTPException(status_code=403, detail="Not permitted to modify this request.")
     else:
-        allowed = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
-        if not user.has_any_role(*allowed):
+        if not is_manager:
             raise HTTPException(status_code=403, detail="Not permitted to update this request.")
 
     before = {
@@ -195,20 +201,18 @@ def transition_arc_request_status(
     db: Session = Depends(get_db),
     user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY", "HOMEOWNER")),
 ) -> ARCRequest:
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    is_manager = user.has_any_role(*manager_roles)
     arc_request = db.get(ARCRequest, arc_request_id)
     if not arc_request:
         raise HTTPException(status_code=404, detail="ARC request not found.")
 
-    if user.has_role("HOMEOWNER"):
+    if user.has_role("HOMEOWNER") and not is_manager:
         owner = get_owner_for_user(db, user)
         if not owner or owner.id != arc_request.owner_id:
             raise HTTPException(status_code=403, detail="Not permitted for this request.")
         if payload.target_status not in {"SUBMITTED", "ARCHIVED"}:
             raise HTTPException(status_code=403, detail="Homeowners may only submit or archive their own requests.")
-    else:
-        allowed = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
-        if not user.has_any_role(*allowed):
-            raise HTTPException(status_code=403, detail="Not permitted.")
 
     try:
         arc_service.transition_arc_request(
