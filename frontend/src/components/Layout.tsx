@@ -77,10 +77,16 @@ const Layout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-100">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded focus:bg-white focus:px-4 focus:py-2 focus:shadow"
+      >
+        Skip to main content
+      </a>
       <NavBar />
       <div className="mx-auto flex max-w-6xl gap-6 px-4 py-6">
         <aside className="w-52">
-          <nav className="space-y-4">
+          <nav className="space-y-4" aria-label="Primary">
             {renderLink('/dashboard', 'Dashboard', 0)}
             {renderLink('/notifications', 'Notifications', 1)}
 
@@ -113,7 +119,7 @@ const Layout: React.FC = () => {
             )}
           </nav>
         </aside>
-        <main className="flex-1 rounded bg-white p-6 shadow">
+        <main id="main-content" role="main" className="flex-1 rounded bg-white p-6 shadow">
           <Outlet />
         </main>
       </div>

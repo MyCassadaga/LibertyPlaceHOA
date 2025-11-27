@@ -26,7 +26,7 @@ Use this to validate the app before calling Phase 4 done or pushing to prod.
 - Verify skip links, heading order, ARIA labels on forms, and focus outlines. Use axe DevTools or Lighthouse a11y audit.
 
 ## Tests & lint
-- Backend: `. .venv/bin/activate && pytest tests/test_elections.py` (extend to full suite when available).
+- Backend: `. .venv/bin/activate && pytest tests/test_elections.py tests/test_audit_logs.py` (extend to full suite when available).
 - Frontend: `cd frontend && npm run lint`. Add component tests (React Testing Library) for auth and elections when time allows.
 
 ## Release steps (manual)

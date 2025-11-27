@@ -22,6 +22,7 @@ does not regress any hosting quirks.
 - Output directory: `frontend/dist`
 - SPA routing handled via `frontend/vercel.json` (`/(.*)` → `/index.html`).
 - Environment variable `VITE_API_URL` must match `https://api.libertyplacehoa.com`.
+- After repository renames, verify Vercel is pointed at the current Git repo; a stale pointer previously served old code.
 
 ## Render (backend)
 
@@ -44,6 +45,10 @@ does not regress any hosting quirks.
 
 **Cold start**: Render’s free dyno sleeps after ~15 min. Expect the first request to
 take up to a minute. Consider adding a ping monitor or upgrading the plan.
+
+**Health/diagnostics**: `/health` is safe for uptime checks. `/system/runtime`
+(SYSADMIN) returns sanitized runtime config to debug env drift without shell
+access. GitHub Actions runs Alembic before pytest so `audit_logs` always exists.
 
 ## Diagnostics
 

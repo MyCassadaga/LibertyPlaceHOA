@@ -100,6 +100,8 @@ Roles are seeded at startup (`SYSADMIN`, `BOARD`, `TREASURER`, `SECRETARY`, `ARC
 - **CORS**: `FRONTEND_URL` and `API_BASE` must match deployed origins; use `ADDITIONAL_CORS_ORIGINS` for temporary admin tools.
 - **Uploads**: if S3 is used, verify the bucket policy allows public read of the prefixed objects or serve through Cloudflare Workers; otherwise keep `FILE_STORAGE_BACKEND=local` and proxy via Cloudflare.
 - **SPA cache busting**: ensure each frontend deploy includes `vercel.json`; missing rewrites cause refresh 404s.
+- **Health + runtime debug**: `/health` is safe for uptime monitors; `/system/runtime` (SYSADMIN only) exposes sanitized settings so you can confirm prod env drift without SSH.
+- **SMTP troubleshooting**: if Render logs show “Unknown EMAIL_BACKEND”, confirm `EMAIL_BACKEND=smtp` and `EMAIL_HOST=smtp.sendgrid.net` in Render env. Missing keys fall back to the local stub.
 
 ## Initial Data Flow
 
@@ -170,6 +172,13 @@ docs/           Phase scope and extended documentation
 - `GET /meetings` + `/meetings/{id}/minutes` — HOA meeting calendar with zoom links and minutes uploads.
 
 Frontend entry points: `/owner-profile` (Account settings for all roles), `/violations` (board + homeowner visibility), `/owners` (roster with archiving tools), `/elections` (ballot dashboard), and `/admin` (sysadmin only).
+
+## Phase 4 (Polish) status
+
+- Docs refreshed (see `docs/DEPLOYMENT.md` and `docs/PHASE4_CHECKLIST.md`) plus this README for current env keys and routing rules.
+- Auditability: Mutating endpoints emit `audit_logs` rows; `tests/test_audit_logs.py` guards the baseline path.
+- CI/CD: GitHub Actions runs Alembic + pytest and frontend lint on push/PR.
+- Accessibility/perf: Skip link to main content in the layout; notifications badge exposes WebSocket status; tables remain paginated with room for virtualization if datasets grow.
 
 ### Click2Mail paper mail integration
 
