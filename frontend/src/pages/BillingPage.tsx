@@ -117,6 +117,21 @@ const BillingPage: React.FC = () => {
     });
   }, [autopay]);
 
+  if (!user) return null;
+
+  const describeMonths = (months: number) => {
+    if (months <= 0) return '<1 month';
+    return `${months} month${months === 1 ? '' : 's'}`;
+  };
+
+  const getLongestDaysOverdue = (account: OverdueAccount) =>
+    account.invoices.reduce((max, invoice) => Math.max(max, invoice.days_overdue), 0);
+
+  const formatReminderDate = (value?: string | null) => {
+    if (!value) return 'Never';
+    return new Date(value).toLocaleDateString();
+  };
+
   const handlePayInvoice = async (invoiceId: number) => {
     setPaymentError(null);
     setPayingInvoiceId(invoiceId);
@@ -156,21 +171,6 @@ const BillingPage: React.FC = () => {
     } catch {
       setAutopayError('Unable to cancel autopay at this time.');
     }
-  };
-
-  if (!user) return null;
-
-  const describeMonths = (months: number) => {
-    if (months <= 0) return '<1 month';
-    return `${months} month${months === 1 ? '' : 's'}`;
-  };
-
-  const getLongestDaysOverdue = (account: OverdueAccount) =>
-    account.invoices.reduce((max, invoice) => Math.max(max, invoice.days_overdue), 0);
-
-  const formatReminderDate = (value?: string | null) => {
-    if (!value) return 'Never';
-    return new Date(value).toLocaleDateString();
   };
 
   const handleOpenContact = (account: OverdueAccount) => {
@@ -239,6 +239,15 @@ const BillingPage: React.FC = () => {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-slate-700">Billing & Assessments</h2>
       </div>
+      {isBoardBillingUser && (
+        <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          <p className="font-semibold">Vendor payments moved</p>
+          <p className="mt-1">
+            Draft and track vendor payouts on the <span className="font-semibold">Contracts</span> page now. This Billing page
+            focuses on homeowner assessments, overdue accounts, and autopay.
+          </p>
+        </div>
+      )}
       {pageLoading && <p className="text-sm text-slate-500">Loading billing data…</p>}
       {summary && (
         <div className="rounded border border-slate-200 p-4">
