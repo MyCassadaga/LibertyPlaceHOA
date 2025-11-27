@@ -58,6 +58,8 @@ const ARCPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const isHomeowner = user?.role.name === 'HOMEOWNER';
+  const canReview = ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY'].includes(user?.role.name ?? '');
   const arcRequestsQuery = useArcRequestsQuery(statusFilter !== 'ALL' ? statusFilter : undefined);
   const requests = useMemo(() => arcRequestsQuery.data ?? [], [arcRequestsQuery.data]);
   const loading = arcRequestsQuery.isLoading;
@@ -82,9 +84,6 @@ const ARCPage: React.FC = () => {
   const [commentText, setCommentText] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const combinedError = error ?? requestsError ?? ownersError;
-
-  const isHomeowner = user?.role.name === 'HOMEOWNER';
-  const canReview = ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY'].includes(user?.role.name ?? '');
 
   const reportError = useCallback((message: string, err: unknown) => {
     console.error(message, err);

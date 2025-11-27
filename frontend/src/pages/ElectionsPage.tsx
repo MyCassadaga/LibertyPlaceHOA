@@ -34,6 +34,8 @@ const ElectionsPage: React.FC = () => {
   const electionsQuery = useElectionsQuery();
   const elections = useMemo(() => electionsQuery.data ?? [], [electionsQuery.data]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const ownersQuery = useOwnersQuery(isManager);
+  const owners = useMemo(() => ownersQuery.data ?? [], [ownersQuery.data]);
   const detailQuery = useElectionDetailQuery(selectedId);
   const detail = detailQuery.data ?? null;
   const ballotsQuery = useElectionBallotsQuery(selectedId, isManager);
@@ -63,8 +65,6 @@ const ElectionsPage: React.FC = () => {
     statement: '',
     owner_id: '',
   });
-  const ownersQuery = useOwnersQuery(isManager);
-  const owners = useMemo(() => ownersQuery.data ?? [], [ownersQuery.data]);
   const createElectionMutation = useCreateElectionMutation();
   const updateElectionMutation = useUpdateElectionMutation();
   const addCandidateMutation = useAddCandidateMutation();

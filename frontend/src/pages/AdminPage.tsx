@@ -16,27 +16,6 @@ import { useNotificationBroadcastMutation } from '../features/notifications/hook
 
 const AdminPage: React.FC = () => {
   const { user } = useAuth();
-  const rolesQuery = useRolesQuery();
-  const roles = useMemo(() => rolesQuery.data ?? [], [rolesQuery.data]);
-  const loadingRoles = rolesQuery.isLoading;
-  const usersQuery = useUsersQuery();
-  const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
-  const loadingUsers = usersQuery.isLoading;
-  const usersFetchError = usersQuery.isError ? 'Unable to load user accounts.' : null;
-  const rolesFetchError = rolesQuery.isError ? 'Unable to load roles.' : null;
-  const registerUserMutation = useRegisterUserMutation();
-  const updateUserRolesMutation = useUpdateUserRolesMutation();
-  const loginBackgroundQuery = useLoginBackgroundQuery();
-  const uploadBackgroundMutation = useUploadLoginBackgroundMutation();
-  const broadcastMutation = useNotificationBroadcastMutation();
-  const loginBackgroundUrl = toAbsoluteBackgroundUrl(loginBackgroundQuery.data?.url);
-  const backgroundUploading = uploadBackgroundMutation.isPending;
-  const combinedFormError = error ?? rolesFetchError;
-  const [roleEdits, setRoleEdits] = useState<Record<number, number[]>>({});
-  const [savingUserId, setSavingUserId] = useState<number | null>(null);
-  const [roleStatus, setRoleStatus] = useState<string | null>(null);
-  const [roleError, setRoleError] = useState<string | null>(null);
-
   const [form, setForm] = useState<RegisterUserPayload>({
     email: '',
     full_name: '',
@@ -58,6 +37,24 @@ const AdminPage: React.FC = () => {
   });
   const [broadcastStatus, setBroadcastStatus] = useState<string | null>(null);
   const [broadcastError, setBroadcastError] = useState<string | null>(null);
+  const [roleEdits, setRoleEdits] = useState<Record<number, number[]>>({});
+  const [savingUserId, setSavingUserId] = useState<number | null>(null);
+  const [roleStatus, setRoleStatus] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+
+  const rolesQuery = useRolesQuery();
+  const roles = useMemo(() => rolesQuery.data ?? [], [rolesQuery.data]);
+  const loadingRoles = rolesQuery.isLoading;
+  const usersQuery = useUsersQuery();
+  const users = useMemo(() => usersQuery.data ?? [], [usersQuery.data]);
+  const loadingUsers = usersQuery.isLoading;
+  const usersFetchError = usersQuery.isError ? 'Unable to load user accounts.' : null;
+  const rolesFetchError = rolesQuery.isError ? 'Unable to load roles.' : null;
+  const registerUserMutation = useRegisterUserMutation();
+  const updateUserRolesMutation = useUpdateUserRolesMutation();
+  const loginBackgroundQuery = useLoginBackgroundQuery();
+  const uploadBackgroundMutation = useUploadLoginBackgroundMutation();
+  const broadcastMutation = useNotificationBroadcastMutation();
 
   const toAbsoluteBackgroundUrl = useCallback((url?: string | null) => {
     if (!url) return null;
@@ -65,6 +62,10 @@ const AdminPage: React.FC = () => {
     const path = url.startsWith('/') ? url : `/${url}`;
     return `${base}${path}`;
   }, []);
+
+  const loginBackgroundUrl = toAbsoluteBackgroundUrl(loginBackgroundQuery.data?.url);
+  const backgroundUploading = uploadBackgroundMutation.isPending;
+  const combinedFormError = error ?? rolesFetchError;
 
   const normalizeRoleIds = useCallback((ids: number[]): number[] => {
     return Array.from(new Set(ids)).sort((a, b) => a - b);
@@ -368,17 +369,17 @@ const AdminPage: React.FC = () => {
             </p>
           </div>
 
-      {status && <p className="text-sm text-green-600">{status}</p>}
-      {combinedFormError && <p className="text-sm text-red-600">{combinedFormError}</p>}
+          {status && <p className="text-sm text-green-600">{status}</p>}
+          {combinedFormError && <p className="text-sm text-red-600">{combinedFormError}</p>}
 
-      <button
-        type="submit"
-        className="rounded bg-primary-600 px-4 py-2 text-white hover:bg-primary-500 disabled:opacity-60"
-        disabled={submitting}
-      >
-        {submitting ? 'Creating…' : 'Create User'}
-      </button>
-    </form>
+          <button
+            type="submit"
+            className="rounded bg-primary-600 px-4 py-2 text-white hover:bg-primary-500 disabled:opacity-60"
+            disabled={submitting}
+          >
+            {submitting ? 'Creating…' : 'Create User'}
+          </button>
+        </form>
       </section>
 
       <section className="rounded border border-slate-200 p-4">
