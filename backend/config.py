@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     email_host_password: Optional[str] = Field(None, env="EMAIL_HOST_PASSWORD")
     email_use_tls: bool = Field(True, env="EMAIL_USE_TLS")
     stripe_api_key: Optional[str] = Field(None, env="STRIPE_API_KEY")
+    stripe_webhook_secret: Optional[str] = Field(None, env="STRIPE_WEBHOOK_SECRET")
     email_from_address: Optional[EmailStr] = Field(None, env="EMAIL_FROM_ADDRESS")
     email_from_name: str = Field("Liberty Place HOA", env="EMAIL_FROM_NAME")
     log_level: str = Field("INFO", env="LOG_LEVEL")

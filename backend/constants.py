@@ -50,3 +50,8 @@ CORS_ALLOW_ORIGINS = [
     "https://www.libertyplacehoa.com",
     "https://libertyplacehoa.com",
 ]
+
+# Simple status labels used across legacy enums
+PENDING = "PENDING"
+APPROVED = "APPROVED"
+REJECTED = "REJECTED"

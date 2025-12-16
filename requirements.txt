@@ -19,3 +19,4 @@ pytest==8.2.1
 boto3==1.34.78
 psycopg2-binary==2.9.10
 python-json-logger==2.0.7
+stripe==10.9.0
