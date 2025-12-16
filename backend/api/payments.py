@@ -10,16 +10,7 @@ from sqlalchemy.orm import Session
 from ..api.dependencies import get_db, get_owner_for_user
 from ..auth.jwt import get_current_user, require_roles
 from ..config import settings
-from ..models.models import (
-    AutopayEnrollment,
-    Contract,
-    Invoice,
-    InvoiceStatus,
-    Owner,
-    Payment,
-    User,
-    VendorPayment,
-)
+from ..models.models import AutopayEnrollment, Contract, Invoice, Owner, Payment, User, VendorPayment
 from ..schemas.schemas import (
     AutopayEnrollmentRead,
     AutopayEnrollmentRequest,
@@ -57,9 +48,9 @@ def create_payment_session(
         raise HTTPException(status_code=404, detail="Owner not found for invoice")
     if owner.is_archived:
         raise HTTPException(status_code=400, detail="Cannot pay invoices for an archived owner.")
-    if invoice.status == InvoiceStatus.VOID:
+    if _status_equals(invoice.status, "VOID"):
         raise HTTPException(status_code=400, detail="Invoice is void")
-    if invoice.status == InvoiceStatus.PAID:
+    if _status_equals(invoice.status, "PAID"):
         raise HTTPException(status_code=400, detail="Invoice is already paid")
 
     if user.has_role("HOMEOWNER"):
@@ -115,6 +106,16 @@ def _get_customer_email(owner: Owner, user: User) -> Optional[str]:
     return owner.primary_email or owner.secondary_email or user.email
 
 
+def _status_equals(value, target: str) -> bool:
+    name = getattr(value, "name", None)
+    if name:
+        return name == target
+    val = getattr(value, "value", None)
+    if val:
+        return val == target
+    return str(value) == target
+
+
 def _record_stripe_payment(
     db: Session,
     *,
@@ -151,7 +152,7 @@ def _record_stripe_payment(
     db.flush()
     record_payment(db, payment)
     if amount >= Decimal(invoice.amount):
-        invoice.status = InvoiceStatus.PAID
+        invoice.status = "PAID"
         db.add(invoice)
     audit_log(
         db_session=db,
