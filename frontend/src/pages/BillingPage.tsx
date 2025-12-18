@@ -512,43 +512,45 @@ const BillingPage: React.FC = () => {
       )}
       <div className="rounded border border-slate-200">
         {paymentError && <p className="px-3 pt-3 text-sm text-red-600">{paymentError}</p>}
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Invoice</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Property</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Amount</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Due</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Status</th>
-              <th className="px-3 py-2 text-left font-medium text-slate-600">Action</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {invoices.map((invoice) => (
-              <tr key={invoice.id}>
-                <td className="px-3 py-2">#{invoice.id}</td>
-                <td className="px-3 py-2">{ownerAddresses[invoice.owner_id] ?? `Owner #${invoice.owner_id}`}</td>
-                <td className="px-3 py-2">{formatCurrency(invoice.amount)}</td>
-                <td className="px-3 py-2">{new Date(invoice.due_date).toLocaleDateString()}</td>
-                <td className="px-3 py-2">{invoice.status}</td>
-                <td className="px-3 py-2">
-                  {invoice.status !== 'PAID' ? (
-                    <button
-                      type="button"
-                      onClick={() => handlePayInvoice(invoice.id)}
-                      className="rounded bg-primary-600 px-3 py-1 text-xs font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
-                      disabled={payingInvoiceId === invoice.id}
-                    >
-                      {payingInvoiceId === invoice.id ? 'Starting…' : 'Pay'}
-                    </button>
-                  ) : (
-                    <span className="text-xs text-slate-400">—</span>
-                  )}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-slate-600">Invoice</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600">Property</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600">Amount</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600">Due</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600">Status</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600">Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {invoices.map((invoice) => (
+                <tr key={invoice.id}>
+                  <td className="px-3 py-2">#{invoice.id}</td>
+                  <td className="px-3 py-2">{ownerAddresses[invoice.owner_id] ?? `Owner #${invoice.owner_id}`}</td>
+                  <td className="px-3 py-2">{formatCurrency(invoice.amount)}</td>
+                  <td className="px-3 py-2">{new Date(invoice.due_date).toLocaleDateString()}</td>
+                  <td className="px-3 py-2">{invoice.status}</td>
+                  <td className="px-3 py-2">
+                    {invoice.status !== 'PAID' ? (
+                      <button
+                        type="button"
+                        onClick={() => handlePayInvoice(invoice.id)}
+                        className="rounded bg-primary-600 px-3 py-1 text-xs font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
+                        disabled={payingInvoiceId === invoice.id}
+                      >
+                        {payingInvoiceId === invoice.id ? 'Starting…' : 'Pay'}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
         {invoices.length === 0 && !pageLoading && (
           <p className="px-3 py-4 text-sm text-slate-500">No invoices available.</p>
         )}

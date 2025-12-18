@@ -198,26 +198,28 @@ const DashboardPage: React.FC = () => {
           {(invoicesQuery.data ?? []).length === 0 ? (
             <p className="text-sm text-slate-500">No invoices at this time.</p>
           ) : (
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Invoice</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Amount</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Due Date</th>
-                  <th className="px-3 py-2 text-left font-medium text-slate-600">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {invoicesQuery.data?.map((invoice) => (
-                  <tr key={invoice.id}>
-                    <td className="px-3 py-2">#{invoice.id}</td>
-                    <td className="px-3 py-2">${Number(invoice.amount).toFixed(2)}</td>
-                    <td className="px-3 py-2">{new Date(invoice.due_date).toLocaleDateString()}</td>
-                    <td className="px-3 py-2">{invoice.status}</td>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Invoice</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Amount</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Due Date</th>
+                    <th className="px-3 py-2 text-left font-medium text-slate-600">Status</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {invoicesQuery.data?.map((invoice) => (
+                    <tr key={invoice.id}>
+                      <td className="px-3 py-2">#{invoice.id}</td>
+                      <td className="px-3 py-2">${Number(invoice.amount).toFixed(2)}</td>
+                      <td className="px-3 py-2">{new Date(invoice.due_date).toLocaleDateString()}</td>
+                      <td className="px-3 py-2">{invoice.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </section>
       )}
