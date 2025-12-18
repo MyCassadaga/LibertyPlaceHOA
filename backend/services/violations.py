@@ -6,7 +6,7 @@ from typing import Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from ..models.models import Appeal, Invoice, InvoiceStatus, Owner, User, Violation, ViolationNotice
+from ..models.models import Appeal, Invoice, Owner, User, Violation, ViolationNotice
 from ..services import email
 from ..services.notifications import create_notification
 from ..services.audit import audit_log
@@ -181,7 +181,7 @@ def transition_violation(
                 original_amount=fine_amount,
                 late_fee_total=Decimal("0"),
                 due_date=due_date,
-                status=InvoiceStatus.OPEN,
+                status="OPEN",
                 notes=f"Violation fine #{violation.id}",
             )
             session.add(fine_invoice)
