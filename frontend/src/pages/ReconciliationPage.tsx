@@ -237,7 +237,7 @@ const ReconciliationPage: React.FC = () => {
           ) : filteredTransactions.length === 0 ? (
             <p className="mt-3 text-sm text-slate-500">No transactions for this filter. Try another status.</p>
           ) : (
-            <div className="mt-3 max-h-[360px] overflow-y-auto">
+            <div className="mt-3 max-h-[360px] overflow-x-auto overflow-y-auto">
               <table className="min-w-full divide-y divide-slate-200 text-sm">
                 <thead className="bg-slate-50">
                   <tr>
@@ -283,7 +283,7 @@ const ReconciliationPage: React.FC = () => {
             Statement date: {selected.statement_date ? new Date(selected.statement_date).toLocaleDateString() : 'N/A'} •
             Matched {selected.matched_transactions}/{selected.total_transactions} • Unmatched ${Number(selected.unmatched_amount).toFixed(2)}
           </p>
-          <div className="mt-3 max-h-[300px] overflow-y-auto">
+          <div className="mt-3 max-h-[300px] overflow-x-auto overflow-y-auto">
             <table className="min-w-full divide-y divide-slate-200 text-xs">
               <thead className="bg-slate-50">
                 <tr>

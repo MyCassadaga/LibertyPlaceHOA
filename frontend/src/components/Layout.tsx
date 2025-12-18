@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { useAuth } from '../hooks/useAuth';
@@ -9,6 +9,10 @@ const boardRoles = ['BOARD', 'TREASURER', 'SECRETARY', 'SYSADMIN', 'ATTORNEY'];
 
 const Layout: React.FC = () => {
   const { user } = useAuth();
+  const [isNavOpen, setIsNavOpen] = useState(false);
+
+  const handleNavToggle = () => setIsNavOpen((prev) => !prev);
+  const closeNav = () => setIsNavOpen(false);
 
   const { isHomeowner, isBoard, isSysAdmin, isAuditor } = useMemo(() => {
     if (!user) {
@@ -29,8 +33,9 @@ const Layout: React.FC = () => {
       className={({ isActive }) =>
         `block rounded px-3 py-2 text-sm font-medium ${
           isActive ? 'bg-primary-600 text-white' : 'text-slate-600 hover:bg-primary-50'
-        }`
+        } transition-colors duration-150`
       }
+      onClick={closeNav}
     >
       {label}
     </NavLink>
@@ -83,10 +88,33 @@ const Layout: React.FC = () => {
       >
         Skip to main content
       </a>
-      <NavBar />
-      <div className="mx-auto flex max-w-6xl gap-6 px-4 py-6">
-        <aside className="w-52">
+      <NavBar onMenuToggle={handleNavToggle} isMenuOpen={isNavOpen} />
+      <div className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-4 sm:px-5 sm:py-6 lg:flex-row lg:px-6">
+        <div
+          className={`fixed inset-0 z-30 bg-slate-900/40 transition-opacity duration-200 lg:hidden ${
+            isNavOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+          }`}
+          aria-hidden="true"
+          onClick={closeNav}
+        />
+        <aside
+          className={`fixed left-0 top-0 z-40 h-full w-full max-w-xs transform overflow-y-auto border-r border-slate-200 bg-white p-4 shadow-lg transition-transform duration-200 lg:static lg:h-auto lg:w-56 lg:translate-x-0 lg:rounded lg:border lg:bg-white lg:shadow ${
+            isNavOpen ? 'translate-x-0' : '-translate-x-full'
+          }`}
+          aria-label="Primary navigation"
+        >
           <nav className="space-y-4" aria-label="Primary">
+            <div className="flex items-center justify-between lg:hidden">
+              <p className="text-sm font-semibold text-slate-700">Navigation</p>
+              <button
+                type="button"
+                className="text-xs font-semibold text-slate-500 hover:text-slate-700"
+                onClick={closeNav}
+              >
+                Close
+              </button>
+            </div>
+
             {renderLink('/dashboard', 'Dashboard', 0)}
             {renderLink('/notifications', 'Notifications', 1)}
 
@@ -119,7 +147,7 @@ const Layout: React.FC = () => {
             )}
           </nav>
         </aside>
-        <main id="main-content" role="main" className="flex-1 rounded bg-white p-6 shadow">
+        <main id="main-content" role="main" className="min-w-0 flex-1 rounded bg-white p-4 shadow sm:p-6">
           <Outlet />
         </main>
       </div>
