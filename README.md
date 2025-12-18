@@ -44,6 +44,8 @@ npm run dev
 
 The Vite dev server runs on `http://localhost:5174`.
 
+You can also run `./frontend/setup.sh` from the repository root to install frontend dependencies with your preferred package manager, install the Vercel CLI, and surface warnings for missing deployment tokens.
+
 ## One-Step Local Launch
 
 Once dependencies are installed, you can bring up both servers (and apply migrations) with:
