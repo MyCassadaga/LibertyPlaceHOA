@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Security, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session, joinedload
@@ -13,6 +13,7 @@ from ..models.models import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+optional_bearer = HTTPBearer(auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -76,6 +77,31 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     )
     if user is None:
         raise credentials_exception
+    return user
+
+
+def get_optional_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(optional_bearer),
+    db: Session = Depends(get_db),
+) -> Optional[User]:
+    if not credentials:
+        return None
+    token = credentials.credentials
+    try:
+        payload = decode_token(token)
+        user_id: Optional[str] = payload.get("sub")
+        token_type = payload.get("type")
+        if user_id is None or token_type not in (None, "access"):
+            return None
+    except JWTError:
+        return None
+
+    user = (
+        db.query(User)
+        .options(joinedload(User.primary_role), joinedload(User.roles))
+        .filter(User.id == int(user_id))
+        .first()
+    )
     return user
 
 

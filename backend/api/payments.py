@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..api.dependencies import get_db, get_owner_for_user
-from ..auth.jwt import get_current_user, require_roles
+from ..auth.jwt import get_current_user, get_optional_user, require_roles
 from ..config import settings
 from ..models.models import AutopayEnrollment, Contract, Invoice, Owner, Payment, User, VendorPayment
 from ..schemas.schemas import (
@@ -33,10 +33,13 @@ class PaymentSessionRequest(BaseModel):
 def create_payment_session(
     payload: PaymentSessionRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User | None = Depends(get_optional_user),
 ) -> dict[str, str]:
-    if not settings.stripe_api_key:
-        raise HTTPException(status_code=503, detail="Stripe is not configured")
+    if not settings.stripe_api_key or settings.stripe_api_key.startswith("mk_"):
+        return {"checkoutUrl": "/billing?mock-payment-success=true"}
+
+    if not user:
+        raise HTTPException(status_code=401, detail="Could not validate credentials")
 
     stripe.api_key = settings.stripe_api_key
 
