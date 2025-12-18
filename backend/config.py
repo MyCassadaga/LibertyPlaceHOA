@@ -2,6 +2,7 @@
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
+from urllib.parse import urlsplit
 
 from pydantic import AnyHttpUrl, BaseSettings, EmailStr, Field, validator
 from sqlalchemy import create_engine
@@ -32,10 +33,11 @@ class Settings(BaseSettings):
     email_host_user: Optional[str] = Field(None, env="EMAIL_HOST_USER")
     email_host_password: Optional[str] = Field(None, env="EMAIL_HOST_PASSWORD")
     email_use_tls: bool = Field(True, env="EMAIL_USE_TLS")
+    email_reply_to: Optional[EmailStr] = Field(None, env="EMAIL_REPLY_TO")
+    email_from_address: Optional[EmailStr] = Field("admin@libertyplacehoa.com", env="EMAIL_FROM_ADDRESS")
+    email_from_name: str = Field("Liberty Place HOA", env="EMAIL_FROM_NAME")
     stripe_api_key: Optional[str] = Field(None, env="STRIPE_API_KEY")
     stripe_webhook_secret: Optional[str] = Field(None, env="STRIPE_WEBHOOK_SECRET")
-    email_from_address: Optional[EmailStr] = Field(None, env="EMAIL_FROM_ADDRESS")
-    email_from_name: str = Field("Liberty Place HOA", env="EMAIL_FROM_NAME")
     log_level: str = Field("INFO", env="LOG_LEVEL")
 
     # --- Upload Locations ---
@@ -55,6 +57,10 @@ class Settings(BaseSettings):
 
     # --- CORS ---
     additional_cors_origins: Optional[str] = Field(None, env="ADDITIONAL_CORS_ORIGINS")
+
+    # --- HTTP Security ---
+    enable_hsts: bool = Field(True, env="ENABLE_HSTS")
+    additional_trusted_hosts: Optional[str] = Field(None, env="ADDITIONAL_TRUSTED_HOSTS")
 
     # --- Click2Mail ---
     click2mail_enabled: bool = Field(False, env="CLICK2MAIL_ENABLED")
@@ -82,13 +88,15 @@ class Settings(BaseSettings):
         # Neon/Render sometimes supply values like: psql 'postgresql://...'
         if not isinstance(value, str):
             return value
-        normalized = value.strip()
+        normalized = value.strip().strip("'\"")
         if normalized.startswith("psql "):
             normalized = normalized[5:].strip()
-        if (normalized.startswith("'") and normalized.endswith("'")) or (
+        # Strip wrapping quotes repeatedly to handle extra layers
+        while (normalized.startswith("'") and normalized.endswith("'")) or (
             normalized.startswith('"') and normalized.endswith('"')
         ):
             normalized = normalized[1:-1].strip()
+        normalized = normalized.strip("'\"")
         return normalized
 
     @property
@@ -117,6 +125,32 @@ class Settings(BaseSettings):
     def uploads_public_prefix(self) -> str:
         prefix = self.uploads_public_url.strip().lstrip("/")
         return prefix or "uploads"
+
+    @property
+    def trusted_hosts(self) -> List[str]:
+        hosts: List[str] = []
+
+        def _append_host(url_value: AnyHttpUrl | str | None) -> None:
+            if not url_value:
+                return
+            host = getattr(url_value, "host", None) or urlsplit(str(url_value)).hostname
+            if host and host not in hosts:
+                hosts.append(host)
+
+        _append_host(self.frontend_url)
+        _append_host(self.api_base_url)
+
+        for default_host in ("localhost", "127.0.0.1", "testserver"):
+            if default_host not in hosts:
+                hosts.append(default_host)
+
+        if self.additional_trusted_hosts:
+            extras = [host.strip() for host in self.additional_trusted_hosts.split(",") if host.strip()]
+            for host in extras:
+                if host not in hosts:
+                    hosts.append(host)
+
+        return hosts
 
     @property
     def click2mail_is_configured(self) -> bool:
