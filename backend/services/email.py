@@ -5,11 +5,34 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Tuple
 
 from ..config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_recipients(recipients: Iterable[str]) -> List[str]:
+    normalized: List[str] = []
+    seen = set()
+    for email in recipients:
+        if not email:
+            continue
+        cleaned = email.strip()
+        if not cleaned:
+            continue
+        lowered = cleaned.lower()
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        normalized.append(cleaned)
+    return normalized
+
+
+def _resolve_sender() -> Tuple[str, str]:
+    from_address = settings.email_from_address or "admin@libertyplacehoa.com"
+    display_name = settings.email_from_name or "Liberty Place HOA"
+    return from_address, display_name
 
 
 def _write_local_email(subject: str, body: str, recipients: List[str]) -> str:
@@ -33,7 +56,8 @@ def _write_local_email(subject: str, body: str, recipients: List[str]) -> str:
 
 
 def _send_via_sendgrid(subject: str, body: str, recipients: List[str]) -> None:
-    if not settings.sendgrid_api_key or not settings.email_from_address:
+    from_address, display_name = _resolve_sender()
+    if not settings.sendgrid_api_key or not from_address:
         raise RuntimeError("SendGrid backend requires SENDGRID_API_KEY and EMAIL_FROM_ADDRESS.")
 
     try:
@@ -42,11 +66,13 @@ def _send_via_sendgrid(subject: str, body: str, recipients: List[str]) -> None:
     except ImportError as exc:  # pragma: no cover - runtime guard
         raise RuntimeError("SendGrid backend requires the sendgrid package.") from exc
 
+    reply_to = settings.email_reply_to or from_address
     message = Mail(
-        from_email=(settings.email_from_address, settings.email_from_name),
+        from_email=(from_address, display_name),
         to_emails=recipients,
         subject=subject,
         plain_text_content=body,
+        reply_to=reply_to,
     )
     client = SendGridAPIClient(settings.sendgrid_api_key)
     response = client.send(message)
@@ -62,14 +88,17 @@ def _send_via_smtp(subject: str, body: str, recipients: List[str]) -> None:
         raise RuntimeError("SMTP backend requires EMAIL_HOST.")
     if not settings.email_host_user or not settings.email_host_password:
         raise RuntimeError("SMTP backend requires EMAIL_HOST_USER and EMAIL_HOST_PASSWORD.")
-    from_address = settings.email_from_address
+    from_address, display_name = _resolve_sender()
     if not from_address:
         raise RuntimeError("SMTP backend requires EMAIL_FROM_ADDRESS.")
 
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = formataddr((settings.email_from_name, from_address))
+    message["From"] = formataddr((display_name, from_address))
     message["To"] = ", ".join(recipients)
+    reply_to = settings.email_reply_to or from_address
+    if reply_to:
+        message["Reply-To"] = reply_to
     message.set_content(body)
 
     port = settings.email_port or 587
@@ -87,7 +116,7 @@ def _send_via_smtp(subject: str, body: str, recipients: List[str]) -> None:
 
 def send_announcement(subject: str, body: str, recipients: Iterable[str]) -> List[str]:
     """Dispatch announcements using the configured email backend."""
-    recipient_list = [email for email in recipients if email]
+    recipient_list = _normalize_recipients(recipients)
     if not recipient_list:
         return []
 

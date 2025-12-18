@@ -5,6 +5,7 @@ from io import BytesIO
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -46,9 +47,11 @@ from .services.backup import perform_sqlite_backup
 from .services.storage import StorageBackend, storage_service
 from .core.logging import configure_logging
 from .core.errors import register_exception_handlers
+from .core.security import SecurityHeadersMiddleware, log_security_warnings
 
 configure_logging(settings.log_level)
 logger = logging.getLogger(__name__)
+log_security_warnings(settings.jwt_secret, settings.email_backend, settings.stripe_api_key)
 
 
 def ensure_homeowner_owner_records(session: Session) -> None:
@@ -125,12 +128,17 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Liberty Place HOA - Phase 1", lifespan=lifespan)
 register_exception_handlers(app)
 
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+app.add_middleware(
+    SecurityHeadersMiddleware,
+    enable_hsts=settings.enable_hsts,
 )
 
 uploads_route = "/" + settings.uploads_public_prefix.strip("/")
