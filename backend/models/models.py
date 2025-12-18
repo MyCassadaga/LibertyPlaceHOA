@@ -449,6 +449,7 @@ class Violation(Base):
     fine_schedule = orm_relationship("FineSchedule", back_populates="violations")
     notices = orm_relationship("ViolationNotice", back_populates="violation", cascade="all, delete-orphan")
     appeals = orm_relationship("Appeal", back_populates="violation", cascade="all, delete-orphan")
+    messages = orm_relationship("ViolationMessage", back_populates="violation", cascade="all, delete-orphan")
 
 
 class VendorPayment(Base):
@@ -488,6 +489,19 @@ class ViolationNotice(Base):
 
     violation = orm_relationship("Violation", back_populates="notices")
     sender = orm_relationship("User", foreign_keys=[sent_by_user_id])
+
+
+class ViolationMessage(Base):
+    __tablename__ = "violation_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    violation_id = Column(Integer, ForeignKey("violations.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    violation = orm_relationship("Violation", back_populates="messages")
+    author = orm_relationship("User")
 
 
 class Appeal(Base):

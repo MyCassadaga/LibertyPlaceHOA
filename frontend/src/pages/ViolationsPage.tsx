@@ -4,7 +4,7 @@ import { useAuth } from '../hooks/useAuth';
 import Badge from '../components/Badge';
 import FilePreview from '../components/FilePreview';
 import Timeline, { TimelineEvent } from '../components/Timeline';
-import { Appeal, Violation, ViolationStatus } from '../types';
+import { Appeal, Violation, ViolationMessage, ViolationStatus } from '../types';
 import { formatUserRoles, userHasAnyRole, userHasRole } from '../utils/roles';
 import { useResidentsQuery } from '../features/owners/hooks';
 import {
@@ -15,6 +15,7 @@ import {
   useViolationNoticesQuery,
   useViolationsQuery,
 } from '../features/violations/hooks';
+import { fetchViolationMessages, postViolationMessage } from '../services/api';
 
 const STATUS_LABELS: Record<ViolationStatus, string> = {
   NEW: 'New',
@@ -70,6 +71,10 @@ const ViolationsPage: React.FC = () => {
   const [transitionNote, setTransitionNote] = useState('');
   const [transitionHearingDate, setTransitionHearingDate] = useState('');
   const [transitionFineAmount, setTransitionFineAmount] = useState('');
+  const [messages, setMessages] = useState<ViolationMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [messageBody, setMessageBody] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const violationsFilters = useMemo(() => {
@@ -107,6 +112,27 @@ const ViolationsPage: React.FC = () => {
   const logError = useCallback((message: string, err: unknown) => {
     console.error(message, err);
   }, []);
+
+  const loadMessages = useCallback(
+    async (violationId: number | null) => {
+      if (!violationId) {
+        setMessages([]);
+        return;
+      }
+      setMessagesError(null);
+      setMessagesLoading(true);
+      try {
+        const data = await fetchViolationMessages(violationId);
+        setMessages(data);
+      } catch (err) {
+        console.error('Unable to load violation messages.', err);
+        setMessagesError('Unable to load messages.');
+      } finally {
+        setMessagesLoading(false);
+      }
+    },
+    [],
+  );
 
   const residentOptions = useMemo(() => {
     if (!canManage) return [];
@@ -176,6 +202,10 @@ const ViolationsPage: React.FC = () => {
       }
     }
   }, [violations, selectedViolationId]);
+
+  useEffect(() => {
+    loadMessages(selectedViolation?.id ?? null);
+  }, [selectedViolation?.id, loadMessages]);
 
   const handleSelectViolation = (violation: Violation) => {
     setSelectedViolationId(violation.id);
@@ -297,6 +327,20 @@ const ViolationsPage: React.FC = () => {
     } catch (err) {
       logError('Unable to update violation status.', err);
       setError('Unable to update status. Check required fields for the transition.');
+    }
+  };
+
+  const handleSendMessage = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedViolation || !messageBody.trim()) return;
+    setMessagesError(null);
+    try {
+      await postViolationMessage(selectedViolation.id, messageBody.trim());
+      setMessageBody('');
+      await loadMessages(selectedViolation.id);
+    } catch (err) {
+      logError('Unable to post message.', err);
+      setMessagesError('Unable to send message.');
     }
   };
 
@@ -627,18 +671,64 @@ const ViolationsPage: React.FC = () => {
                   </div>
                   <button
                     type="submit"
-                    className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500"
+                    className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
+                    disabled={!transitionStatus || transitionMutation.isLoading}
                   >
-                    Update Status
+                    {transitionMutation.isLoading ? 'Updating…' : 'Update Status'}
                   </button>
-                </form>
-              )}
+              </form>
+            )}
 
-              <section className="mt-4">
-                <h4 className="text-xs font-semibold uppercase text-slate-500">Notices</h4>
-                {noticesQuery.isError ? (
-                  <p className="text-xs text-red-600">Unable to load notices.</p>
-                ) : noticesLoading ? (
+            <section className="mt-4">
+              <h4 className="text-xs font-semibold uppercase text-slate-500">Messages</h4>
+              {messagesError && <p className="text-xs text-red-600">{messagesError}</p>}
+              {messagesLoading ? (
+                <p className="text-xs text-slate-500">Loading messages…</p>
+              ) : messages.length === 0 ? (
+                <p className="text-xs text-slate-500">No messages yet.</p>
+              ) : (
+                <div className="mt-2 space-y-2">
+                  {messages.map((message) => (
+                    <div key={message.id} className="rounded border border-slate-200 p-2 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-700">
+                          {message.author_name || 'User'}
+                        </span>
+                        <span className="text-slate-500">
+                          {new Date(message.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      {message.author_email && (
+                        <p className="text-slate-500">{message.author_email}</p>
+                      )}
+                      <p className="mt-1 whitespace-pre-wrap text-slate-700">{message.body}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <form className="mt-3 space-y-2" onSubmit={handleSendMessage}>
+                <textarea
+                  className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                  rows={3}
+                  placeholder="Write a message to the owner/board..."
+                  value={messageBody}
+                  onChange={(event) => setMessageBody(event.target.value)}
+                />
+                <button
+                  type="submit"
+                  className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
+                  disabled={!messageBody.trim()}
+                >
+                  Send Message
+                </button>
+              </form>
+            </section>
+
+            <section className="mt-4">
+              <h4 className="text-xs font-semibold uppercase text-slate-500">Notices</h4>
+              {noticesQuery.isError ? (
+                <p className="text-xs text-red-600">Unable to load notices.</p>
+              ) : noticesLoading ? (
                   <p className="text-xs text-slate-500">Loading notices…</p>
                 ) : notices.length === 0 ? (
                   <p className="text-xs text-slate-500">No notices recorded.</p>

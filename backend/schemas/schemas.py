@@ -836,6 +836,20 @@ class ViolationStatusUpdate(BaseModel):
     fine_amount: Optional[Decimal]
 
 
+class ViolationMessageCreate(BaseModel):
+    body: str
+
+
+class ViolationMessageRead(BaseModel):
+    id: int
+    violation_id: int
+    user_id: Optional[int]
+    body: str
+    created_at: datetime
+    author_name: Optional[str]
+    author_email: Optional[str]
+
+
 class ViolationRead(BaseModel):
     id: int
     owner_id: int
@@ -854,6 +868,7 @@ class ViolationRead(BaseModel):
     owner: OwnerRead
     notices: List[ViolationNoticeRead] = []
     appeals: List[AppealRead] = []
+    messages: List[ViolationMessageRead] = []
 
     class Config:
         orm_mode = True

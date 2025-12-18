@@ -6,12 +6,13 @@ from typing import Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from ..models.models import Appeal, Owner, User, Violation, ViolationNotice
+from ..models.models import Appeal, Invoice, InvoiceStatus, Owner, User, Violation, ViolationNotice
 from ..services import email
 from ..services.notifications import create_notification
 from ..services.audit import audit_log
 from ..utils.pdf_utils import generate_violation_notice_pdf
 from ..config import settings
+from ..services.billing import record_invoice
 
 from pathlib import Path
 
@@ -138,6 +139,14 @@ def transition_violation(
     if target_status not in ALLOWED_TRANSITIONS.get(current_status, set()):
         raise ValueError(f"Cannot transition from {current_status} to {target_status}.")
 
+    # Idempotency guard: if no meaningful change, return early to avoid duplicates.
+    if (
+        target_status == current_status
+        and (hearing_date is None or hearing_date == violation.hearing_date)
+        and (fine_amount is None or fine_amount == violation.fine_amount)
+    ):
+        return violation
+
     owner = session.get(Owner, violation.owner_id)
     if owner is None:
         raise ValueError("Associated owner not found for violation.")
@@ -150,6 +159,36 @@ def transition_violation(
     violation.updated_at = datetime.now(timezone.utc)
     session.add(violation)
     session.flush()
+
+    # When activating a fine, create a payable invoice (idempotent).
+    if target_status == "FINE_ACTIVE":
+        if fine_amount is None:
+            raise ValueError("Fine amount is required when activating a fine.")
+        existing_fine_invoice = (
+            session.query(Invoice)
+            .filter(
+                Invoice.owner_id == owner.id,
+                Invoice.notes == f"Violation fine #{violation.id}",
+            )
+            .first()
+        )
+        if not existing_fine_invoice:
+            due_date = violation.due_date or date.today()
+            fine_invoice = Invoice(
+                owner_id=owner.id,
+                lot=owner.lot,
+                amount=fine_amount,
+                original_amount=fine_amount,
+                late_fee_total=Decimal("0"),
+                due_date=due_date,
+                status=InvoiceStatus.OPEN,
+                notes=f"Violation fine #{violation.id}",
+            )
+            session.add(fine_invoice)
+            session.flush()
+            record_invoice(session, fine_invoice)
+        else:
+            fine_invoice = existing_fine_invoice
 
     if target_status in NOTICE_TEMPLATES:
         _create_notice(session, violation, owner, actor, target_status)

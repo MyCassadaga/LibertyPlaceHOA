@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..api.dependencies import get_db, get_owner_for_user
 from ..auth.jwt import get_current_user, require_roles
-from ..models.models import Appeal, FineSchedule, Owner, User, Violation, ViolationNotice
+from ..models.models import Appeal, FineSchedule, Owner, User, Violation, ViolationNotice, ViolationMessage
 from ..schemas.schemas import (
     AppealCreate,
     AppealDecision,
@@ -17,6 +17,8 @@ from ..schemas.schemas import (
     ViolationStatusUpdate,
     ViolationUpdate,
     ViolationNoticeRead,
+    ViolationMessageCreate,
+    ViolationMessageRead,
 )
 from ..services.audit import audit_log
 from ..services.violations import transition_violation, create_appeal
@@ -50,6 +52,7 @@ def list_violations(
             joinedload(Violation.owner),
             joinedload(Violation.notices),
             joinedload(Violation.appeals),
+            joinedload(Violation.messages).joinedload(ViolationMessage.author),
         )
         .order_by(Violation.opened_at.desc())
     )
@@ -177,6 +180,7 @@ def get_violation(
             joinedload(Violation.owner),
             joinedload(Violation.notices),
             joinedload(Violation.appeals),
+            joinedload(Violation.messages).joinedload(ViolationMessage.author),
         )
         .get(violation_id)
     )
@@ -295,6 +299,88 @@ def list_violation_notices(
         raise HTTPException(status_code=403, detail="Not allowed to view notices.")
 
     return notices
+
+
+def _serialize_message(message: ViolationMessage) -> ViolationMessageRead:
+    author_name = None
+    author_email = None
+    if message.author:
+        author_name = message.author.full_name or message.author.email
+        author_email = message.author.email
+    return ViolationMessageRead(
+        id=message.id,
+        violation_id=message.violation_id,
+        user_id=message.user_id,
+        body=message.body,
+        created_at=message.created_at,
+        author_name=author_name,
+        author_email=author_email,
+    )
+
+
+@router.get("/{violation_id}/messages", response_model=List[ViolationMessageRead])
+def list_violation_messages(
+    violation_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> List[ViolationMessageRead]:
+    violation = (
+        db.query(Violation)
+        .options(joinedload(Violation.messages).joinedload(ViolationMessage.author))
+        .get(violation_id)
+    )
+    if not violation:
+        raise HTTPException(status_code=404, detail="Violation not found.")
+
+    manager_roles = {"BOARD", "TREASURER", "SYSADMIN", "ATTORNEY", "SECRETARY"}
+    if not user.has_any_role(*manager_roles):
+        owner = get_owner_for_user(db, user)
+        if not owner or owner.id != violation.owner_id:
+            raise HTTPException(status_code=403, detail="Not allowed to view this violation.")
+
+    return [_serialize_message(message) for message in violation.messages]
+
+
+@router.post("/{violation_id}/messages", response_model=ViolationMessageRead, status_code=status.HTTP_201_CREATED)
+def post_violation_message(
+    violation_id: int,
+    payload: ViolationMessageCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ViolationMessageRead:
+    violation = db.get(Violation, violation_id)
+    if not violation:
+        raise HTTPException(status_code=404, detail="Violation not found.")
+
+    manager_roles = {"BOARD", "TREASURER", "SYSADMIN", "ATTORNEY", "SECRETARY"}
+    is_manager = user.has_any_role(*manager_roles)
+    if not is_manager:
+        owner = get_owner_for_user(db, user)
+        if not owner or owner.id != violation.owner_id:
+            raise HTTPException(status_code=403, detail="Not allowed to message on this violation.")
+
+    message = ViolationMessage(
+        violation_id=violation.id,
+        user_id=user.id,
+        body=payload.body.strip(),
+    )
+    if not message.body:
+        raise HTTPException(status_code=400, detail="Message body is required.")
+
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+
+    audit_log(
+        db_session=db,
+        actor_user_id=user.id,
+        action="violations.message.create",
+        target_entity_type="Violation",
+        target_entity_id=str(violation.id),
+        after={"message_id": message.id},
+    )
+
+    return _serialize_message(message)
 
 
 @router.post("/{violation_id}/appeals", response_model=AppealRead, status_code=status.HTTP_201_CREATED)

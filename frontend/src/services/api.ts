@@ -55,6 +55,7 @@ import {
   Violation,
   ViolationCreatePayload,
   ViolationNotice,
+  ViolationMessage,
   TwoFactorSetupResponse,
   AuditLogResponse,
   VendorPayment,
@@ -781,6 +782,16 @@ export const fetchViolationNotices = async (violationId: number): Promise<Violat
 
 export const submitAppeal = async (violationId: number, reason: string): Promise<Appeal> => {
   const { data } = await api.post<Appeal>(`/violations/${violationId}/appeals`, { reason });
+  return data;
+};
+
+export const fetchViolationMessages = async (violationId: number): Promise<ViolationMessage[]> => {
+  const { data } = await api.get<ViolationMessage[]>(`/violations/${violationId}/messages`);
+  return data;
+};
+
+export const postViolationMessage = async (violationId: number, body: string): Promise<ViolationMessage> => {
+  const { data } = await api.post<ViolationMessage>(`/violations/${violationId}/messages`, { body });
   return data;
 };
 

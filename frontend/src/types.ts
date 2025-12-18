@@ -519,6 +519,16 @@ export interface ViolationNotice {
   created_at: string;
 }
 
+export interface ViolationMessage {
+  id: number;
+  violation_id: number;
+  user_id?: number | null;
+  body: string;
+  created_at: string;
+  author_name?: string | null;
+  author_email?: string | null;
+}
+
 export interface Appeal {
   id: number;
   violation_id: number;
@@ -549,6 +559,7 @@ export interface Violation {
   owner: Owner;
   notices: ViolationNotice[];
   appeals: Appeal[];
+  messages: ViolationMessage[];
 }
 
 export interface ViolationCreatePayload {
