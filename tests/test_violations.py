@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from backend.models.models import AuditLog, Violation, ViolationNotice
+from backend.models.models import AuditLog, Invoice, Violation, ViolationNotice
 from backend.services import violations
-from backend.services.violations import transition_violation
+from backend.services.violations import transition_violation, issue_additional_fine
 
 
 def test_violation_transition_updates_status_and_logs(db_session, create_user, create_owner):
@@ -112,3 +112,71 @@ def test_violation_transition_rejects_invalid_target(db_session, create_user, cr
 
     with pytest.raises(ValueError):
         transition_violation(db_session, violation, actor, "RESOLVED")
+
+
+def test_issue_additional_fine_creates_invoice_and_notice(
+    tmp_path,
+    db_session,
+    create_user,
+    create_owner,
+    monkeypatch,
+):
+    actor = create_user(role_name="SYSADMIN")
+    owner = create_owner()
+    violation = Violation(
+        owner_id=owner.id,
+        reported_by_user_id=actor.id,
+        status="FINE_ACTIVE",
+        category="Trash",
+        description="Trash cans left out",
+        due_date=date.today(),
+        fine_amount=Decimal("50"),
+    )
+    db_session.add(violation)
+    db_session.commit()
+
+    notices_dir = tmp_path / "notices"
+    notices_dir.mkdir()
+    monkeypatch.setattr(violations, "NOTICE_DIRECTORY", notices_dir)
+
+    source_pdf = tmp_path / "source.pdf"
+    source_pdf.write_text("pdf-body")
+    monkeypatch.setattr(
+        violations,
+        "generate_violation_notice_pdf",
+        lambda *args, **kwargs: str(source_pdf),
+    )
+
+    sent_payloads = []
+
+    def _fake_send(subject, body, recipients):
+        sent_payloads.append((subject, body, tuple(recipients)))
+        return recipients
+
+    monkeypatch.setattr(violations.email, "send_announcement", _fake_send)
+
+    issue_additional_fine(
+        db_session,
+        violation,
+        actor,
+        Decimal("25"),
+    )
+
+    refreshed = db_session.query(Violation).filter(Violation.id == violation.id).one()
+    assert refreshed.fine_amount == Decimal("75")
+
+    notice = (
+        db_session.query(ViolationNotice)
+        .filter_by(violation_id=violation.id, template_key="ADDITIONAL_FINE")
+        .one()
+    )
+    stored_name = Path(notice.pdf_path).name
+    assert (violations.NOTICE_DIRECTORY / stored_name).exists()
+
+    invoice = (
+        db_session.query(Invoice)
+        .filter(Invoice.owner_id == owner.id, Invoice.notes.contains(f"Violation fine #{violation.id}"))
+        .one()
+    )
+    assert invoice.amount == Decimal("25")
+    assert sent_payloads, "Expected email notification to be triggered for additional fines"

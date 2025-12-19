@@ -65,6 +65,15 @@ NOTICE_TEMPLATES: Dict[str, Dict[str, str]] = {
             "Regards,\nLiberty Place HOA Board"
         ),
     },
+    "ADDITIONAL_FINE": {
+        "subject": "Additional Fine for Violation #{violation_id}",
+        "body": (
+            "Dear {owner_name},\n\n"
+            "An additional fine of ${fine_amount} has been assessed for the covenant violation ({category}).\n"
+            "Please remit payment by {due_date} to avoid further action.\n\n"
+            "Regards,\nLiberty Place HOA Board"
+        ),
+    },
 }
 
 NOTICE_DIRECTORY = settings.uploads_root_path / "violations"
@@ -90,10 +99,12 @@ def _create_notice(
     owner: Owner,
     actor: User,
     template_key: str,
+    fine_amount: Optional[Decimal] = None,
 ) -> ViolationNotice:
     template = NOTICE_TEMPLATES[template_key]
-    subject = _format_template(template["subject"], violation, owner, violation.fine_amount)
-    body = _format_template(template["body"], violation, owner, violation.fine_amount)
+    amount_for_template = fine_amount if fine_amount is not None else violation.fine_amount
+    subject = _format_template(template["subject"], violation, owner, amount_for_template)
+    body = _format_template(template["body"], violation, owner, amount_for_template)
     pdf_path = Path(generate_violation_notice_pdf(template_key, violation, owner, subject, body))
     target_path = NOTICE_DIRECTORY / pdf_path.name
     try:
@@ -265,6 +276,105 @@ def transition_violation(
         role_names=manager_roles,
         category="violations",
     )
+    return violation
+
+
+def issue_additional_fine(
+    session: Session,
+    violation: Violation,
+    actor: User,
+    fine_amount: Decimal,
+) -> Violation:
+    if violation.status not in {"FINE_ACTIVE"}:
+        raise ValueError("Additional fines can only be issued while the violation is in Fine Active status.")
+
+    try:
+        fine_amount_value = Decimal(fine_amount)
+    except Exception as exc:  # pragma: no cover - defensive
+        raise ValueError("Fine amount must be a valid number.") from exc
+
+    if fine_amount_value <= 0:
+        raise ValueError("Fine amount must be greater than zero.")
+
+    owner = session.get(Owner, violation.owner_id)
+    if owner is None:
+        raise ValueError("Associated owner not found for violation.")
+
+    due_date = violation.due_date or date.today()
+    updated_total = (violation.fine_amount or Decimal("0")) + fine_amount_value
+    violation.fine_amount = updated_total
+    violation.updated_at = datetime.now(timezone.utc)
+    session.add(violation)
+    session.flush()
+
+    existing_assessments = (
+        session.query(Invoice)
+        .filter(
+            Invoice.owner_id == owner.id,
+            Invoice.notes.contains(f"Violation fine #{violation.id}"),
+        )
+        .count()
+    )
+    assessment_number = existing_assessments + 1
+
+    additional_invoice = Invoice(
+        owner_id=owner.id,
+        lot=owner.lot,
+        amount=fine_amount_value,
+        original_amount=fine_amount_value,
+        late_fee_total=Decimal("0"),
+        due_date=due_date,
+        status="OPEN",
+        notes=f"Violation fine #{violation.id} (assessment #{assessment_number})",
+    )
+    session.add(additional_invoice)
+    session.flush()
+    record_invoice(session, additional_invoice)
+
+    _create_notice(session, violation, owner, actor, "ADDITIONAL_FINE", fine_amount=fine_amount_value)
+
+    audit_log(
+        db_session=session,
+        actor_user_id=actor.id,
+        action="violations.fine.assess",
+        target_entity_type="Violation",
+        target_entity_id=str(violation.id),
+        after={
+            "fine_amount": str(fine_amount_value),
+            "assessment_number": assessment_number,
+        },
+    )
+
+    linked_users = [linked_user for linked_user in owner.linked_users if linked_user.is_active]
+    if linked_users:
+        user_ids = [linked_user.id for linked_user in linked_users]
+        create_notification(
+            session,
+            title="Additional violation fine issued",
+            message=(
+                f"An additional fine of ${fine_amount_value:.2f} has been issued for "
+                f"{owner.property_address or 'your property'}. Please review your account."
+            ),
+            level="warning",
+            link_url="/violations",
+            user_ids=user_ids,
+            category="violations",
+        )
+
+    manager_roles = ["BOARD", "SYSADMIN", "SECRETARY", "TREASURER", "ATTORNEY"]
+    create_notification(
+        session,
+        title="Additional violation fine recorded",
+        message=(
+            f"An additional fine of ${fine_amount_value:.2f} was recorded for "
+            f"{owner.property_address or 'the property'} (Violation #{violation.id})."
+        ),
+        level="info",
+        link_url="/violations",
+        role_names=manager_roles,
+        category="violations",
+    )
+
     return violation
 
 

@@ -12,6 +12,7 @@ from ..schemas.schemas import (
     AppealDecision,
     AppealRead,
     FineScheduleRead,
+    ViolationAdditionalFine,
     ViolationCreate,
     ViolationRead,
     ViolationStatusUpdate,
@@ -21,7 +22,7 @@ from ..schemas.schemas import (
     ViolationMessageRead,
 )
 from ..services.audit import audit_log
-from ..services.violations import transition_violation, create_appeal
+from ..services.violations import transition_violation, create_appeal, issue_additional_fine
 
 router = APIRouter()
 
@@ -259,6 +260,38 @@ def transition_violation_status(
             note=payload.note,
             hearing_date=payload.hearing_date,
             fine_amount=payload.fine_amount,
+        )
+        db.commit()
+        db.refresh(violation)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    violation = (
+        db.query(Violation)
+        .options(joinedload(Violation.owner), joinedload(Violation.notices), joinedload(Violation.appeals))
+        .get(violation.id)
+    )
+    return violation
+
+
+@router.post("/{violation_id}/fines", response_model=ViolationRead)
+def assess_violation_fine(
+    violation_id: int,
+    payload: ViolationAdditionalFine,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles("BOARD", "SYSADMIN", "SECRETARY")),
+) -> Violation:
+    violation = db.get(Violation, violation_id)
+    if not violation:
+        raise HTTPException(status_code=404, detail="Violation not found.")
+
+    try:
+        issue_additional_fine(
+            session=db,
+            violation=violation,
+            actor=actor,
+            fine_amount=payload.amount,
         )
         db.commit()
         db.refresh(violation)
