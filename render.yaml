@@ -16,9 +16,11 @@ services:
           name: hoa-db
           property: connectionString
       - key: FRONTEND_URL
-        value: https://libertyplacehoa-face.vercel.app
+        value: https://app.libertyplacehoa.com
       - key: API_BASE
-        value: https://libertyplacehoa.onrender.com
+        value: https://api.libertyplacehoa.com
+      - key: ADDITIONAL_TRUSTED_HOSTS
+        value: libertyplacehoa.onrender.com,api.libertyplacehoa.com
       - key: SENDGRID_API_KEY
         value: ""
       - key: STRIPE_API_KEY
