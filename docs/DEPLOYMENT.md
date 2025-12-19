@@ -38,6 +38,7 @@ does not regress any hosting quirks.
   - `DATABASE_URL` (managed PostgreSQL)
   - `FRONTEND_URL=https://app.libertyplacehoa.com`
   - `API_BASE=https://api.libertyplacehoa.com`
+  - `ADDITIONAL_TRUSTED_HOSTS=libertyplacehoa.onrender.com,api.libertyplacehoa.com` (keeps both Render and custom domains valid for host checks)
   - SMTP: `EMAIL_BACKEND=smtp`, `EMAIL_HOST=smtp.sendgrid.net`, `EMAIL_PORT=587`,
     `EMAIL_HOST_USER=apikey`, `EMAIL_HOST_PASSWORD=<SendGrid key>`,
     `EMAIL_USE_TLS=true`, `EMAIL_FROM_ADDRESS=admin@libertyplacehoa.com`
