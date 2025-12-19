@@ -836,6 +836,10 @@ class ViolationStatusUpdate(BaseModel):
     fine_amount: Optional[Decimal]
 
 
+class ViolationAdditionalFine(BaseModel):
+    amount: condecimal(gt=0)
+
+
 class ViolationMessageCreate(BaseModel):
     body: str
 

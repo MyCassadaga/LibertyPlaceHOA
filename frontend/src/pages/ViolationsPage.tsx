@@ -14,6 +14,7 @@ import {
   useTransitionViolationMutation,
   useViolationNoticesQuery,
   useViolationsQuery,
+  useAssessFineMutation,
 } from '../features/violations/hooks';
 import { fetchViolationMessages, postViolationMessage } from '../services/api';
 
@@ -35,6 +36,11 @@ const STATUS_BADGE: Record<ViolationStatus, string> = {
   FINE_ACTIVE: 'bg-rose-100 text-rose-700',
   RESOLVED: 'bg-green-100 text-green-700',
   ARCHIVED: 'bg-gray-200 text-gray-600',
+};
+
+const NOTICE_LABELS: Record<string, string> = {
+  ...STATUS_LABELS,
+  ADDITIONAL_FINE: 'Additional Fine',
 };
 
 const ALLOWED_TRANSITIONS: Record<ViolationStatus, ViolationStatus[]> = {
@@ -71,6 +77,7 @@ const ViolationsPage: React.FC = () => {
   const [transitionNote, setTransitionNote] = useState('');
   const [transitionHearingDate, setTransitionHearingDate] = useState('');
   const [transitionFineAmount, setTransitionFineAmount] = useState('');
+  const [additionalFineAmount, setAdditionalFineAmount] = useState('');
   const [messages, setMessages] = useState<ViolationMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState<string | null>(null);
@@ -103,6 +110,7 @@ const ViolationsPage: React.FC = () => {
 
   const createViolationMutation = useCreateViolationMutation();
   const transitionMutation = useTransitionViolationMutation();
+  const assessFineMutation = useAssessFineMutation();
   const submitAppealMutation = useSubmitAppealMutation();
 
   const loading = violationsQuery.isLoading;
@@ -213,6 +221,7 @@ const ViolationsPage: React.FC = () => {
     setTransitionNote('');
     setTransitionHearingDate('');
     setTransitionFineAmount('');
+    setAdditionalFineAmount('');
     setAppealText('');
   };
 
@@ -228,9 +237,8 @@ const ViolationsPage: React.FC = () => {
     push(selectedViolation.due_date, 'Due date set');
     push(selectedViolation.hearing_date, 'Hearing scheduled', undefined, selectedViolation.location ?? undefined);
 
-  notices.forEach((notice) => {
-      const templateLabel =
-        STATUS_LABELS[notice.template_key as ViolationStatus] ?? notice.template_key;
+    notices.forEach((notice) => {
+      const templateLabel = NOTICE_LABELS[notice.template_key] ?? notice.template_key;
       push(
         notice.created_at,
         `Notice sent (${templateLabel})`,
@@ -327,6 +335,31 @@ const ViolationsPage: React.FC = () => {
     } catch (err) {
       logError('Unable to update violation status.', err);
       setError('Unable to update status. Check required fields for the transition.');
+    }
+  };
+
+  const handleAssessFine = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedViolation) {
+      return;
+    }
+    setError(null);
+    setSuccess(null);
+    if (!additionalFineAmount || Number(additionalFineAmount) <= 0) {
+      setError('Enter a fine amount greater than zero.');
+      return;
+    }
+    try {
+      await assessFineMutation.mutateAsync({
+        violationId: selectedViolation.id,
+        amount: additionalFineAmount,
+      });
+      setAdditionalFineAmount('');
+      setSuccess('Additional fine sent.');
+      setError(null);
+    } catch (err) {
+      logError('Unable to send additional fine.', err);
+      setError('Unable to send additional fine.');
     }
   };
 
@@ -606,6 +639,43 @@ const ViolationsPage: React.FC = () => {
                   <Timeline events={violationTimeline} />
                 </div>
               </section>
+
+              {canManage && selectedViolation.status === 'FINE_ACTIVE' && (
+                <form className="mt-4 space-y-3 rounded border border-rose-100 bg-rose-50/70 p-3" onSubmit={handleAssessFine}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-xs font-semibold text-rose-700">Assess Additional Fine</h4>
+                      <p className="text-xs text-rose-700/80">
+                        Send another fine without changing status. A notice letter/email will be recorded automatically.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="mb-1 block text-xs text-slate-600" htmlFor="additional-fine-amount">
+                        Fine Amount
+                      </label>
+                      <input
+                        id="additional-fine-amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                        value={additionalFineAmount}
+                        onChange={(event) => setAdditionalFineAmount(event.target.value)}
+                        placeholder="e.g. 50.00"
+                      />
+                    </div>
+                  </div>
+                  <button
+                    type="submit"
+                    className="rounded bg-rose-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-rose-500 disabled:opacity-60"
+                    disabled={!additionalFineAmount || assessFineMutation.isLoading}
+                  >
+                    {assessFineMutation.isLoading ? 'Sending…' : 'Send Additional Fine'}
+                  </button>
+                </form>
+              )}
 
               {canManage && ALLOWED_TRANSITIONS[selectedViolation.status].length > 0 && (
                 <form className="mt-4 space-y-3 rounded border border-slate-200 p-3" onSubmit={handleTransition}>

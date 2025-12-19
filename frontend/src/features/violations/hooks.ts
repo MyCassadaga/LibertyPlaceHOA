@@ -5,6 +5,7 @@ import {
   fetchFineSchedules,
   fetchViolationNotices,
   fetchViolations,
+  assessAdditionalViolationFine,
   submitAppeal,
   transitionViolation,
 } from '../../services/api';
@@ -54,6 +55,18 @@ export const useTransitionViolationMutation = () => {
       violationId: number;
       payload: { status: string; note?: string; hearing_date?: string; fine_amount?: string };
     }) => transitionViolation(violationId, payload),
+    onSuccess: async (_, { violationId }) => {
+      await queryClient.invalidateQueries({ queryKey: ['violations'] });
+      await queryClient.invalidateQueries({ queryKey: noticesKey(violationId) });
+    },
+  });
+};
+
+export const useAssessFineMutation = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ violationId, amount }: { violationId: number; amount: string }) =>
+      assessAdditionalViolationFine(violationId, { amount }),
     onSuccess: async (_, { violationId }) => {
       await queryClient.invalidateQueries({ queryKey: ['violations'] });
       await queryClient.invalidateQueries({ queryKey: noticesKey(violationId) });

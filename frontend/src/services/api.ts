@@ -775,6 +775,14 @@ export const transitionViolation = async (
   return data;
 };
 
+export const assessAdditionalViolationFine = async (
+  violationId: number,
+  payload: { amount: string },
+): Promise<Violation> => {
+  const { data } = await api.post<Violation>(`/violations/${violationId}/fines`, payload);
+  return data;
+};
+
 export const fetchViolationNotices = async (violationId: number): Promise<ViolationNotice[]> => {
   const { data } = await api.get<ViolationNotice[]>(`/violations/${violationId}/notices`);
   return data;
