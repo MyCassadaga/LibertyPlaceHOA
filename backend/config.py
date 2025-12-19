@@ -137,8 +137,25 @@ class Settings(BaseSettings):
             if host and host not in hosts:
                 hosts.append(host)
 
+        def _append_wildcard(host: str) -> None:
+            labels = host.split(".")
+            if len(labels) < 3:
+                return
+            apex = ".".join(labels[-2:])
+            wildcard = f"*.{apex}"
+            if wildcard not in hosts:
+                hosts.append(wildcard)
+
         _append_host(self.frontend_url)
         _append_host(self.api_base_url)
+
+        for cors_origin in CORS_ALLOW_ORIGINS:
+            _append_host(cors_origin)
+        # If we have one subdomain of the apex (e.g., app.libertyplacehoa.com),
+        # also trust sibling subdomains (e.g., api.libertyplacehoa.com) so host
+        # header checks do not break when env vars drift.
+        for existing in list(hosts):
+            _append_wildcard(existing)
 
         for default_host in ("localhost", "127.0.0.1", "testserver"):
             if default_host not in hosts:
