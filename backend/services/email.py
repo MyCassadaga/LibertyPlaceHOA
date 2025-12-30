@@ -121,8 +121,9 @@ def _send_via_sendgrid(subject: str, body: str, recipients: List[str]) -> SendRe
         to_emails=recipients,
         subject=subject,
         plain_text_content=body,
-        reply_to=reply_to_email,
     )
+    if reply_to_email:
+        message.reply_to = reply_to_email
     client = SendGridAPIClient(settings.sendgrid_api_key)
     try:
         response = client.send(message)
