@@ -40,6 +40,7 @@ from .constants import DEFAULT_LATE_FEE_POLICY, DEFAULT_ROLES
 from .models.models import BillingPolicy, LateFeeTier, NoticeType, Owner, OwnerUserLink, Permission, Role, User
 from .auth.jwt import get_current_user, decode_token
 from .services import budgets as budget_service
+from .services import email as email_service
 from .services.reminders import generate_contract_renewal_reminders
 from .services.audit import audit_log
 from .services.notifications import notification_center
@@ -52,6 +53,7 @@ from .core.security import SecurityHeadersMiddleware, log_security_warnings
 configure_logging(settings.log_level)
 logger = logging.getLogger(__name__)
 log_security_warnings(settings.jwt_secret, settings.email_backend, settings.stripe_api_key)
+email_service.log_email_configuration()
 
 
 def ensure_homeowner_owner_records(session: Session) -> None:
