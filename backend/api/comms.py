@@ -32,6 +32,7 @@ def _queue_email(background: BackgroundTasks, subject: str, body: str, recipient
             logger.exception("Announcement email dispatch failed.")
             raise
 
+    logger.info("Queueing announcement email for %d recipients.", len(recipients))
     background.add_task(_send)
 
 

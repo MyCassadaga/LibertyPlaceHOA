@@ -109,17 +109,19 @@ def _send_via_sendgrid(subject: str, body: str, recipients: List[str]) -> SendRe
 
     try:
         from sendgrid import SendGridAPIClient
-        from sendgrid.helpers.mail import Mail
+        from sendgrid.helpers.mail import Email, Mail
     except ImportError as exc:  # pragma: no cover - runtime guard
         raise RuntimeError("SendGrid backend requires the sendgrid package.") from exc
 
     reply_to = settings.email_reply_to or from_address
+    from_email = Email(email=from_address, name=display_name)
+    reply_to_email = Email(email=reply_to) if reply_to else None
     message = Mail(
-        from_email=(from_address, display_name),
+        from_email=from_email,
         to_emails=recipients,
         subject=subject,
         plain_text_content=body,
-        reply_to=reply_to,
+        reply_to=reply_to_email,
     )
     client = SendGridAPIClient(settings.sendgrid_api_key)
     try:
@@ -207,6 +209,7 @@ def send_announcement(subject: str, body: str, recipients: Iterable[str]) -> Lis
     """Dispatch announcements using the configured email backend."""
     recipient_list = _normalize_recipients(recipients)
     if not recipient_list:
+        logger.info("Email dispatch skipped: no recipients (subject=%s).", _mask_subject(subject))
         return []
 
     backend = (settings.email_backend or "local").strip().strip("'\"").lower()
@@ -239,6 +242,7 @@ def send_announcement_with_result(subject: str, body: str, recipients: Iterable[
     _log_send_attempt(backend, subject, from_address, recipient_list, reply_to)
 
     if not recipient_list:
+        logger.info("Email dispatch skipped: no recipients (subject=%s).", _mask_subject(subject))
         return SendResult(backend=backend, status_code=None, request_id=None, error="No recipients provided.")
 
     try:
