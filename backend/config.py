@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     email_reply_to: Optional[EmailStr] = Field(None, env="EMAIL_REPLY_TO")
     email_from_address: Optional[EmailStr] = Field("admin@libertyplacehoa.com", env="EMAIL_FROM_ADDRESS")
     email_from_name: str = Field("Liberty Place HOA", env="EMAIL_FROM_NAME")
+    admin_token: Optional[str] = Field(None, env="ADMIN_TOKEN")
     stripe_api_key: Optional[str] = Field(None, env="STRIPE_API_KEY")
     stripe_webhook_secret: Optional[str] = Field(None, env="STRIPE_WEBHOOK_SECRET")
     log_level: str = Field("INFO", env="LOG_LEVEL")
