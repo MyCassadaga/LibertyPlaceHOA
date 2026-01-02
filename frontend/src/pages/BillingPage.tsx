@@ -15,6 +15,7 @@ import {
   useOwnersQuery,
 } from '../features/billing/hooks';
 import { API_BASE_URL } from '../lib/api/client';
+import { isStripeConfigured } from '../lib/stripe';
 import { AutopayAmountType, OverdueAccount } from '../types';
 import { userHasAnyRole } from '../utils/roles';
 
@@ -44,8 +45,20 @@ const BillingPage: React.FC = () => {
   });
 
   const boardBillingRoles = useMemo(() => ['BOARD', 'TREASURER', 'SYSADMIN'], []);
+  const elevatedSummaryRoles = useMemo(
+    () => ['BOARD', 'TREASURER', 'SECRETARY', 'SYSADMIN', 'AUDITOR', 'ATTORNEY'],
+    [],
+  );
   const isBoardBillingUser = useMemo(() => userHasAnyRole(user, boardBillingRoles), [user, boardBillingRoles]);
+  const canViewHomeownerCount = useMemo(
+    () => userHasAnyRole(user, elevatedSummaryRoles),
+    [user, elevatedSummaryRoles],
+  );
   const isHomeownerUser = useMemo(() => userHasAnyRole(user, ['HOMEOWNER']), [user]);
+  const canViewOverdueAccounts = useMemo(
+    () => isBoardBillingUser && !isHomeownerUser,
+    [isBoardBillingUser, isHomeownerUser],
+  );
 
   const invoicesQuery = useInvoicesQuery(!!user);
   const summaryQuery = useBillingSummaryQuery(isBoardBillingUser);
@@ -109,14 +122,14 @@ const BillingPage: React.FC = () => {
     }
   }, [isBoardBillingUser, ownersQuery.data, selectedAutopayOwnerId]);
   useEffect(() => {
-    if (!isBoardBillingUser) {
+    if (!canViewOverdueAccounts) {
       setActionPanel(null);
       setActionMessage('');
       setActionStatus(null);
       setActionError(null);
       setActionLink(null);
     }
-  }, [isBoardBillingUser]);
+  }, [canViewOverdueAccounts]);
 
   useEffect(() => {
     if (!autopay) {
@@ -147,6 +160,10 @@ const BillingPage: React.FC = () => {
 
   const handlePayInvoice = async (invoiceId: number) => {
     setPaymentError(null);
+    if (!isStripeConfigured) {
+      setPaymentError('Stripe is not configured yet. Please contact the HOA board.');
+      return;
+    }
     setPayingInvoiceId(invoiceId);
     try {
       const { checkoutUrl } = await createPaymentSession(invoiceId);
@@ -253,7 +270,7 @@ const BillingPage: React.FC = () => {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-slate-700">Billing & Assessments</h2>
       </div>
-      {isBoardBillingUser && (
+      {canViewOverdueAccounts && (
         <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <p className="font-semibold">Vendor payments moved</p>
           <p className="mt-1">
@@ -266,7 +283,7 @@ const BillingPage: React.FC = () => {
       {summary && (
         <div className="rounded border border-slate-200 p-4">
           <h3 className="mb-2 text-lg font-semibold text-slate-700">Summary</h3>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 text-sm">
+          <div className={`grid grid-cols-1 gap-4 text-sm ${canViewHomeownerCount ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             <div>
               <p className="text-slate-500">Total Balance</p>
               <p className="text-lg font-semibold text-primary-600">{formatCurrency(summary.total_balance)}</p>
@@ -275,10 +292,12 @@ const BillingPage: React.FC = () => {
               <p className="text-slate-500">Open invoices</p>
               <p className="text-lg font-semibold">{summary.open_invoices}</p>
             </div>
-            <div>
-              <p className="text-slate-500">Homeowners</p>
-              <p className="text-lg font-semibold">{summary.owner_count}</p>
-            </div>
+            {canViewHomeownerCount && (
+              <div>
+                <p className="text-slate-500">Homeowners</p>
+                <p className="text-lg font-semibold">{summary.owner_count}</p>
+              </div>
+            )}
           </div>
         </div>
       )}
