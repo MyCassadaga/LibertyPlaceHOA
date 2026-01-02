@@ -45,7 +45,6 @@ const Layout: React.FC = () => {
     if (!user || !isHomeowner) return [];
     const items: { label: string; to: string; roles?: string[] }[] = [
       { label: 'Account', to: '/owner-profile' },
-      { label: 'ARC Requests', to: '/arc' },
       { label: 'Budget', to: '/budget' },
       { label: 'Billing', to: '/billing' },
       { label: 'Documents', to: '/documents' },
@@ -117,6 +116,7 @@ const Layout: React.FC = () => {
 
             {renderLink('/dashboard', 'Dashboard', 0)}
             {renderLink('/notifications', 'Notifications', 1)}
+            {renderLink('/arc', 'ARC', 2)}
 
             {isHomeowner && homeownerLinks.length > 0 && (
               <div>

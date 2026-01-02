@@ -43,7 +43,7 @@ def list_arc_requests(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> List[ARCRequest]:
-    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
     is_manager = user.has_any_role(*manager_roles)
     query = (
         db.query(ARCRequest)
@@ -75,9 +75,9 @@ def list_arc_requests(
 def create_arc_request(
     payload: ARCRequestCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("HOMEOWNER", "ARC", "BOARD", "SYSADMIN", "SECRETARY")),
+    user: User = Depends(require_roles("HOMEOWNER", "ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
 ) -> ARCRequest:
-    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
     is_manager = user.has_any_role(*manager_roles)
 
     owner = get_owner_for_user(db, user) if user.has_role("HOMEOWNER") else None
@@ -126,7 +126,7 @@ def get_arc_request(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ARCRequest:
-    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
     is_manager = user.has_any_role(*manager_roles)
     arc_request = _get_request_with_relations(db, arc_request_id)
     if not arc_request:
@@ -150,7 +150,7 @@ def update_arc_request(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ARCRequest:
-    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
     is_manager = user.has_any_role(*manager_roles)
     arc_request = db.get(ARCRequest, arc_request_id)
     if not arc_request:
@@ -199,9 +199,9 @@ def transition_arc_request_status(
     arc_request_id: int,
     payload: ARCRequestStatusUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY", "HOMEOWNER")),
+    user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER", "HOMEOWNER")),
 ) -> ARCRequest:
-    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY"}
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
     is_manager = user.has_any_role(*manager_roles)
     arc_request = db.get(ARCRequest, arc_request_id)
     if not arc_request:
@@ -238,7 +238,7 @@ async def upload_arc_attachment(
     arc_request_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("HOMEOWNER", "ARC", "BOARD", "SYSADMIN", "SECRETARY")),
+    user: User = Depends(require_roles("HOMEOWNER", "ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
 ) -> ARCAttachment:
     arc_request = db.get(ARCRequest, arc_request_id)
     if not arc_request:
@@ -260,7 +260,7 @@ def add_arc_condition(
     arc_request_id: int,
     payload: ARCConditionCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("HOMEOWNER", "ARC", "BOARD", "SYSADMIN", "SECRETARY")),
+    user: User = Depends(require_roles("HOMEOWNER", "ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
 ) -> ARCCondition:
     arc_request = db.get(ARCRequest, arc_request_id)
     if not arc_request:
@@ -283,7 +283,7 @@ def resolve_arc_condition(
     condition_id: int,
     payload: ARCConditionResolve,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY")),
+    user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
 ) -> ARCCondition:
     condition = (
         db.query(ARCCondition)
@@ -304,7 +304,7 @@ def create_arc_inspection(
     arc_request_id: int,
     payload: ARCInspectionCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY")),
+    user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
 ) -> ARCInspection:
     arc_request = db.get(ARCRequest, arc_request_id)
     if not arc_request:
