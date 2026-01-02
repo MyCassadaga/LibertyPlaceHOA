@@ -993,11 +993,7 @@ class ARCRequestStatusUpdate(BaseModel):
         "DRAFT",
         "SUBMITTED",
         "IN_REVIEW",
-        "REVISION_REQUESTED",
-        "APPROVED",
-        "APPROVED_WITH_CONDITIONS",
-        "DENIED",
-        "COMPLETED",
+        "REVIEW_COMPLETE",
         "ARCHIVED",
     ]
     reviewer_user_id: Optional[int]

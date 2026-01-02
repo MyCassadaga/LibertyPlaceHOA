@@ -20,11 +20,7 @@ const STATUS_LABELS: Record<ARCStatus, string> = {
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
   IN_REVIEW: 'In Review',
-  REVISION_REQUESTED: 'Revision Requested',
-  APPROVED: 'Approved',
-  APPROVED_WITH_CONDITIONS: 'Approved w/ Conditions',
-  DENIED: 'Denied',
-  COMPLETED: 'Completed',
+  REVIEW_COMPLETE: 'Review Complete',
   ARCHIVED: 'Archived',
 };
 
@@ -32,23 +28,15 @@ const STATUS_BADGE: Record<ARCStatus, string> = {
   DRAFT: 'bg-slate-200 text-slate-700',
   SUBMITTED: 'bg-blue-100 text-blue-700',
   IN_REVIEW: 'bg-indigo-100 text-indigo-700',
-  REVISION_REQUESTED: 'bg-amber-100 text-amber-700',
-  APPROVED: 'bg-green-100 text-green-700',
-  APPROVED_WITH_CONDITIONS: 'bg-emerald-100 text-emerald-700',
-  DENIED: 'bg-rose-100 text-rose-700',
-  COMPLETED: 'bg-teal-100 text-teal-700',
+  REVIEW_COMPLETE: 'bg-teal-100 text-teal-700',
   ARCHIVED: 'bg-gray-200 text-gray-600',
 };
 
 const TRANSITIONS: Record<ARCStatus, ARCStatus[]> = {
-  DRAFT: ['SUBMITTED', 'ARCHIVED'],
-  SUBMITTED: ['IN_REVIEW', 'ARCHIVED'],
-  IN_REVIEW: ['REVISION_REQUESTED', 'APPROVED', 'APPROVED_WITH_CONDITIONS', 'DENIED'],
-  REVISION_REQUESTED: ['SUBMITTED', 'ARCHIVED'],
-  APPROVED: ['COMPLETED', 'ARCHIVED'],
-  APPROVED_WITH_CONDITIONS: ['COMPLETED', 'ARCHIVED'],
-  DENIED: ['ARCHIVED'],
-  COMPLETED: ['ARCHIVED'],
+  DRAFT: ['SUBMITTED'],
+  SUBMITTED: ['IN_REVIEW'],
+  IN_REVIEW: ['REVIEW_COMPLETE'],
+  REVIEW_COMPLETE: ['ARCHIVED'],
   ARCHIVED: [],
 };
 
@@ -58,8 +46,8 @@ const ARCPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const isHomeowner = user?.role.name === 'HOMEOWNER';
   const canReview = ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER'].includes(user?.role.name ?? '');
+  const canManageStatus = ['ARC', 'SYSADMIN'].includes(user?.role.name ?? '');
   const arcRequestsQuery = useArcRequestsQuery(statusFilter !== 'ALL' ? statusFilter : undefined);
   const requests = useMemo(() => arcRequestsQuery.data ?? [], [arcRequestsQuery.data]);
   const loading = arcRequestsQuery.isLoading;
@@ -230,13 +218,9 @@ const ARCPage: React.FC = () => {
   };
 
   const allowedTransitions = useMemo(() => {
-    if (!selected) return [];
-    const list = TRANSITIONS[selected.status] || [];
-    if (isHomeowner) {
-      return list.filter((status) => ['SUBMITTED', 'ARCHIVED'].includes(status));
-    }
-    return list;
-  }, [selected, isHomeowner]);
+    if (!selected || !canManageStatus) return [];
+    return TRANSITIONS[selected.status] || [];
+  }, [selected, canManageStatus]);
 
   const timelineEvents = useMemo<TimelineEvent[]>(() => {
     if (!selected) return [];
@@ -248,23 +232,7 @@ const ARCPage: React.FC = () => {
 
     push(selected.created_at, 'Request created', selected.description ?? undefined);
     push(selected.submitted_at, 'Submitted for review');
-    push(
-      selected.revision_requested_at,
-      'Revision requested',
-      selected.decision_notes ?? undefined,
-    );
-
-    if (selected.final_decision_at) {
-      let decisionLabel = 'Final decision recorded';
-      if (selected.status === 'APPROVED' || selected.status === 'APPROVED_WITH_CONDITIONS') {
-        decisionLabel = 'Final decision: Approved';
-      } else if (selected.status === 'DENIED') {
-        decisionLabel = 'Final decision: Denied';
-      }
-      push(selected.final_decision_at, decisionLabel, selected.decision_notes ?? undefined);
-    }
-
-    push(selected.completed_at, 'Project completed');
+    push(selected.completed_at, 'Review complete', selected.decision_notes ?? undefined);
     push(selected.archived_at, 'Request archived');
 
     selected.conditions.forEach((condition) => {
