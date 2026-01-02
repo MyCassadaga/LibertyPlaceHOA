@@ -27,3 +27,26 @@ services:
         value: ""
       - key: FILE_STORAGE_BACKEND
         value: local
+  - type: cron
+    name: hoa-autopay
+    env: python
+    schedule: "0 6 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/run_autopay.py
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hoa-db
+          property: connectionString
+      - key: FRONTEND_URL
+        value: https://app.libertyplacehoa.com
+      - key: API_BASE
+        value: https://api.libertyplacehoa.com
+      - key: ADDITIONAL_TRUSTED_HOSTS
+        value: libertyplacehoa.onrender.com,api.libertyplacehoa.com
+      - key: SENDGRID_API_KEY
+        value: ""
+      - key: STRIPE_API_KEY
+        value: ""
+      - key: FILE_STORAGE_BACKEND
+        value: local

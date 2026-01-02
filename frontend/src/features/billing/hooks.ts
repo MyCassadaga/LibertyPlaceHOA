@@ -78,10 +78,10 @@ export const useVendorPaymentsQuery = (enabled: boolean) =>
     enabled,
   });
 
-export const useAutopayQuery = (enabled: boolean) =>
+export const useAutopayQuery = (enabled: boolean, ownerId?: number) =>
   useQuery<AutopayEnrollment>({
-    queryKey: queryKeys.autopay,
-    queryFn: fetchAutopayEnrollment,
+    queryKey: [...queryKeys.autopay, ownerId ?? 'self'],
+    queryFn: () => fetchAutopayEnrollment(ownerId),
     enabled,
   });
 
@@ -98,7 +98,7 @@ export const useAutopayUpsertMutation = () => {
 export const useAutopayCancelMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => cancelAutopay(),
+    mutationFn: (ownerId?: number) => cancelAutopay(ownerId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.autopay });
     },

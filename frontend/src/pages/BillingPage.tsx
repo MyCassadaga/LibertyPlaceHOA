@@ -47,12 +47,15 @@ const BillingPage: React.FC = () => {
   const isBoardBillingUser = useMemo(() => userHasAnyRole(user, boardBillingRoles), [user, boardBillingRoles]);
   const isHomeownerUser = useMemo(() => userHasAnyRole(user, ['HOMEOWNER']), [user]);
 
-  const invoicesQuery = useInvoicesQuery(!!user && isHomeownerUser);
+  const invoicesQuery = useInvoicesQuery(!!user);
   const summaryQuery = useBillingSummaryQuery(isBoardBillingUser);
   const ownersQuery = useOwnersQuery(isBoardBillingUser);
   const myOwnerQuery = useMyOwnerQuery(!!user && isHomeownerUser);
   const overdueQuery = useOverdueAccountsQuery(isBoardBillingUser);
-  const autopayQuery = useAutopayQuery(!!user && isHomeownerUser);
+  const [selectedAutopayOwnerId, setSelectedAutopayOwnerId] = useState<number | null>(null);
+  const autopayOwnerId = isBoardBillingUser ? selectedAutopayOwnerId : undefined;
+  const canLoadAutopay = !!user && (!isBoardBillingUser || !!selectedAutopayOwnerId);
+  const autopayQuery = useAutopayQuery(canLoadAutopay, autopayOwnerId ?? undefined);
 
   const autopayUpsert = useAutopayUpsertMutation();
   const autopayCancel = useAutopayCancelMutation();
@@ -95,6 +98,16 @@ const BillingPage: React.FC = () => {
   }, []);
 
   const refreshOverdue = overdueQuery.refetch;
+
+  useEffect(() => {
+    if (!isBoardBillingUser) {
+      setSelectedAutopayOwnerId(null);
+      return;
+    }
+    if (ownersQuery.data?.length && selectedAutopayOwnerId === null) {
+      setSelectedAutopayOwnerId(ownersQuery.data[0].id);
+    }
+  }, [isBoardBillingUser, ownersQuery.data, selectedAutopayOwnerId]);
   useEffect(() => {
     if (!isBoardBillingUser) {
       setActionPanel(null);
@@ -155,6 +168,7 @@ const BillingPage: React.FC = () => {
         payment_day: autopayForm.payment_day,
         amount_type: autopayForm.amount_type,
         fixed_amount: autopayForm.amount_type === 'FIXED' ? autopayForm.fixed_amount || '0' : undefined,
+        owner_id: isBoardBillingUser ? selectedAutopayOwnerId ?? undefined : undefined,
       };
       await autopayUpsert.mutateAsync(payload);
       setAutopayStatus('Autopay preferences saved.');
@@ -166,7 +180,7 @@ const BillingPage: React.FC = () => {
   const handleAutopayCancel = async () => {
     if (!window.confirm('Cancel autopay enrollment?')) return;
     try {
-      await autopayCancel.mutateAsync();
+      await autopayCancel.mutateAsync(isBoardBillingUser ? selectedAutopayOwnerId ?? undefined : undefined);
       setAutopayStatus('Autopay canceled.');
     } catch {
       setAutopayError('Unable to cancel autopay at this time.');
@@ -268,12 +282,12 @@ const BillingPage: React.FC = () => {
           </div>
         </div>
       )}
-      {isHomeownerUser && (
+      {user && (
         <section className="rounded border border-slate-200 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="text-lg font-semibold text-slate-700">Autopay Enrollment</h3>
-              <p className="text-sm text-slate-500">Enroll once; Stripe will process charges once credentials are live.</p>
+              <p className="text-sm text-slate-500">Enroll once; charges are drafted 30 days after invoice posting.</p>
             </div>
             {autopay && (
               <span className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
@@ -281,6 +295,25 @@ const BillingPage: React.FC = () => {
               </span>
             )}
           </div>
+          {isBoardBillingUser && (
+            <div className="mt-3 max-w-sm text-sm">
+              <label className="text-xs uppercase text-slate-500">Autopay owner</label>
+              <select
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={selectedAutopayOwnerId ?? ''}
+                onChange={(event) =>
+                  setSelectedAutopayOwnerId(event.target.value ? Number(event.target.value) : null)
+                }
+              >
+                <option value="">Select owner</option>
+                {ownersQuery.data?.map((owner) => (
+                  <option key={owner.id} value={owner.id}>
+                    {owner.primary_name} {owner.property_address ? `- ${owner.property_address}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {autopayStatus && <p className="mt-2 text-sm text-emerald-600">{autopayStatus}</p>}
           {autopayQuery.isError && <p className="mt-2 text-sm text-red-600">Unable to load autopay status.</p>}
           {autopayError && <p className="mt-2 text-sm text-red-600">{autopayError}</p>}
@@ -330,7 +363,7 @@ const BillingPage: React.FC = () => {
                 <button
                   type="submit"
                   className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
-                  disabled={autopayUpsert.isLoading}
+                  disabled={autopayUpsert.isLoading || (isBoardBillingUser && !selectedAutopayOwnerId)}
                 >
                   {autopayUpsert.isLoading ? 'Saving…' : 'Save Autopay'}
                 </button>
@@ -339,7 +372,7 @@ const BillingPage: React.FC = () => {
                     type="button"
                     className="ml-3 rounded border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 hover:bg-slate-50 disabled:opacity-60"
                     onClick={handleAutopayCancel}
-                    disabled={autopayCancel.isLoading}
+                    disabled={autopayCancel.isLoading || (isBoardBillingUser && !selectedAutopayOwnerId)}
                   >
                     {autopayCancel.isLoading ? 'Cancelling…' : 'Cancel Autopay'}
                   </button>
