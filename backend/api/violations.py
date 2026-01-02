@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..api.dependencies import get_db, get_owner_for_user
 from ..auth.jwt import get_current_user, require_roles
-from ..models.models import Appeal, FineSchedule, Owner, User, Violation, ViolationNotice, ViolationMessage
+from ..models.models import Appeal, FineSchedule, Owner, Template, User, Violation, ViolationNotice, ViolationMessage
 from ..schemas.schemas import (
     AppealCreate,
     AppealDecision,
@@ -251,6 +251,12 @@ def transition_violation_status(
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found.")
 
+    template_override = None
+    if payload.template_id is not None:
+        template_override = db.get(Template, payload.template_id)
+        if not template_override or template_override.is_archived or template_override.type != "VIOLATION_NOTICE":
+            raise HTTPException(status_code=400, detail="Selected template is unavailable for violation notices.")
+
     try:
         transition_violation(
             session=db,
@@ -260,6 +266,7 @@ def transition_violation_status(
             note=payload.note,
             hearing_date=payload.hearing_date,
             fine_amount=payload.fine_amount,
+            template_override=template_override,
         )
         db.commit()
         db.refresh(violation)
@@ -286,12 +293,19 @@ def assess_violation_fine(
     if not violation:
         raise HTTPException(status_code=404, detail="Violation not found.")
 
+    template_override = None
+    if payload.template_id is not None:
+        template_override = db.get(Template, payload.template_id)
+        if not template_override or template_override.is_archived or template_override.type != "VIOLATION_NOTICE":
+            raise HTTPException(status_code=400, detail="Selected template is unavailable for violation notices.")
+
     try:
         issue_additional_fine(
             session=db,
             violation=violation,
             actor=actor,
             fine_amount=payload.amount,
+            template_override=template_override,
         )
         db.commit()
         db.refresh(violation)

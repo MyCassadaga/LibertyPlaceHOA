@@ -53,7 +53,13 @@ export const useTransitionViolationMutation = () => {
       payload,
     }: {
       violationId: number;
-      payload: { status: string; note?: string; hearing_date?: string; fine_amount?: string };
+      payload: {
+        target_status: string;
+        note?: string;
+        hearing_date?: string;
+        fine_amount?: string;
+        template_id?: number;
+      };
     }) => transitionViolation(violationId, payload),
     onSuccess: async (_, { violationId }) => {
       await queryClient.invalidateQueries({ queryKey: ['violations'] });
@@ -65,8 +71,15 @@ export const useTransitionViolationMutation = () => {
 export const useAssessFineMutation = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ violationId, amount }: { violationId: number; amount: string }) =>
-      assessAdditionalViolationFine(violationId, { amount }),
+    mutationFn: ({
+      violationId,
+      amount,
+      template_id,
+    }: {
+      violationId: number;
+      amount: string;
+      template_id?: number;
+    }) => assessAdditionalViolationFine(violationId, { amount, template_id }),
     onSuccess: async (_, { violationId }) => {
       await queryClient.invalidateQueries({ queryKey: ['violations'] });
       await queryClient.invalidateQueries({ queryKey: noticesKey(violationId) });

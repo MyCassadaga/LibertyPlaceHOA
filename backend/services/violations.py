@@ -6,10 +6,11 @@ from typing import Dict, Optional
 
 from sqlalchemy.orm import Session
 
-from ..models.models import Appeal, Invoice, Owner, User, Violation, ViolationNotice
+from ..models.models import Appeal, Invoice, Owner, Template, User, Violation, ViolationNotice
 from ..services import email
 from ..services.notifications import create_notification
 from ..services.audit import audit_log
+from ..services.templates import build_merge_context, render_merge_tags
 from ..utils.pdf_utils import generate_violation_notice_pdf
 from ..config import settings
 from ..services.billing import record_invoice
@@ -38,39 +39,39 @@ ALLOWED_TRANSITIONS: Dict[str, set[str]] = {
 
 NOTICE_TEMPLATES: Dict[str, Dict[str, str]] = {
     "WARNING_SENT": {
-        "subject": "Covenant Warning for {address}",
+        "subject": "Covenant Warning for {{owner_address}}",
         "body": (
-            "Dear {owner_name},\n\n"
-            "The association has reviewed the reported covenant concern ({category}) and issued a warning.\n"
-            "Details:\n{description}\n\n"
-            "Please resolve the issue by {due_date} to avoid escalation.\n\n"
+            "Dear {{owner_name}},\n\n"
+            "The association has reviewed the reported covenant concern ({{violation_category}}) and issued a warning.\n"
+            "Details:\n{{violation_description}}\n\n"
+            "Please resolve the issue by {{violation_due_date}} to avoid escalation.\n\n"
             "Thank you,\nLiberty Place HOA Board"
         ),
     },
     "HEARING": {
-        "subject": "Hearing Scheduled for Violation #{violation_id}",
+        "subject": "Hearing Scheduled for Violation #{{violation_id}}",
         "body": (
-            "Dear {owner_name},\n\n"
-            "A hearing has been scheduled on {hearing_date} regarding the following:\n{description}\n\n"
+            "Dear {{owner_name}},\n\n"
+            "A hearing has been scheduled on {{violation_hearing_date}} regarding the following:\n{{violation_description}}\n\n"
             "Please attend the meeting or contact the board if you require accommodations.\n\n"
             "Regards,\nLiberty Place HOA Board"
         ),
     },
     "FINE_ACTIVE": {
-        "subject": "Fine Issued for Violation #{violation_id}",
+        "subject": "Fine Issued for Violation #{{violation_id}}",
         "body": (
-            "Dear {owner_name},\n\n"
-            "A fine of ${fine_amount} has been assessed for the covenant violation ({category}).\n"
-            "Please remit payment or appeal by {due_date}.\n\n"
+            "Dear {{owner_name}},\n\n"
+            "A fine of {{violation_fine_amount}} has been assessed for the covenant violation ({{violation_category}}).\n"
+            "Please remit payment or appeal by {{violation_due_date}}.\n\n"
             "Regards,\nLiberty Place HOA Board"
         ),
     },
     "ADDITIONAL_FINE": {
-        "subject": "Additional Fine for Violation #{violation_id}",
+        "subject": "Additional Fine for Violation #{{violation_id}}",
         "body": (
-            "Dear {owner_name},\n\n"
-            "An additional fine of ${fine_amount} has been assessed for the covenant violation ({category}).\n"
-            "Please remit payment by {due_date} to avoid further action.\n\n"
+            "Dear {{owner_name}},\n\n"
+            "An additional fine of {{violation_fine_amount}} has been assessed for the covenant violation ({{violation_category}}).\n"
+            "Please remit payment by {{violation_due_date}} to avoid further action.\n\n"
             "Regards,\nLiberty Place HOA Board"
         ),
     },
@@ -80,17 +81,8 @@ NOTICE_DIRECTORY = settings.uploads_root_path / "violations"
 NOTICE_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
 
-def _format_template(template: str, violation: Violation, owner: Owner, fine_amount: Optional[Decimal]) -> str:
-    return template.format(
-        owner_name=owner.primary_name,
-        address=owner.property_address or "Pending address",
-        violation_id=violation.id,
-        category=violation.category,
-        description=violation.description or "",
-        due_date=violation.due_date.isoformat() if violation.due_date else "N/A",
-        hearing_date=violation.hearing_date.isoformat() if violation.hearing_date else "TBD",
-        fine_amount=f"{fine_amount:.2f}" if fine_amount is not None else "0.00",
-    )
+def _format_template(template: str, context: Dict[str, str]) -> str:
+    return render_merge_tags(template, context)
 
 
 def _create_notice(
@@ -100,11 +92,24 @@ def _create_notice(
     actor: User,
     template_key: str,
     fine_amount: Optional[Decimal] = None,
+    template_override: Optional[Template] = None,
 ) -> ViolationNotice:
-    template = NOTICE_TEMPLATES[template_key]
     amount_for_template = fine_amount if fine_amount is not None else violation.fine_amount
-    subject = _format_template(template["subject"], violation, owner, amount_for_template)
-    body = _format_template(template["body"], violation, owner, amount_for_template)
+    context = build_merge_context(
+        owner=owner,
+        violation=violation,
+        actor=actor,
+        violation_fine_amount=(f"${amount_for_template:.2f}" if amount_for_template is not None else ""),
+    )
+    if template_override:
+        subject = _format_template(template_override.subject, context)
+        body = _format_template(template_override.body, context)
+        notice_template_key = template_override.name
+    else:
+        template = NOTICE_TEMPLATES[template_key]
+        subject = _format_template(template["subject"], context)
+        body = _format_template(template["body"], context)
+        notice_template_key = template_key
     pdf_path = Path(generate_violation_notice_pdf(template_key, violation, owner, subject, body))
     target_path = NOTICE_DIRECTORY / pdf_path.name
     try:
@@ -120,7 +125,7 @@ def _create_notice(
         violation_id=violation.id,
         sent_by_user_id=actor.id,
         notice_type="EMAIL",
-        template_key=template_key,
+        template_key=notice_template_key,
         subject=subject,
         body=body,
         pdf_path=relative_pdf_path,
@@ -143,6 +148,7 @@ def transition_violation(
     note: Optional[str] = None,
     hearing_date: Optional[date] = None,
     fine_amount: Optional[Decimal] = None,
+    template_override: Optional[Template] = None,
 ) -> Violation:
     current_status = violation.status
     if target_status not in VIOLATION_STATES:
@@ -202,7 +208,7 @@ def transition_violation(
             fine_invoice = existing_fine_invoice
 
     if target_status in NOTICE_TEMPLATES:
-        _create_notice(session, violation, owner, actor, target_status)
+        _create_notice(session, violation, owner, actor, target_status, template_override=template_override)
 
     audit_log(
         db_session=session,
@@ -284,6 +290,7 @@ def issue_additional_fine(
     violation: Violation,
     actor: User,
     fine_amount: Decimal,
+    template_override: Optional[Template] = None,
 ) -> Violation:
     if violation.status not in {"FINE_ACTIVE"}:
         raise ValueError("Additional fines can only be issued while the violation is in Fine Active status.")
@@ -331,7 +338,15 @@ def issue_additional_fine(
     session.flush()
     record_invoice(session, additional_invoice)
 
-    _create_notice(session, violation, owner, actor, "ADDITIONAL_FINE", fine_amount=fine_amount_value)
+    _create_notice(
+        session,
+        violation,
+        owner,
+        actor,
+        "ADDITIONAL_FINE",
+        fine_amount=fine_amount_value,
+        template_override=template_override,
+    )
 
     audit_log(
         db_session=session,

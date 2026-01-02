@@ -30,8 +30,9 @@ from .api import (
     payments,
     reminders,
     reports,
-    violations,
     system,
+    templates,
+    violations,
 )
 from .config import Base, SessionLocal, engine, settings
 from decimal import Decimal
@@ -311,6 +312,7 @@ app.include_router(budgets.router)
 app.include_router(notices.router)
 app.include_router(contracts.router, prefix="/contracts", tags=["contracts"])
 app.include_router(comms.router, prefix="/communications", tags=["communications"])
+app.include_router(templates.router)
 app.include_router(reminders.router, tags=["dashboard"])
 app.include_router(reports.router, tags=["reports"])
 app.include_router(violations.router, prefix="/violations", tags=["violations"])

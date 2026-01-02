@@ -66,6 +66,7 @@ const Layout: React.FC = () => {
       { label: 'Budget', to: '/budget' },
       { label: 'Paperwork', to: '/board/paperwork' },
       { label: 'Comms', to: '/communications', roles: ['BOARD', 'SECRETARY', 'SYSADMIN'] },
+      { label: 'Templates', to: '/templates', roles: ['BOARD', 'SECRETARY', 'SYSADMIN'] },
       { label: 'Contracts', to: '/contracts', roles: ['BOARD', 'TREASURER', 'SYSADMIN', 'ATTORNEY'] },
       { label: 'Owners', to: '/owners', roles: ['BOARD', 'TREASURER', 'SYSADMIN', 'SECRETARY'] },
       { label: 'Reports', to: '/reports', roles: ['BOARD', 'SYSADMIN'] },

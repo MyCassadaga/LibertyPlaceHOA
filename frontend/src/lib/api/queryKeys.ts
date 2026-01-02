@@ -5,6 +5,8 @@ export const queryKeys = {
   announcements: ['communications', 'announcements'] as const,
   broadcasts: ['communications', 'broadcasts'] as const,
   broadcastSegments: ['communications', 'broadcast-segments'] as const,
+  templates: ['templates'] as const,
+  templateMergeTags: ['templates', 'merge-tags'] as const,
   roles: ['admin', 'roles'] as const,
   adminUsers: ['admin', 'users'] as const,
   loginBackground: ['admin', 'login-background'] as const,
