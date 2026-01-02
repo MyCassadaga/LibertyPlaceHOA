@@ -7,9 +7,12 @@ import {
   fetchAnnouncements,
   fetchBroadcastSegments,
   fetchEmailBroadcasts,
+  fetchTemplateMergeTags,
+  fetchTemplates,
 } from '../services/api';
-import { Announcement, EmailBroadcast, EmailBroadcastSegment } from '../types';
+import { Announcement, EmailBroadcast, EmailBroadcastSegment, Template } from '../types';
 import { queryKeys } from '../lib/api/queryKeys';
+import { renderMergeTags } from '../utils/mergeTags';
 
 const CommunicationsPage: React.FC = () => {
   const [announcementSubject, setAnnouncementSubject] = useState('');
@@ -18,12 +21,14 @@ const CommunicationsPage: React.FC = () => {
   const [deliveryPrint, setDeliveryPrint] = useState(false);
   const [announcementStatus, setAnnouncementStatus] = useState<string | null>(null);
   const [announcementError, setAnnouncementError] = useState<string | null>(null);
+  const [announcementTemplateId, setAnnouncementTemplateId] = useState('');
 
   const [selectedSegment, setSelectedSegment] = useState('');
   const [broadcastSubject, setBroadcastSubject] = useState('');
   const [broadcastBody, setBroadcastBody] = useState('');
   const [broadcastStatus, setBroadcastStatus] = useState<string | null>(null);
   const [broadcastFormError, setBroadcastFormError] = useState<string | null>(null);
+  const [broadcastTemplateId, setBroadcastTemplateId] = useState('');
   const announcementsQuery = useQuery<Announcement[]>({
     queryKey: queryKeys.announcements,
     queryFn: fetchAnnouncements,
@@ -39,8 +44,26 @@ const CommunicationsPage: React.FC = () => {
     queryFn: fetchBroadcastSegments,
   });
 
+  const announcementTemplatesQuery = useQuery<Template[]>({
+    queryKey: [queryKeys.templates, 'announcement'],
+    queryFn: () => fetchTemplates({ type: 'ANNOUNCEMENT' }),
+  });
+
+  const broadcastTemplatesQuery = useQuery<Template[]>({
+    queryKey: [queryKeys.templates, 'broadcast'],
+    queryFn: () => fetchTemplates({ type: 'BROADCAST' }),
+  });
+
+  const mergeTagsQuery = useQuery({
+    queryKey: queryKeys.templateMergeTags,
+    queryFn: fetchTemplateMergeTags,
+  });
+
   const announcements = announcementsQuery.data ?? [];
   const broadcasts = broadcastsQuery.data ?? [];
+  const announcementTemplates = announcementTemplatesQuery.data ?? [];
+  const broadcastTemplates = broadcastTemplatesQuery.data ?? [];
+  const mergeTags = mergeTagsQuery.data ?? [];
   const broadcastSegments = useMemo(
     () => segmentsQuery.data ?? [],
     [segmentsQuery.data],
@@ -77,6 +100,7 @@ const CommunicationsPage: React.FC = () => {
       setDeliveryPrint(false);
       setAnnouncementError(null);
       setAnnouncementStatus('Announcement queued successfully.');
+      setAnnouncementTemplateId('');
       await announcementsQuery.refetch();
     } catch (err) {
       console.error('Unable to create announcement', err);
@@ -108,6 +132,7 @@ const CommunicationsPage: React.FC = () => {
       setBroadcastBody('');
       setBroadcastStatus('Broadcast recorded for compliance.');
       setBroadcastFormError(null);
+      setBroadcastTemplateId('');
       await Promise.all([broadcastsQuery.refetch(), segmentsQuery.refetch()]);
     } catch (err) {
       console.error('Unable to record broadcast', err);
@@ -134,6 +159,29 @@ const CommunicationsPage: React.FC = () => {
     }
     return segmentKey.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());
   };
+
+  const handleAnnouncementTemplateChange = (templateId: string) => {
+    setAnnouncementTemplateId(templateId);
+    const template = announcementTemplates.find((item) => item.id === Number(templateId));
+    if (template) {
+      setAnnouncementSubject(template.subject);
+      setAnnouncementMessage(template.body);
+    }
+  };
+
+  const handleBroadcastTemplateChange = (templateId: string) => {
+    setBroadcastTemplateId(templateId);
+    const template = broadcastTemplates.find((item) => item.id === Number(templateId));
+    if (template) {
+      setBroadcastSubject(template.subject);
+      setBroadcastBody(template.body);
+    }
+  };
+
+  const announcementPreview = renderMergeTags(announcementMessage, mergeTags);
+  const announcementSubjectPreview = renderMergeTags(announcementSubject, mergeTags);
+  const broadcastPreview = renderMergeTags(broadcastBody, mergeTags);
+  const broadcastSubjectPreview = renderMergeTags(broadcastSubject, mergeTags);
 
   return (
     <div className="space-y-6">
@@ -174,6 +222,26 @@ const CommunicationsPage: React.FC = () => {
           </div>
 
           <div>
+            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="broadcast-template">
+              Template (optional)
+            </label>
+            <select
+              id="broadcast-template"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              value={broadcastTemplateId}
+              onChange={(event) => handleBroadcastTemplateChange(event.target.value)}
+              disabled={broadcastTemplatesQuery.isLoading || broadcastTemplates.length === 0}
+            >
+              <option value="">No template</option>
+              {broadcastTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="broadcast-subject">
               Subject
             </label>
@@ -198,6 +266,10 @@ const CommunicationsPage: React.FC = () => {
               onChange={(event) => setBroadcastBody(event.target.value)}
               required
             />
+            <p className="mt-2 text-xs text-slate-500">
+              Preview: <span className="font-medium text-slate-600">{broadcastSubjectPreview || '—'}</span>
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{broadcastPreview || '—'}</p>
           </div>
 
           {broadcastStatus && <p className="text-sm text-green-600">{broadcastStatus}</p>}
@@ -269,6 +341,25 @@ const CommunicationsPage: React.FC = () => {
         <h3 className="mb-3 text-lg font-semibold text-slate-700">Community Announcements</h3>
         <form onSubmit={handleAnnouncementSubmit} className="space-y-4">
           <div>
+            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="announcement-template">
+              Template (optional)
+            </label>
+            <select
+              id="announcement-template"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              value={announcementTemplateId}
+              onChange={(event) => handleAnnouncementTemplateChange(event.target.value)}
+              disabled={announcementTemplatesQuery.isLoading || announcementTemplates.length === 0}
+            >
+              <option value="">No template</option>
+              {announcementTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
             <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="announcement-subject">
               Subject
             </label>
@@ -292,6 +383,10 @@ const CommunicationsPage: React.FC = () => {
               onChange={(event) => setAnnouncementMessage(event.target.value)}
               required
             />
+            <p className="mt-2 text-xs text-slate-500">
+              Preview: <span className="font-medium text-slate-600">{announcementSubjectPreview || '—'}</span>
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{announcementPreview || '—'}</p>
           </div>
           <fieldset className="flex gap-4 text-sm">
             <label className="flex items-center gap-2">

@@ -27,6 +27,7 @@ const AuditLogPage = lazy(() => import('./pages/AuditLogPage'));
 const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
 const MeetingsPage = lazy(() => import('./pages/MeetingsPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
+const TemplatesPage = lazy(() => import('./pages/TemplatesPage'));
 
 const App: React.FC = () => {
   const { user, loading } = useAuth();
@@ -92,6 +93,14 @@ const App: React.FC = () => {
           element={
             <RequireRole allowed={["BOARD", "SECRETARY", "SYSADMIN"]}>
               <CommunicationsPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="templates"
+          element={
+            <RequireRole allowed={["BOARD", "SECRETARY", "SYSADMIN"]}>
+              <TemplatesPage />
             </RequireRole>
           }
         />

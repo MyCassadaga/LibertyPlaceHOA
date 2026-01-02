@@ -454,6 +454,26 @@ export interface Announcement {
   pdf_path?: string | null;
 }
 
+export interface Template {
+  id: number;
+  name: string;
+  type: string;
+  subject: string;
+  body: string;
+  is_archived: boolean;
+  created_by_user_id?: number | null;
+  updated_by_user_id?: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TemplateMergeTag {
+  key: string;
+  label: string;
+  description: string;
+  sample: string;
+}
+
 export interface EmailBroadcastRecipient {
   owner_id?: number | null;
   owner_name?: string | null;

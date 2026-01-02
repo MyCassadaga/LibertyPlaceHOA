@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 import { useAuth } from '../hooks/useAuth';
 import Badge from '../components/Badge';
 import FilePreview from '../components/FilePreview';
 import Timeline, { TimelineEvent } from '../components/Timeline';
-import { Appeal, Violation, ViolationMessage, ViolationStatus } from '../types';
+import { Appeal, Template, Violation, ViolationMessage, ViolationStatus } from '../types';
 import { formatUserRoles, userHasAnyRole, userHasRole } from '../utils/roles';
 import { useResidentsQuery } from '../features/owners/hooks';
 import {
@@ -16,7 +17,9 @@ import {
   useViolationsQuery,
   useAssessFineMutation,
 } from '../features/violations/hooks';
-import { fetchViolationMessages, postViolationMessage } from '../services/api';
+import { fetchTemplateMergeTags, fetchTemplates, fetchViolationMessages, postViolationMessage } from '../services/api';
+import { queryKeys } from '../lib/api/queryKeys';
+import { renderMergeTags } from '../utils/mergeTags';
 
 const STATUS_LABELS: Record<ViolationStatus, string> = {
   NEW: 'New',
@@ -78,6 +81,8 @@ const ViolationsPage: React.FC = () => {
   const [transitionHearingDate, setTransitionHearingDate] = useState('');
   const [transitionFineAmount, setTransitionFineAmount] = useState('');
   const [additionalFineAmount, setAdditionalFineAmount] = useState('');
+  const [transitionTemplateId, setTransitionTemplateId] = useState('');
+  const [additionalFineTemplateId, setAdditionalFineTemplateId] = useState('');
   const [messages, setMessages] = useState<ViolationMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesError, setMessagesError] = useState<string | null>(null);
@@ -107,6 +112,16 @@ const ViolationsPage: React.FC = () => {
   const residents = useMemo(() => residentsQuery.data ?? [], [residentsQuery.data]);
   const noticesQuery = useViolationNoticesQuery(selectedViolation?.id ?? null);
   const notices = useMemo(() => noticesQuery.data ?? [], [noticesQuery.data]);
+  const templatesQuery = useQuery<Template[]>({
+    queryKey: [queryKeys.templates, 'violations'],
+    queryFn: () => fetchTemplates({ type: 'VIOLATION_NOTICE' }),
+  });
+  const mergeTagsQuery = useQuery({
+    queryKey: queryKeys.templateMergeTags,
+    queryFn: fetchTemplateMergeTags,
+  });
+  const violationTemplates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
+  const mergeTags = mergeTagsQuery.data ?? [];
 
   const createViolationMutation = useCreateViolationMutation();
   const transitionMutation = useTransitionViolationMutation();
@@ -115,6 +130,26 @@ const ViolationsPage: React.FC = () => {
 
   const loading = violationsQuery.isLoading;
   const violationsError = violationsQuery.isError ? 'Unable to load violations.' : null;
+  const transitionTemplate = useMemo(
+    () => violationTemplates.find((template) => template.id === Number(transitionTemplateId)) ?? null,
+    [transitionTemplateId, violationTemplates],
+  );
+  const additionalFineTemplate = useMemo(
+    () => violationTemplates.find((template) => template.id === Number(additionalFineTemplateId)) ?? null,
+    [additionalFineTemplateId, violationTemplates],
+  );
+  const transitionTemplatePreviewSubject = transitionTemplate
+    ? renderMergeTags(transitionTemplate.subject, mergeTags)
+    : '';
+  const transitionTemplatePreviewBody = transitionTemplate
+    ? renderMergeTags(transitionTemplate.body, mergeTags)
+    : '';
+  const additionalFineTemplatePreviewSubject = additionalFineTemplate
+    ? renderMergeTags(additionalFineTemplate.subject, mergeTags)
+    : '';
+  const additionalFineTemplatePreviewBody = additionalFineTemplate
+    ? renderMergeTags(additionalFineTemplate.body, mergeTags)
+    : '';
   const noticesLoading = noticesQuery.isLoading;
   const combinedError = error ?? violationsError;
   const logError = useCallback((message: string, err: unknown) => {
@@ -329,9 +364,11 @@ const ViolationsPage: React.FC = () => {
           note: transitionNote || undefined,
           hearing_date: transitionHearingDate || undefined,
           fine_amount: transitionFineAmount || undefined,
+          template_id: transitionTemplateId ? Number(transitionTemplateId) : undefined,
         },
       });
       setSuccess('Status updated.');
+      setTransitionTemplateId('');
     } catch (err) {
       logError('Unable to update violation status.', err);
       setError('Unable to update status. Check required fields for the transition.');
@@ -353,8 +390,10 @@ const ViolationsPage: React.FC = () => {
       await assessFineMutation.mutateAsync({
         violationId: selectedViolation.id,
         amount: additionalFineAmount,
+        template_id: additionalFineTemplateId ? Number(additionalFineTemplateId) : undefined,
       });
       setAdditionalFineAmount('');
+      setAdditionalFineTemplateId('');
       setSuccess('Additional fine sent.');
       setError(null);
     } catch (err) {
@@ -666,7 +705,33 @@ const ViolationsPage: React.FC = () => {
                         placeholder="e.g. 50.00"
                       />
                     </div>
+                    <div>
+                      <label className="mb-1 block text-xs text-slate-600" htmlFor="additional-fine-template">
+                        Notice Template (optional)
+                      </label>
+                      <select
+                        id="additional-fine-template"
+                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                        value={additionalFineTemplateId}
+                        onChange={(event) => setAdditionalFineTemplateId(event.target.value)}
+                        disabled={templatesQuery.isLoading || violationTemplates.length === 0}
+                      >
+                        <option value="">Default notice</option>
+                        {violationTemplates.map((template) => (
+                          <option key={template.id} value={template.id}>
+                            {template.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
+                  {additionalFineTemplate && (
+                    <div className="rounded border border-rose-100 bg-white/70 p-2 text-xs text-slate-500">
+                      <p className="font-semibold text-slate-600">Preview</p>
+                      <p className="mt-1">{additionalFineTemplatePreviewSubject || '—'}</p>
+                      <p className="mt-1 whitespace-pre-wrap">{additionalFineTemplatePreviewBody || '—'}</p>
+                    </div>
+                  )}
                   <button
                     type="submit"
                     className="rounded bg-rose-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-rose-500 disabled:opacity-60"
@@ -695,6 +760,25 @@ const ViolationsPage: React.FC = () => {
                       {ALLOWED_TRANSITIONS[selectedViolation.status].map((status) => (
                         <option key={status} value={status}>
                           {STATUS_LABELS[status]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500" htmlFor="transition-template">
+                      Notice Template (optional)
+                    </label>
+                    <select
+                      id="transition-template"
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                      value={transitionTemplateId}
+                      onChange={(event) => setTransitionTemplateId(event.target.value)}
+                      disabled={templatesQuery.isLoading || violationTemplates.length === 0}
+                    >
+                      <option value="">Default notice</option>
+                      {violationTemplates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
                         </option>
                       ))}
                     </select>
@@ -739,6 +823,13 @@ const ViolationsPage: React.FC = () => {
                       />
                     </div>
                   </div>
+                  {transitionTemplate && (
+                    <div className="rounded border border-slate-100 bg-slate-50 p-2 text-xs text-slate-500">
+                      <p className="font-semibold text-slate-600">Preview</p>
+                      <p className="mt-1">{transitionTemplatePreviewSubject || '—'}</p>
+                      <p className="mt-1 whitespace-pre-wrap">{transitionTemplatePreviewBody || '—'}</p>
+                    </div>
+                  )}
                   <button
                     type="submit"
                     className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"

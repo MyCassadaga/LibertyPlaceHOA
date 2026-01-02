@@ -676,6 +676,45 @@ class AnnouncementCreate(BaseModel):
     delivery_methods: List[str] = ["email"]
 
 
+class TemplateCreate(BaseModel):
+    name: str
+    type: str
+    subject: str
+    body: str
+    is_archived: bool = False
+
+
+class TemplateUpdate(BaseModel):
+    name: Optional[str]
+    type: Optional[str]
+    subject: Optional[str]
+    body: Optional[str]
+    is_archived: Optional[bool]
+
+
+class TemplateRead(BaseModel):
+    id: int
+    name: str
+    type: str
+    subject: str
+    body: str
+    is_archived: bool
+    created_by_user_id: Optional[int]
+    updated_by_user_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class TemplateMergeTag(BaseModel):
+    key: str
+    label: str
+    description: str
+    sample: str
+
+
 class AnnouncementRead(BaseModel):
     id: int
     subject: str
@@ -834,10 +873,12 @@ class ViolationStatusUpdate(BaseModel):
     note: Optional[str]
     hearing_date: Optional[date]
     fine_amount: Optional[Decimal]
+    template_id: Optional[int]
 
 
 class ViolationAdditionalFine(BaseModel):
     amount: condecimal(gt=0)
+    template_id: Optional[int]
 
 
 class ViolationMessageCreate(BaseModel):

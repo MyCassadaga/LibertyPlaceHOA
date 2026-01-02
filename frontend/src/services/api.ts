@@ -50,6 +50,8 @@ import {
   RoleOption,
   Resident,
   PasswordChangePayload,
+  Template,
+  TemplateMergeTag,
   User,
   UserProfileUpdatePayload,
   Violation,
@@ -592,6 +594,43 @@ export const createEmailBroadcast = async (payload: EmailBroadcastPayload): Prom
   return data;
 };
 
+export interface TemplatePayload {
+  name: string;
+  type: string;
+  subject: string;
+  body: string;
+  is_archived?: boolean;
+}
+
+export const fetchTemplates = async (params?: {
+  type?: string;
+  include_archived?: boolean;
+  query?: string;
+}): Promise<Template[]> => {
+  const query = new URLSearchParams();
+  if (params?.type) query.append('template_type', params.type);
+  if (params?.include_archived) query.append('include_archived', 'true');
+  if (params?.query) query.append('query', params.query);
+  const url = query.toString() ? `/templates/?${query.toString()}` : '/templates/';
+  const { data } = await api.get<Template[]>(url);
+  return data;
+};
+
+export const createTemplate = async (payload: TemplatePayload): Promise<Template> => {
+  const { data } = await api.post<Template>('/templates/', payload);
+  return data;
+};
+
+export const updateTemplate = async (templateId: number, payload: Partial<TemplatePayload>): Promise<Template> => {
+  const { data } = await api.patch<Template>(`/templates/${templateId}`, payload);
+  return data;
+};
+
+export const fetchTemplateMergeTags = async (): Promise<TemplateMergeTag[]> => {
+  const { data } = await api.get<TemplateMergeTag[]>('/templates/merge-tags');
+  return data;
+};
+
 export const fetchDashboardReminders = async (): Promise<Reminder[]> => {
   const { data } = await api.get<Reminder[]>('/dashboard/reminders');
   return data;
@@ -772,6 +811,7 @@ export const transitionViolation = async (
     note?: string;
     hearing_date?: string | null;
     fine_amount?: string | null;
+    template_id?: number | null;
   },
 ): Promise<Violation> => {
   const { data } = await api.post<Violation>(`/violations/${violationId}/transition`, payload);
@@ -780,7 +820,7 @@ export const transitionViolation = async (
 
 export const assessAdditionalViolationFine = async (
   violationId: number,
-  payload: { amount: string },
+  payload: { amount: string; template_id?: number | null },
 ): Promise<Violation> => {
   const { data } = await api.post<Violation>(`/violations/${violationId}/fines`, payload);
   return data;

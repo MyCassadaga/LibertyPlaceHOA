@@ -396,6 +396,24 @@ class EmailBroadcast(Base):
     creator = orm_relationship("User", back_populates="email_broadcasts")
 
 
+class Template(Base):
+    __tablename__ = "templates"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    type = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    is_archived = Column(Boolean, default=False, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    creator = orm_relationship("User", foreign_keys=[created_by_user_id])
+    updater = orm_relationship("User", foreign_keys=[updated_by_user_id])
+
+
 class Reminder(Base):
     __tablename__ = "reminders"
 

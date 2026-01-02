@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..models.models import Notice, NoticeType, Owner, PaperworkItem, User
 from ..services.audit import audit_log
 from ..services import email as email_service
+from ..services.templates import build_merge_context, render_template
 from ..utils.pdf_utils import generate_notice_letter_pdf
 
 DeliveryChannel = Literal['EMAIL', 'PAPER', 'EMAIL_AND_PAPER']
@@ -53,11 +54,13 @@ def create_notice(
     created_by: Optional[User],
 ) -> Notice:
     channel = resolve_delivery(owner, notice_type)
+    context = build_merge_context(owner=owner, notice_type=notice_type, actor=created_by)
+    rendered = render_template(subject, body_html, context)
     notice = Notice(
         owner_id=owner.id,
         notice_type_id=notice_type.id,
-        subject=subject,
-        body_html=body_html,
+        subject=rendered["subject"],
+        body_html=rendered["body"],
         delivery_channel=channel,
         created_by_user_id=created_by.id if created_by else None,
         status='PENDING',
