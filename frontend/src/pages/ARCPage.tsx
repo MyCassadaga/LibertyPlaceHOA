@@ -59,7 +59,7 @@ const ARCPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const isHomeowner = user?.role.name === 'HOMEOWNER';
-  const canReview = ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY'].includes(user?.role.name ?? '');
+  const canReview = ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER'].includes(user?.role.name ?? '');
   const arcRequestsQuery = useArcRequestsQuery(statusFilter !== 'ALL' ? statusFilter : undefined);
   const requests = useMemo(() => arcRequestsQuery.data ?? [], [arcRequestsQuery.data]);
   const loading = arcRequestsQuery.isLoading;
@@ -335,7 +335,9 @@ const ARCPage: React.FC = () => {
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded border border-slate-200">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-            <h3 className="text-sm font-semibold text-slate-600">Requests</h3>
+            <h3 className="text-sm font-semibold text-slate-600">
+              {canReview ? 'Request Queue' : 'Your Requests'}
+            </h3>
           </div>
           <div className="max-h-[480px] overflow-y-auto">
             {loading ? (
@@ -376,7 +378,7 @@ const ARCPage: React.FC = () => {
         <div className="space-y-6">
           <section className="rounded border border-slate-200 p-4">
             <h3 className="mb-3 text-sm font-semibold text-slate-600">
-              {isHomeowner ? 'New ARC Request' : 'Submit on behalf of owner'}
+              {canReview ? 'Submit on behalf of owner' : 'New ARC Request'}
             </h3>
             <form className="space-y-3" onSubmit={handleCreate}>
               {canReview && (
