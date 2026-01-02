@@ -996,8 +996,6 @@ class ARCRequestStatusUpdate(BaseModel):
         "REVIEW_COMPLETE",
         "ARCHIVED",
     ]
-    reviewer_user_id: Optional[int]
-    notes: Optional[str]
 
 
 class ARCRequestRead(BaseModel):
@@ -1005,6 +1003,7 @@ class ARCRequestRead(BaseModel):
     owner_id: int
     submitted_by_user_id: int
     reviewer_user_id: Optional[int]
+    reviewer_name: Optional[str]
     title: str
     project_type: Optional[str]
     description: Optional[str]

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Optional
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -568,6 +569,12 @@ class ARCRequest(Base):
     attachments = orm_relationship("ARCAttachment", back_populates="request", cascade="all, delete-orphan")
     conditions = orm_relationship("ARCCondition", back_populates="request", cascade="all, delete-orphan")
     inspections = orm_relationship("ARCInspection", back_populates="request", cascade="all, delete-orphan")
+
+    @property
+    def reviewer_name(self) -> Optional[str]:
+        if not self.reviewer:
+            return None
+        return self.reviewer.full_name or self.reviewer.email
 
 
 class ARCAttachment(Base):
