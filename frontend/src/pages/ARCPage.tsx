@@ -11,6 +11,7 @@ import {
   useCreateArcRequestMutation,
   useAddArcConditionMutation,
   useResolveArcConditionMutation,
+  useReopenArcRequestMutation,
   useTransitionArcRequestMutation,
   useUploadArcAttachmentMutation,
 } from '../features/arc/hooks';
@@ -54,6 +55,7 @@ const ARCPage: React.FC = () => {
   const requestsError = arcRequestsQuery.isError ? 'Unable to load ARC requests.' : null;
   const createRequestMutation = useCreateArcRequestMutation();
   const transitionMutation = useTransitionArcRequestMutation();
+  const reopenMutation = useReopenArcRequestMutation();
   const uploadAttachmentMutation = useUploadArcAttachmentMutation();
   const addConditionMutation = useAddArcConditionMutation();
   const resolveConditionMutation = useResolveArcConditionMutation();
@@ -148,6 +150,18 @@ const ARCPage: React.FC = () => {
     }
   };
 
+  const handleReopen = async () => {
+    if (!selected) return;
+    setError(null);
+    try {
+      const reopened = await reopenMutation.mutateAsync({ requestId: selected.id });
+      setSuccess('ARC request reopened.');
+      setSelectedId(reopened.id);
+    } catch (err) {
+      reportError('Unable to reopen request.', err);
+    }
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     if (!selected || !event.target.files || event.target.files.length === 0) return;
     const file = event.target.files[0];
@@ -220,6 +234,11 @@ const ARCPage: React.FC = () => {
   }, [selected, isHomeowner]);
   const conditions = useMemo(() => selected?.conditions ?? [], [selected]);
   const inspections = useMemo(() => selected?.inspections ?? [], [selected]);
+
+  const canReopenRequest = useMemo(() => {
+    if (!selected || !canReview) return false;
+    return ['APPROVED', 'APPROVED_WITH_CONDITIONS', 'DENIED', 'COMPLETED', 'ARCHIVED'].includes(selected.status);
+  }, [selected, canReview]);
 
   const timelineEvents = useMemo<TimelineEvent[]>(() => {
     if (!selected) return [];
@@ -418,7 +437,7 @@ const ARCPage: React.FC = () => {
 
           {selected ? (
             <section className="rounded border border-slate-200 p-4">
-              <header className="flex items-center justify-between">
+              <header className="flex items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold text-slate-600">{selected.title}</h3>
                   <p className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -430,9 +449,21 @@ const ARCPage: React.FC = () => {
                     {selected.owner.is_rental && <Badge tone="info">Rental</Badge>}
                   </p>
                 </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_BADGE[selected.status]}`}>
-                  {STATUS_LABELS[selected.status]}
-                </span>
+                <div className="flex items-center gap-2">
+                  {canReopenRequest && (
+                    <button
+                      type="button"
+                      className="rounded border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                      onClick={handleReopen}
+                      disabled={reopenMutation.isLoading}
+                    >
+                      {reopenMutation.isLoading ? 'Reopening…' : 'Reopen Request'}
+                    </button>
+                  )}
+                  <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_BADGE[selected.status]}`}>
+                    {STATUS_LABELS[selected.status]}
+                  </span>
+                </div>
               </header>
 
               {selected.description && (

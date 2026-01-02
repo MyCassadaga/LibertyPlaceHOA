@@ -5,6 +5,7 @@ import {
   createARCInspection,
   createARCRequest,
   fetchARCRequests,
+  reopenARCRequest,
   resolveARCCondition,
   transitionARCRequest,
   uploadARCAttachment,
@@ -44,6 +45,14 @@ export const useTransitionArcRequestMutation = () => {
       requestId: number;
       payload: Parameters<typeof transitionARCRequest>[1];
     }) => transitionARCRequest(requestId, payload),
+    onSuccess: invalidate,
+  });
+};
+
+export const useReopenArcRequestMutation = () => {
+  const invalidate = useInvalidateArcRequests();
+  return useMutation({
+    mutationFn: ({ requestId }: { requestId: number }) => reopenARCRequest(requestId),
     onSuccess: invalidate,
   });
 };
