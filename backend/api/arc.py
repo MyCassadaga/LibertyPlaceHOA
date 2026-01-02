@@ -29,6 +29,7 @@ def _get_request_with_relations(db: Session, arc_request_id: int) -> Optional[AR
         db.query(ARCRequest)
         .options(
             joinedload(ARCRequest.owner),
+            joinedload(ARCRequest.reviewer),
             joinedload(ARCRequest.attachments),
             joinedload(ARCRequest.conditions),
             joinedload(ARCRequest.inspections),
@@ -220,8 +221,7 @@ def transition_arc_request_status(
             arc_request=arc_request,
             actor=user,
             target_status=payload.target_status,
-            reviewer_user_id=payload.reviewer_user_id,
-            notes=payload.notes,
+            reviewer_user_id=user.id if is_manager else None,
         )
         db.commit()
         db.refresh(arc_request)

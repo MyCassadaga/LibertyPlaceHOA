@@ -158,7 +158,6 @@ def transition_arc_request(
     actor: User,
     target_status: str,
     reviewer_user_id: Optional[int] = None,
-    notes: Optional[str] = None,
 ) -> ARCRequest:
     normalized_target = target_status.strip().upper().replace(" ", "_")
     current_status = (arc_request.status or "").strip().upper().replace(" ", "_")
@@ -180,7 +179,6 @@ def transition_arc_request(
     if normalized_target in {"APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED"}:
         arc_request.final_decision_at = datetime.now(timezone.utc)
         arc_request.final_decision_by_user_id = actor.id
-        arc_request.decision_notes = notes
     if normalized_target == "COMPLETED":
         arc_request.completed_at = datetime.now(timezone.utc)
     if normalized_target == "ARCHIVED":
@@ -199,6 +197,6 @@ def transition_arc_request(
         target_entity_type="ARCRequest",
         target_entity_id=str(arc_request.id),
         before={"status": before_status},
-        after={"status": target_status, "notes": notes, "reviewer_user_id": reviewer_user_id},
+        after={"status": target_status, "reviewer_user_id": reviewer_user_id},
     )
     return arc_request

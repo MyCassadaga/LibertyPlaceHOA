@@ -872,7 +872,7 @@ export const updateARCRequest = async (
 
 export const transitionARCRequest = async (
   requestId: number,
-  payload: { target_status: string; reviewer_user_id?: number | null; notes?: string | null },
+  payload: { target_status: string },
 ): Promise<ARCRequest> => {
   const { data } = await api.post<ARCRequest>(`/arc/requests/${requestId}/status`, payload);
   return data;

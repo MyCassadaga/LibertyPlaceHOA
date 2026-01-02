@@ -76,8 +76,6 @@ const ARCPage: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ title: '', project_type: '', description: '', owner_id: '' });
   const [transitionStatus, setTransitionStatus] = useState('');
-  const [transitionNotes, setTransitionNotes] = useState('');
-  const [reviewerId, setReviewerId] = useState('');
   const [inspectionDate, setInspectionDate] = useState('');
   const [inspectionNotes, setInspectionNotes] = useState('');
   const [inspectionResult, setInspectionResult] = useState('');
@@ -99,8 +97,6 @@ const ARCPage: React.FC = () => {
     (request: ARCRequest) => {
       setSelectedId(request.id);
       setTransitionStatus('');
-      setTransitionNotes('');
-      setReviewerId(request.reviewer_user_id ? String(request.reviewer_user_id) : '');
       setInspectionDate('');
       setInspectionNotes('');
       setInspectionResult('');
@@ -156,12 +152,9 @@ const ARCPage: React.FC = () => {
       await transitionMutation.mutateAsync({
         requestId: selected.id,
         target_status: transitionStatus,
-        reviewer_user_id: reviewerId ? Number(reviewerId) : undefined,
-        notes: transitionNotes || undefined,
       });
       setSuccess('Status updated.');
       setTransitionStatus('');
-      setTransitionNotes('');
     } catch (err) {
       reportError('Unable to update status. Check permissions and required fields.', err);
     }
@@ -477,6 +470,9 @@ const ARCPage: React.FC = () => {
               {selected.decision_notes && (
                 <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600">Decision Notes: {selected.decision_notes}</p>
               )}
+              {selected.reviewer_name && (
+                <p className="mt-2 text-xs text-slate-500">Reviewer: {selected.reviewer_name}</p>
+              )}
 
               <section className="mt-4">
                 <h4 className="text-xs font-semibold uppercase text-slate-500">Timeline</h4>
@@ -506,32 +502,6 @@ const ARCPage: React.FC = () => {
                         </option>
                       ))}
                     </select>
-                  </div>
-                  {canReview && (
-                    <div>
-                      <label className="mb-1 block text-xs text-slate-500" htmlFor="arc-reviewer">
-                        Reviewer (optional)
-                      </label>
-                      <input
-                        id="arc-reviewer"
-                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                        value={reviewerId}
-                        onChange={(event) => setReviewerId(event.target.value)}
-                        placeholder="User ID"
-                      />
-                    </div>
-                  )}
-                  <div>
-                    <label className="mb-1 block text-xs text-slate-500" htmlFor="arc-notes">
-                      Notes
-                    </label>
-                    <textarea
-                      id="arc-notes"
-                      rows={2}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                      value={transitionNotes}
-                      onChange={(event) => setTransitionNotes(event.target.value)}
-                    />
                   </div>
                   <button
                     type="submit"
