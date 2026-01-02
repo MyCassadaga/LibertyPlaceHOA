@@ -878,6 +878,11 @@ export const transitionARCRequest = async (
   return data;
 };
 
+export const reopenARCRequest = async (requestId: number): Promise<ARCRequest> => {
+  const { data } = await api.post<ARCRequest>(`/arc/requests/${requestId}/reopen`);
+  return data;
+};
+
 export const uploadARCAttachment = async (requestId: number, file: File): Promise<ARCAttachment> => {
   const formData = new FormData();
   formData.append('file', file);

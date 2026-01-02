@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
@@ -231,6 +232,76 @@ def transition_arc_request_status(
 
     arc_request = _get_request_with_relations(db, arc_request.id)
     return arc_request
+
+
+@router.post(
+    "/requests/{arc_request_id}/reopen",
+    response_model=ARCRequestRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def reopen_arc_request(
+    arc_request_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
+) -> ARCRequest:
+    arc_request = _get_request_with_relations(db, arc_request_id)
+    if not arc_request:
+        raise HTTPException(status_code=404, detail="ARC request not found.")
+
+    if arc_request.status not in {"APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED", "COMPLETED", "ARCHIVED"}:
+        raise HTTPException(status_code=400, detail="Only closed ARC requests can be reopened.")
+
+    reopened = ARCRequest(
+        owner_id=arc_request.owner_id,
+        submitted_by_user_id=user.id,
+        title=arc_request.title,
+        project_type=arc_request.project_type,
+        description=arc_request.description,
+        status="IN_REVIEW",
+        submitted_at=datetime.now(timezone.utc),
+    )
+    db.add(reopened)
+    db.flush()
+
+    for attachment in arc_request.attachments:
+        db.add(
+            ARCAttachment(
+                arc_request_id=reopened.id,
+                uploaded_by_user_id=attachment.uploaded_by_user_id,
+                original_filename=attachment.original_filename,
+                stored_filename=attachment.stored_filename,
+                content_type=attachment.content_type,
+                file_size=attachment.file_size,
+            )
+        )
+
+    for condition in arc_request.conditions:
+        if condition.condition_type != "REQUIREMENT":
+            continue
+        db.add(
+            ARCCondition(
+                arc_request_id=reopened.id,
+                created_by_user_id=condition.created_by_user_id,
+                condition_type=condition.condition_type,
+                text=condition.text,
+                status="OPEN",
+            )
+        )
+
+    audit_log(
+        db_session=db,
+        actor_user_id=user.id,
+        action="arc.request.reopen",
+        target_entity_type="ARCRequest",
+        target_entity_id=str(reopened.id),
+        before={"source_request_id": arc_request.id, "status": arc_request.status},
+        after={"status": reopened.status},
+    )
+
+    db.commit()
+
+    reopened = _get_request_with_relations(db, reopened.id)
+    return reopened
 
 
 @router.post("/requests/{arc_request_id}/attachments", response_model=ARCAttachmentRead, status_code=status.HTTP_201_CREATED)
