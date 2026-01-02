@@ -601,11 +601,7 @@ export type ARCStatus =
   | 'DRAFT'
   | 'SUBMITTED'
   | 'IN_REVIEW'
-  | 'REVISION_REQUESTED'
-  | 'APPROVED'
-  | 'APPROVED_WITH_CONDITIONS'
-  | 'DENIED'
-  | 'COMPLETED'
+  | 'REVIEW_COMPLETE'
   | 'ARCHIVED';
 
 export interface ARCAttachment {
@@ -645,6 +641,7 @@ export interface ARCRequest {
   owner_id: number;
   submitted_by_user_id: number;
   reviewer_user_id?: number | null;
+  reviewer_name?: string | null;
   title: string;
   project_type?: string | null;
   description?: string | null;

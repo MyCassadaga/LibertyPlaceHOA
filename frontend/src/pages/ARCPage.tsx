@@ -20,11 +20,7 @@ const STATUS_LABELS: Record<ARCStatus, string> = {
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
   IN_REVIEW: 'In Review',
-  REVISION_REQUESTED: 'Revision Requested',
-  APPROVED: 'Approved',
-  APPROVED_WITH_CONDITIONS: 'Approved w/ Conditions',
-  DENIED: 'Denied',
-  COMPLETED: 'Completed',
+  REVIEW_COMPLETE: 'Review Complete',
   ARCHIVED: 'Archived',
 };
 
@@ -32,23 +28,15 @@ const STATUS_BADGE: Record<ARCStatus, string> = {
   DRAFT: 'bg-slate-200 text-slate-700',
   SUBMITTED: 'bg-blue-100 text-blue-700',
   IN_REVIEW: 'bg-indigo-100 text-indigo-700',
-  REVISION_REQUESTED: 'bg-amber-100 text-amber-700',
-  APPROVED: 'bg-green-100 text-green-700',
-  APPROVED_WITH_CONDITIONS: 'bg-emerald-100 text-emerald-700',
-  DENIED: 'bg-rose-100 text-rose-700',
-  COMPLETED: 'bg-teal-100 text-teal-700',
+  REVIEW_COMPLETE: 'bg-teal-100 text-teal-700',
   ARCHIVED: 'bg-gray-200 text-gray-600',
 };
 
 const TRANSITIONS: Record<ARCStatus, ARCStatus[]> = {
-  DRAFT: ['SUBMITTED', 'ARCHIVED'],
-  SUBMITTED: ['IN_REVIEW', 'ARCHIVED'],
-  IN_REVIEW: ['REVISION_REQUESTED', 'APPROVED', 'APPROVED_WITH_CONDITIONS', 'DENIED'],
-  REVISION_REQUESTED: ['SUBMITTED', 'ARCHIVED'],
-  APPROVED: ['COMPLETED', 'ARCHIVED'],
-  APPROVED_WITH_CONDITIONS: ['COMPLETED', 'ARCHIVED'],
-  DENIED: ['ARCHIVED'],
-  COMPLETED: ['ARCHIVED'],
+  DRAFT: ['SUBMITTED'],
+  SUBMITTED: ['IN_REVIEW'],
+  IN_REVIEW: ['REVIEW_COMPLETE'],
+  REVIEW_COMPLETE: ['ARCHIVED'],
   ARCHIVED: [],
 };
 
@@ -58,8 +46,8 @@ const ARCPage: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const isHomeowner = user?.role.name === 'HOMEOWNER';
   const canReview = ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER'].includes(user?.role.name ?? '');
+  const canManageStatus = ['ARC', 'SYSADMIN'].includes(user?.role.name ?? '');
   const arcRequestsQuery = useArcRequestsQuery(statusFilter !== 'ALL' ? statusFilter : undefined);
   const requests = useMemo(() => arcRequestsQuery.data ?? [], [arcRequestsQuery.data]);
   const loading = arcRequestsQuery.isLoading;
@@ -76,8 +64,6 @@ const ARCPage: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ title: '', project_type: '', description: '', owner_id: '' });
   const [transitionStatus, setTransitionStatus] = useState('');
-  const [transitionNotes, setTransitionNotes] = useState('');
-  const [reviewerId, setReviewerId] = useState('');
   const [inspectionDate, setInspectionDate] = useState('');
   const [inspectionNotes, setInspectionNotes] = useState('');
   const [inspectionResult, setInspectionResult] = useState('');
@@ -99,8 +85,6 @@ const ARCPage: React.FC = () => {
     (request: ARCRequest) => {
       setSelectedId(request.id);
       setTransitionStatus('');
-      setTransitionNotes('');
-      setReviewerId(request.reviewer_user_id ? String(request.reviewer_user_id) : '');
       setInspectionDate('');
       setInspectionNotes('');
       setInspectionResult('');
@@ -156,12 +140,9 @@ const ARCPage: React.FC = () => {
       await transitionMutation.mutateAsync({
         requestId: selected.id,
         target_status: transitionStatus,
-        reviewer_user_id: reviewerId ? Number(reviewerId) : undefined,
-        notes: transitionNotes || undefined,
       });
       setSuccess('Status updated.');
       setTransitionStatus('');
-      setTransitionNotes('');
     } catch (err) {
       reportError('Unable to update status. Check permissions and required fields.', err);
     }
@@ -250,23 +231,7 @@ const ARCPage: React.FC = () => {
 
     push(selected.created_at, 'Request created', selected.description ?? undefined);
     push(selected.submitted_at, 'Submitted for review');
-    push(
-      selected.revision_requested_at,
-      'Revision requested',
-      selected.decision_notes ?? undefined,
-    );
-
-    if (selected.final_decision_at) {
-      let decisionLabel = 'Final decision recorded';
-      if (selected.status === 'APPROVED' || selected.status === 'APPROVED_WITH_CONDITIONS') {
-        decisionLabel = 'Final decision: Approved';
-      } else if (selected.status === 'DENIED') {
-        decisionLabel = 'Final decision: Denied';
-      }
-      push(selected.final_decision_at, decisionLabel, selected.decision_notes ?? undefined);
-    }
-
-    push(selected.completed_at, 'Project completed');
+    push(selected.completed_at, 'Review complete', selected.decision_notes ?? undefined);
     push(selected.archived_at, 'Request archived');
 
     conditions.forEach((condition) => {
@@ -479,6 +444,9 @@ const ARCPage: React.FC = () => {
               {selected.decision_notes && (
                 <p className="mt-2 whitespace-pre-wrap text-xs text-slate-600">Decision Notes: {selected.decision_notes}</p>
               )}
+              {selected.reviewer_name && (
+                <p className="mt-2 text-xs text-slate-500">Reviewer: {selected.reviewer_name}</p>
+              )}
 
               <section className="mt-4">
                 <h4 className="text-xs font-semibold uppercase text-slate-500">Timeline</h4>
@@ -508,32 +476,6 @@ const ARCPage: React.FC = () => {
                         </option>
                       ))}
                     </select>
-                  </div>
-                  {canReview && (
-                    <div>
-                      <label className="mb-1 block text-xs text-slate-500" htmlFor="arc-reviewer">
-                        Reviewer (optional)
-                      </label>
-                      <input
-                        id="arc-reviewer"
-                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                        value={reviewerId}
-                        onChange={(event) => setReviewerId(event.target.value)}
-                        placeholder="User ID"
-                      />
-                    </div>
-                  )}
-                  <div>
-                    <label className="mb-1 block text-xs text-slate-500" htmlFor="arc-notes">
-                      Notes
-                    </label>
-                    <textarea
-                      id="arc-notes"
-                      rows={2}
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                      value={transitionNotes}
-                      onChange={(event) => setTransitionNotes(event.target.value)}
-                    />
                   </div>
                   <button
                     type="submit"
