@@ -46,12 +46,16 @@ const BillingPage: React.FC = () => {
   const boardBillingRoles = useMemo(() => ['BOARD', 'TREASURER', 'SYSADMIN'], []);
   const isBoardBillingUser = useMemo(() => userHasAnyRole(user, boardBillingRoles), [user, boardBillingRoles]);
   const isHomeownerUser = useMemo(() => userHasAnyRole(user, ['HOMEOWNER']), [user]);
+  const canViewOverdueAccounts = useMemo(
+    () => isBoardBillingUser && !isHomeownerUser,
+    [isBoardBillingUser, isHomeownerUser],
+  );
 
   const invoicesQuery = useInvoicesQuery(!!user && isHomeownerUser);
   const summaryQuery = useBillingSummaryQuery(isBoardBillingUser);
   const ownersQuery = useOwnersQuery(isBoardBillingUser);
   const myOwnerQuery = useMyOwnerQuery(!!user && isHomeownerUser);
-  const overdueQuery = useOverdueAccountsQuery(isBoardBillingUser);
+  const overdueQuery = useOverdueAccountsQuery(canViewOverdueAccounts);
   const autopayQuery = useAutopayQuery(!!user && isHomeownerUser);
 
   const autopayUpsert = useAutopayUpsertMutation();
@@ -96,14 +100,14 @@ const BillingPage: React.FC = () => {
 
   const refreshOverdue = overdueQuery.refetch;
   useEffect(() => {
-    if (!isBoardBillingUser) {
+    if (!canViewOverdueAccounts) {
       setActionPanel(null);
       setActionMessage('');
       setActionStatus(null);
       setActionError(null);
       setActionLink(null);
     }
-  }, [isBoardBillingUser]);
+  }, [canViewOverdueAccounts]);
 
   useEffect(() => {
     if (!autopay) {
@@ -239,7 +243,7 @@ const BillingPage: React.FC = () => {
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-semibold text-slate-700">Billing & Assessments</h2>
       </div>
-      {isBoardBillingUser && (
+      {canViewOverdueAccounts && (
         <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
           <p className="font-semibold">Vendor payments moved</p>
           <p className="mt-1">

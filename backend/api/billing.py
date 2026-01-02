@@ -43,6 +43,7 @@ from ..services.notifications import create_notification
 from ..utils.pdf_utils import generate_attorney_notice_pdf, generate_reminder_notice_pdf
 
 router = APIRouter()
+OVERDUE_LIST_ROLES = ("BOARD", "TREASURER", "SYSADMIN", "AUDITOR")
 
 
 def _as_decimal(value: Decimal | float | int) -> Decimal:
@@ -452,7 +453,7 @@ def _serialize_overdue_invoice(invoice: Invoice, today: date) -> OverdueInvoiceR
 @router.get("/overdue", response_model=List[OverdueAccountRead])
 def list_overdue_accounts(
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+    _: User = Depends(require_roles(*OVERDUE_LIST_ROLES)),
 ) -> List[OverdueAccountRead]:
     grouped = _group_overdue_invoices(db)
     today = date.today()
