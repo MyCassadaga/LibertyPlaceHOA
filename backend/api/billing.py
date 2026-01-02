@@ -76,13 +76,13 @@ def list_invoices(db: Session = Depends(get_db), user: User = Depends(get_curren
     if applied_invoice_ids:
         db.commit()
 
+    if user.has_any_role("BOARD", "TREASURER", "SYSADMIN", "AUDITOR"):
+        return db.query(Invoice).order_by(Invoice.due_date.desc()).all()
     if user.has_role("HOMEOWNER"):
         owner = get_owner_for_user(db, user)
         if not owner:
             return []
         return db.query(Invoice).filter(Invoice.owner_id == owner.id).order_by(Invoice.due_date.desc()).all()
-    if user.has_any_role("BOARD", "TREASURER", "SYSADMIN", "AUDITOR"):
-        return db.query(Invoice).order_by(Invoice.due_date.desc()).all()
     raise HTTPException(status_code=403, detail="Role not permitted to view invoices")
 
 

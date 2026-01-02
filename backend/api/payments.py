@@ -56,11 +56,13 @@ def create_payment_session(
     if _status_equals(invoice.status, "PAID"):
         raise HTTPException(status_code=400, detail="Invoice is already paid")
 
-    if user.has_role("HOMEOWNER"):
+    if user.has_any_role(*BOARD_PAY_ROLES):
+        pass
+    elif user.has_role("HOMEOWNER"):
         owner_for_user = get_owner_for_user(db, user)
         if not owner_for_user or owner_for_user.id != invoice.owner_id:
             raise HTTPException(status_code=403, detail="Not authorized for this invoice")
-    elif not user.has_any_role(*BOARD_PAY_ROLES):
+    else:
         raise HTTPException(status_code=403, detail="Not authorized to initiate payments")
 
     amount_cents = _to_cents(invoice.amount)
