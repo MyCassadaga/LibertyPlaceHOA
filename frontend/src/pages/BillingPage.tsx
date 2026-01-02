@@ -44,7 +44,15 @@ const BillingPage: React.FC = () => {
   });
 
   const boardBillingRoles = useMemo(() => ['BOARD', 'TREASURER', 'SYSADMIN'], []);
+  const elevatedSummaryRoles = useMemo(
+    () => ['BOARD', 'TREASURER', 'SECRETARY', 'SYSADMIN', 'AUDITOR', 'ATTORNEY'],
+    [],
+  );
   const isBoardBillingUser = useMemo(() => userHasAnyRole(user, boardBillingRoles), [user, boardBillingRoles]);
+  const canViewHomeownerCount = useMemo(
+    () => userHasAnyRole(user, elevatedSummaryRoles),
+    [user, elevatedSummaryRoles],
+  );
   const isHomeownerUser = useMemo(() => userHasAnyRole(user, ['HOMEOWNER']), [user]);
 
   const invoicesQuery = useInvoicesQuery(!!user && isHomeownerUser);
@@ -252,7 +260,7 @@ const BillingPage: React.FC = () => {
       {summary && (
         <div className="rounded border border-slate-200 p-4">
           <h3 className="mb-2 text-lg font-semibold text-slate-700">Summary</h3>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 text-sm">
+          <div className={`grid grid-cols-1 gap-4 text-sm ${canViewHomeownerCount ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}>
             <div>
               <p className="text-slate-500">Total Balance</p>
               <p className="text-lg font-semibold text-primary-600">{formatCurrency(summary.total_balance)}</p>
@@ -261,10 +269,12 @@ const BillingPage: React.FC = () => {
               <p className="text-slate-500">Open invoices</p>
               <p className="text-lg font-semibold">{summary.open_invoices}</p>
             </div>
-            <div>
-              <p className="text-slate-500">Homeowners</p>
-              <p className="text-lg font-semibold">{summary.owner_count}</p>
-            </div>
+            {canViewHomeownerCount && (
+              <div>
+                <p className="text-slate-500">Homeowners</p>
+                <p className="text-lg font-semibold">{summary.owner_count}</p>
+              </div>
+            )}
           </div>
         </div>
       )}
