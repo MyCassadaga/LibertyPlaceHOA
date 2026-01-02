@@ -320,8 +320,11 @@ export const mailPaperworkItem = async (paperworkId: number): Promise<PaperworkI
   return data;
 };
 
-export const sendPaperworkViaClick2Mail = async (paperworkId: number): Promise<PaperworkItem> => {
-  const { data } = await api.post<PaperworkItem>(`/paperwork/${paperworkId}/dispatch-click2mail`);
+export const dispatchPaperwork = async (
+  paperworkId: number,
+  payload: { delivery_method: string },
+): Promise<PaperworkItem> => {
+  const { data } = await api.post<PaperworkItem>(`/paperwork/${paperworkId}/dispatch`, payload);
   return data;
 };
 

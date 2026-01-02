@@ -1110,6 +1110,13 @@ class NoticeCreateRequest(BaseModel):
     body_html: str
 
 
+DeliveryMethod = Literal["STANDARD_MAIL", "CERTIFIED_MAIL"]
+
+
+class PaperworkDispatchRequest(BaseModel):
+    delivery_method: DeliveryMethod
+
+
 class PaperworkItemRead(BaseModel):
     id: int
     notice_id: int
@@ -1119,6 +1126,13 @@ class PaperworkItemRead(BaseModel):
     claimed_by_board_member_id: Optional[int]
     claimed_at: Optional[datetime]
     mailed_at: Optional[datetime]
+    delivery_method: Optional[str]
+    delivery_provider: Optional[str]
+    provider_job_id: Optional[str]
+    provider_status: Optional[str]
+    tracking_number: Optional[str]
+    delivery_status: Optional[str]
+    delivered_at: Optional[datetime]
     created_at: datetime
 
     class Config:
@@ -1136,6 +1150,10 @@ class NoticeRead(BaseModel):
     created_at: datetime
     sent_email_at: Optional[datetime]
     mailed_at: Optional[datetime]
+    delivery_method: Optional[str]
+    tracking_number: Optional[str]
+    delivery_status: Optional[str]
+    delivered_at: Optional[datetime]
     paperwork_item: Optional[PaperworkItemRead]
 
     class Config:
@@ -1152,9 +1170,13 @@ class PaperworkListItem(BaseModel):
     subject: str
     required: bool
     status: str
+    delivery_method: Optional[str]
     delivery_provider: Optional[str]
     provider_status: Optional[str]
     provider_job_id: Optional[str]
+    tracking_number: Optional[str]
+    delivery_status: Optional[str]
+    delivered_at: Optional[datetime]
     pdf_available: bool
     claimed_by: Optional[UserRead]
     claimed_at: Optional[datetime]

@@ -4,8 +4,8 @@ import {
   claimPaperworkItem,
   fetchPaperwork,
   fetchPaperworkFeatures,
+  dispatchPaperwork,
   mailPaperworkItem,
-  sendPaperworkViaClick2Mail,
 } from '../../services/api';
 import { queryKeys } from '../../lib/api/queryKeys';
 import type { PaperworkFeatures, PaperworkItem } from '../../types';
@@ -46,10 +46,11 @@ export const useMailPaperworkMutation = () => {
   });
 };
 
-export const useClick2MailMutation = () => {
+export const useDispatchPaperworkMutation = () => {
   const invalidate = useInvalidatePaperwork();
   return useMutation({
-    mutationFn: (paperworkId: number) => sendPaperworkViaClick2Mail(paperworkId),
+    mutationFn: (payload: { paperworkId: number; delivery_method: string }) =>
+      dispatchPaperwork(payload.paperworkId, { delivery_method: payload.delivery_method }),
     onSuccess: invalidate,
   });
 };
