@@ -601,11 +601,7 @@ export type ARCStatus =
   | 'DRAFT'
   | 'SUBMITTED'
   | 'IN_REVIEW'
-  | 'REVISION_REQUESTED'
-  | 'APPROVED'
-  | 'APPROVED_WITH_CONDITIONS'
-  | 'DENIED'
-  | 'COMPLETED'
+  | 'REVIEW_COMPLETE'
   | 'ARCHIVED';
 
 export interface ARCAttachment {

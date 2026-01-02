@@ -157,7 +157,7 @@ def update_arc_request(
     if not arc_request:
         raise HTTPException(status_code=404, detail="ARC request not found.")
 
-    if arc_request.status not in {"DRAFT", "REVISION_REQUESTED"}:
+    if arc_request.status != "DRAFT":
         raise HTTPException(status_code=400, detail="Cannot update request once in review.")
 
     owner = get_owner_for_user(db, user) if user.has_role("HOMEOWNER") else None
@@ -200,20 +200,11 @@ def transition_arc_request_status(
     arc_request_id: int,
     payload: ARCRequestStatusUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER", "HOMEOWNER")),
+    user: User = Depends(require_roles("ARC", "SYSADMIN")),
 ) -> ARCRequest:
-    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
-    is_manager = user.has_any_role(*manager_roles)
     arc_request = db.get(ARCRequest, arc_request_id)
     if not arc_request:
         raise HTTPException(status_code=404, detail="ARC request not found.")
-
-    if user.has_role("HOMEOWNER") and not is_manager:
-        owner = get_owner_for_user(db, user)
-        if not owner or owner.id != arc_request.owner_id:
-            raise HTTPException(status_code=403, detail="Not permitted for this request.")
-        if payload.target_status not in {"SUBMITTED", "ARCHIVED"}:
-            raise HTTPException(status_code=403, detail="Homeowners may only submit or archive their own requests.")
 
     try:
         arc_service.transition_arc_request(
