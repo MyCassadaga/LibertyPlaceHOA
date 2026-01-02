@@ -630,7 +630,7 @@ const ARCPage: React.FC = () => {
                   <form className="mt-3 grid gap-2 sm:grid-cols-2" onSubmit={handleInspectionCreate}>
                     <div className="sm:col-span-1">
                       <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-date">
-                        Scheduled Date
+                        Inspection Date
                       </label>
                       <input
                         id="inspection-date"
@@ -649,7 +649,7 @@ const ARCPage: React.FC = () => {
                         className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                         value={inspectionResult}
                         onChange={(event) => setInspectionResult(event.target.value)}
-                        placeholder="Passed / Failed / N/A"
+                        placeholder="Was passed / failed / N/A"
                       />
                     </div>
                     <div className="sm:col-span-2">
@@ -662,7 +662,7 @@ const ARCPage: React.FC = () => {
                         rows={2}
                         value={inspectionNotes}
                         onChange={(event) => setInspectionNotes(event.target.value)}
-                        placeholder="Enter inspection notes..."
+                        placeholder="Notes were recorded..."
                       />
                     </div>
                     <div className="sm:col-span-2 flex justify-end">
