@@ -15,6 +15,7 @@ import {
   useOwnersQuery,
 } from '../features/billing/hooks';
 import { API_BASE_URL } from '../lib/api/client';
+import { isStripeConfigured } from '../lib/stripe';
 import { AutopayAmountType, OverdueAccount } from '../types';
 import { userHasAnyRole } from '../utils/roles';
 
@@ -146,6 +147,10 @@ const BillingPage: React.FC = () => {
 
   const handlePayInvoice = async (invoiceId: number) => {
     setPaymentError(null);
+    if (!isStripeConfigured) {
+      setPaymentError('Stripe is not configured yet. Please contact the HOA board.');
+      return;
+    }
     setPayingInvoiceId(invoiceId);
     try {
       const { checkoutUrl } = await createPaymentSession(invoiceId);
