@@ -211,9 +211,15 @@ const ARCPage: React.FC = () => {
   };
 
   const allowedTransitions = useMemo(() => {
-    if (!selected || !canManageStatus) return [];
-    return TRANSITIONS[selected.status] || [];
-  }, [selected, canManageStatus]);
+    if (!selected) return [];
+    const list = TRANSITIONS[selected.status] || [];
+    if (isHomeowner) {
+      return list.filter((status) => ['SUBMITTED', 'ARCHIVED'].includes(status));
+    }
+    return list;
+  }, [selected, isHomeowner]);
+  const conditions = useMemo(() => selected?.conditions ?? [], [selected]);
+  const inspections = useMemo(() => selected?.inspections ?? [], [selected]);
 
   const timelineEvents = useMemo<TimelineEvent[]>(() => {
     if (!selected) return [];
@@ -228,7 +234,7 @@ const ARCPage: React.FC = () => {
     push(selected.completed_at, 'Review complete', selected.decision_notes ?? undefined);
     push(selected.archived_at, 'Request archived');
 
-    selected.conditions.forEach((condition) => {
+    conditions.forEach((condition) => {
       push(
         condition.created_at,
         condition.condition_type === 'REQUIREMENT' ? 'Requirement added' : 'Comment added',
@@ -240,7 +246,7 @@ const ARCPage: React.FC = () => {
       }
     });
 
-    selected.inspections.forEach((inspection) => {
+    inspections.forEach((inspection) => {
       const metaParts: string[] = [];
       if (inspection.scheduled_date) {
         metaParts.push(`Scheduled: ${new Date(inspection.scheduled_date).toLocaleDateString()}`);
@@ -261,7 +267,7 @@ const ARCPage: React.FC = () => {
     }
 
     return events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [selected]);
+  }, [conditions, inspections, selected]);
 
   return (
     <div className="space-y-6">
@@ -510,11 +516,11 @@ const ARCPage: React.FC = () => {
 
               <section className="mt-4">
                 <h4 className="text-xs font-semibold uppercase text-slate-500">Comments & Conditions</h4>
-                {selected.conditions.length === 0 ? (
+                {conditions.length === 0 ? (
                   <p className="mt-2 text-xs text-slate-500">No comments yet.</p>
                 ) : (
                   <ul className="mt-2 space-y-2 text-xs">
-                    {selected.conditions.map((condition: ARCCondition) => (
+                    {conditions.map((condition: ARCCondition) => (
                       <li key={condition.id} className="rounded border border-slate-200 p-2">
                         <div className="flex items-center justify-between">
                           <span className="font-semibold text-slate-600">{condition.condition_type}</span>
@@ -567,11 +573,11 @@ const ARCPage: React.FC = () => {
               {canReview && (
                 <section className="mt-4 rounded border border-slate-200 p-3">
                   <h4 className="text-xs font-semibold uppercase text-slate-500">Inspections</h4>
-                  {selected.inspections.length === 0 ? (
+                  {inspections.length === 0 ? (
                     <p className="mt-2 text-xs text-slate-500">No inspections recorded.</p>
                   ) : (
                     <ul className="mt-2 space-y-2 text-xs">
-                      {selected.inspections.map((inspection: ARCInspection) => (
+                      {inspections.map((inspection: ARCInspection) => (
                         <li key={inspection.id} className="rounded border border-slate-200 p-2">
                           <div className="flex items-center justify-between">
                             <span className="font-semibold text-slate-600">
