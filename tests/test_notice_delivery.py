@@ -164,9 +164,118 @@ def test_click2mail_dispatch_requires_config(db_session, create_user, create_own
         paperwork = db_session.query(PaperworkItem).first()
         assert paperwork is not None
 
-        resp = client.post(f"/paperwork/{paperwork.id}/dispatch-click2mail")
+        resp = client.post(
+            f"/paperwork/{paperwork.id}/dispatch",
+            json={"delivery_method": "STANDARD_MAIL"},
+        )
         assert resp.status_code == 400
         assert "Click2Mail integration is not configured" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+        client.close()
+
+
+def test_certified_mail_dispatch_requires_config(db_session, create_user, create_owner, monkeypatch):
+    board_user = create_user(email="boardnotice3@example.com", role_name="BOARD")
+    owner = create_owner(email="noticeowner3@example.com")
+    owner.primary_email = "noticeowner3@example.com"
+    owner.mailing_address = "456 Main St, Portland, OR 97201"
+    db_session.add(owner)
+
+    notice_type = db_session.query(NoticeType).filter_by(code="DELINQUENCY_FIRST").first()
+    if not notice_type:
+        notice_type = NoticeType(
+            code="DELINQUENCY_FIRST",
+            name="Delinquency",
+            allow_electronic=True,
+            requires_paper=True,
+            default_delivery="AUTO",
+        )
+        db_session.add(notice_type)
+        db_session.commit()
+
+    def fake_send(email, subject, body):
+        return None
+
+    monkeypatch.setattr("backend.services.email.send_notice_email", fake_send)
+
+    client = TestClient(app)
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(board_user)
+    try:
+        resp = client.post(
+            "/notices/",
+            json={
+                "owner_id": owner.id,
+                "notice_type_code": "DELINQUENCY_FIRST",
+                "subject": "Delinquent",
+                "body_html": "<p>Pay now</p>",
+            },
+        )
+        assert resp.status_code == 200
+        paperwork = db_session.query(PaperworkItem).first()
+        assert paperwork is not None
+
+        resp = client.post(
+            f"/paperwork/{paperwork.id}/dispatch",
+            json={"delivery_method": "CERTIFIED_MAIL"},
+        )
+        assert resp.status_code == 400
+        assert "Certified mail integration is not configured" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+        client.close()
+
+
+def test_dispatch_payload_validation(db_session, create_user, create_owner, monkeypatch):
+    board_user = create_user(email="boardnotice4@example.com", role_name="BOARD")
+    owner = create_owner(email="noticeowner4@example.com")
+    owner.primary_email = "noticeowner4@example.com"
+    owner.mailing_address = "789 Main St, Portland, OR 97201"
+    db_session.add(owner)
+
+    notice_type = db_session.query(NoticeType).filter_by(code="DELINQUENCY_FIRST").first()
+    if not notice_type:
+        notice_type = NoticeType(
+            code="DELINQUENCY_FIRST",
+            name="Delinquency",
+            allow_electronic=True,
+            requires_paper=True,
+            default_delivery="AUTO",
+        )
+        db_session.add(notice_type)
+        db_session.commit()
+
+    def fake_send(email, subject, body):
+        return None
+
+    monkeypatch.setattr("backend.services.email.send_notice_email", fake_send)
+
+    client = TestClient(app)
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(board_user)
+    try:
+        resp = client.post(
+            "/notices/",
+            json={
+                "owner_id": owner.id,
+                "notice_type_code": "DELINQUENCY_FIRST",
+                "subject": "Delinquent",
+                "body_html": "<p>Pay now</p>",
+            },
+        )
+        assert resp.status_code == 200
+        paperwork = db_session.query(PaperworkItem).first()
+        assert paperwork is not None
+
+        resp = client.post(f"/paperwork/{paperwork.id}/dispatch", json={})
+        assert resp.status_code == 422
+
+        resp = client.post(
+            f"/paperwork/{paperwork.id}/dispatch",
+            json={"delivery_method": "OVERNIGHT"},
+        )
+        assert resp.status_code == 422
     finally:
         app.dependency_overrides.clear()
         client.close()

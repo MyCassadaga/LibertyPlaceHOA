@@ -4,8 +4,8 @@ import { useAuth } from '../hooks/useAuth';
 import { getPaperworkPrintUrl, getPaperworkDownloadUrl } from '../services/api';
 import { userHasAnyRole } from '../utils/roles';
 import {
-  useClick2MailMutation,
   useClaimPaperworkMutation,
+  useDispatchPaperworkMutation,
   useMailPaperworkMutation,
   usePaperworkFeaturesQuery,
   usePaperworkQuery,
@@ -13,8 +13,16 @@ import {
 
 const BOARD_ROLES = ['BOARD', 'TREASURER', 'SECRETARY', 'SYSADMIN'];
 const STATUS_TABS = ['PENDING', 'CLAIMED', 'MAILED'] as const;
+const DELIVERY_METHODS = ['STANDARD_MAIL', 'CERTIFIED_MAIL'] as const;
 
 type StatusFilter = typeof STATUS_TABS[number];
+type DeliveryMethod = typeof DELIVERY_METHODS[number];
+type DeliverySelectionState = Record<number, DeliveryMethod>;
+
+const DELIVERY_METHOD_LABELS: Record<DeliveryMethod, string> = {
+  STANDARD_MAIL: 'Standard mail (Click2Mail)',
+  CERTIFIED_MAIL: 'Certified mail',
+};
 
 const PaperworkPage: React.FC = () => {
   const { user } = useAuth();
@@ -23,6 +31,7 @@ const PaperworkPage: React.FC = () => {
   const [requiredOnly, setRequiredOnly] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [dispatchingId, setDispatchingId] = useState<number | null>(null);
+  const [deliverySelections, setDeliverySelections] = useState<DeliverySelectionState>({});
   const logError = useCallback((message: string, err: unknown) => {
     console.error(message, err);
   }, []);
@@ -32,10 +41,20 @@ const PaperworkPage: React.FC = () => {
   const loading = paperworkQuery.isLoading;
   const queryError = paperworkQuery.isError ? 'Unable to load paperwork.' : null;
   const click2mailEnabled = Boolean(paperworkFeaturesQuery.data?.click2mail_enabled);
+  const certifiedMailEnabled = Boolean(paperworkFeaturesQuery.data?.certified_mail_enabled);
   const effectiveError = actionError ?? queryError;
   const claimMutation = useClaimPaperworkMutation();
   const mailMutation = useMailPaperworkMutation();
-  const click2MailMutation = useClick2MailMutation();
+  const dispatchMutation = useDispatchPaperworkMutation();
+  const deliveryOptions = useMemo(
+    () =>
+      DELIVERY_METHODS.filter((method) => {
+        if (method === 'STANDARD_MAIL') return click2mailEnabled;
+        if (method === 'CERTIFIED_MAIL') return certifiedMailEnabled;
+        return false;
+      }),
+    [certifiedMailEnabled, click2mailEnabled],
+  );
 
   const handleClaim = async (paperworkId: number) => {
     try {
@@ -57,14 +76,14 @@ const PaperworkPage: React.FC = () => {
     }
   };
 
-  const handleSendClick2Mail = async (paperworkId: number) => {
+  const handleDispatch = async (paperworkId: number, deliveryMethod: DeliveryMethod) => {
     setDispatchingId(paperworkId);
     setActionError(null);
     try {
-      await click2MailMutation.mutateAsync(paperworkId);
+      await dispatchMutation.mutateAsync({ paperworkId, delivery_method: deliveryMethod });
     } catch (err) {
-      logError('Unable to send via Click2Mail.', err);
-      setActionError('Unable to send via Click2Mail.');
+      logError('Unable to dispatch paperwork.', err);
+      setActionError('Unable to dispatch paperwork.');
     } finally {
       setDispatchingId(null);
     }
@@ -84,6 +103,13 @@ const PaperworkPage: React.FC = () => {
     }
     return { required: items, optional: [] };
   }, [items, status]);
+
+  const getSelectedDeliveryMethod = (paperworkId: number): DeliveryMethod => {
+    if (deliverySelections[paperworkId]) {
+      return deliverySelections[paperworkId];
+    }
+    return deliveryOptions[0] ?? 'STANDARD_MAIL';
+  };
 
   return (
     <div className="space-y-6">
@@ -160,23 +186,12 @@ const PaperworkPage: React.FC = () => {
                             <p className="text-xs text-slate-500">{item.notice_type_code}</p>
                           </td>
                           <td className="px-3 py-3 text-sm text-slate-600">
-                            {item.delivery_provider === 'CLICK2MAIL' ? (
+                            {item.status === 'PENDING' && 'Pending'}
+                            {item.status === 'CLAIMED' && (
                               <span>
-                                Sent via Click2Mail{' '}
-                                {item.provider_status ? (
-                                  <span className="text-xs text-slate-500">({item.provider_status})</span>
-                                ) : null}
+                                Claimed by {item.claimed_by?.full_name || 'board member'}{' '}
+                                {item.claimed_at ? `on ${new Date(item.claimed_at).toLocaleDateString()}` : ''}
                               </span>
-                            ) : (
-                              <>
-                                {item.status === 'PENDING' && 'Pending'}
-                                {item.status === 'CLAIMED' && (
-                                  <span>
-                                    Claimed by {item.claimed_by?.full_name || 'board member'}{' '}
-                                    {item.claimed_at ? `on ${new Date(item.claimed_at).toLocaleDateString()}` : ''}
-                                  </span>
-                                )}
-                              </>
                             )}
                           </td>
                           <td className="px-3 py-3 space-x-2 text-right text-xs">
@@ -196,14 +211,34 @@ const PaperworkPage: React.FC = () => {
                                 PDF
                               </button>
                             )}
-                            {canManage && click2mailEnabled && item.status === 'PENDING' && item.delivery_provider !== 'CLICK2MAIL' && (
+                            {canManage && item.status === 'PENDING' && deliveryOptions.length > 0 && (
+                              <select
+                                className="rounded border border-slate-300 px-2 py-1 text-slate-600"
+                                value={getSelectedDeliveryMethod(item.id)}
+                                onChange={(event) =>
+                                  setDeliverySelections((prev) => ({
+                                    ...prev,
+                                    [item.id]: event.target.value as DeliveryMethod,
+                                  }))
+                                }
+                              >
+                                {deliveryOptions.map((method) => (
+                                  <option key={method} value={method}>
+                                    {DELIVERY_METHOD_LABELS[method]}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            {canManage && item.status === 'PENDING' && deliveryOptions.length > 0 && (
                               <button
                                 type="button"
                                 className="rounded border border-amber-500 px-3 py-1 text-amber-700 hover:bg-amber-50 disabled:opacity-60"
                                 disabled={dispatchingId === item.id}
-                                onClick={() => handleSendClick2Mail(item.id)}
+                                onClick={() => handleDispatch(item.id, getSelectedDeliveryMethod(item.id))}
                               >
-                                {dispatchingId === item.id ? 'Sending…' : 'Send via Click2Mail'}
+                                {dispatchingId === item.id
+                                  ? 'Sending…'
+                                  : `Send ${DELIVERY_METHOD_LABELS[getSelectedDeliveryMethod(item.id)]}`}
                               </button>
                             )}
                             {item.status === 'PENDING' && canManage && (
@@ -260,11 +295,14 @@ const PaperworkPage: React.FC = () => {
                   <td className="px-3 py-2 text-sm text-slate-600">
                     <div className="flex flex-col gap-1">
                       <span>
-                        {item.delivery_provider === 'CLICK2MAIL'
-                          ? `Click2Mail ${item.provider_status ? `• ${item.provider_status}` : ''}`
-                          : item.mailed_at
-                            ? new Date(item.mailed_at).toLocaleString()
-                            : '—'}
+                        {item.delivery_method && DELIVERY_METHOD_LABELS[item.delivery_method as DeliveryMethod]
+                          ? DELIVERY_METHOD_LABELS[item.delivery_method as DeliveryMethod]
+                          : 'Manual mail'}
+                        {item.delivery_status ? ` • ${item.delivery_status}` : ''}
+                      </span>
+                      {item.tracking_number && <span className="text-xs text-slate-500">Tracking: {item.tracking_number}</span>}
+                      <span className="text-xs text-slate-500">
+                        {item.mailed_at ? new Date(item.mailed_at).toLocaleString() : '—'}
                       </span>
                       {item.pdf_available && (
                         <button

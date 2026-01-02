@@ -349,9 +349,13 @@ export interface PaperworkItem {
   subject: string;
   required: boolean;
   status: string;
+  delivery_method?: string | null;
   delivery_provider?: string | null;
   provider_status?: string | null;
   provider_job_id?: string | null;
+  tracking_number?: string | null;
+  delivery_status?: string | null;
+  delivered_at?: string | null;
   pdf_available: boolean;
   claimed_by?: PaperworkClaimUser | null;
   claimed_at?: string | null;
@@ -361,6 +365,7 @@ export interface PaperworkItem {
 
 export interface PaperworkFeatures {
   click2mail_enabled: boolean;
+  certified_mail_enabled: boolean;
 }
 
 export interface GovernanceDocument {

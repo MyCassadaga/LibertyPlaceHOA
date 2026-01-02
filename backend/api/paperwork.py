@@ -9,14 +9,19 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..api.dependencies import get_db
 from ..auth.jwt import get_current_user, require_roles
+from ..config import settings
 from ..models.models import Notice, PaperworkItem, User
-from ..schemas.schemas import PaperworkListItem, UserRead
+from ..schemas.schemas import PaperworkDispatchRequest, PaperworkListItem, UserRead
+from ..services.audit import audit_log
+from ..services.certified_mail import CertifiedMailError, certified_mail_client
 from ..services.click2mail import Click2MailError, click2mail_client
 from ..utils.pdf_utils import generate_notice_letter_pdf
 
 router = APIRouter(prefix="/paperwork", tags=["paperwork"])
 
 BOARD_ROLES = ("BOARD", "TREASURER", "SECRETARY", "SYSADMIN")
+DELIVERY_METHOD_STANDARD = "STANDARD_MAIL"
+DELIVERY_METHOD_CERTIFIED = "CERTIFIED_MAIL"
 
 
 def _owner_address(owner) -> str:
@@ -36,9 +41,13 @@ def _serialize_paperwork(item: PaperworkItem) -> PaperworkListItem:
         subject=item.notice.subject,
         required=item.required,
         status=item.status,
+        delivery_method=item.delivery_method,
         delivery_provider=item.delivery_provider,
         provider_status=item.provider_status,
         provider_job_id=item.provider_job_id,
+        tracking_number=item.tracking_number,
+        delivery_status=item.delivery_status,
+        delivered_at=item.delivered_at,
         pdf_available=bool(item.pdf_path),
         claimed_by=claimed_by,
         claimed_at=item.claimed_at,
@@ -51,7 +60,10 @@ def _serialize_paperwork(item: PaperworkItem) -> PaperworkListItem:
 def paperwork_features(
     _: User = Depends(require_roles(*BOARD_ROLES)),
 ) -> dict:
-    return {"click2mail_enabled": click2mail_client.is_configured}
+    return {
+        "click2mail_enabled": click2mail_client.is_configured,
+        "certified_mail_enabled": settings.certified_mail_enabled,
+    }
 
 
 @router.get("/", response_model=List[PaperworkListItem])
@@ -133,6 +145,9 @@ def mark_paperwork_mailed(
         return _serialize_paperwork(item)
     item.status = "MAILED"
     item.mailed_at = datetime.now(timezone.utc)
+    if not item.delivery_method:
+        item.delivery_method = "MANUAL"
+    item.notice.delivery_method = item.delivery_method
     item.notice.status = "MAILED"
     item.notice.mailed_at = item.mailed_at
     db.add_all([item, item.notice])
@@ -141,14 +156,7 @@ def mark_paperwork_mailed(
     return _serialize_paperwork(item)
 
 
-@router.post("/{paperwork_id}/dispatch-click2mail", response_model=PaperworkListItem)
-def dispatch_click2mail(
-    paperwork_id: int,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_roles(*BOARD_ROLES)),
-) -> PaperworkListItem:
-    if not click2mail_client.is_configured:
-        raise HTTPException(status_code=400, detail="Click2Mail integration is not configured.")
+def _load_dispatch_item(db: Session, paperwork_id: int) -> PaperworkItem:
     item = (
         db.query(PaperworkItem)
         .options(
@@ -160,38 +168,119 @@ def dispatch_click2mail(
     )
     if not item:
         raise HTTPException(status_code=404, detail="Paperwork item not found")
-    if item.status == "MAILED":
-        return _serialize_paperwork(item)
     if not item.notice:
         raise HTTPException(status_code=400, detail="Paperwork item is missing a notice reference.")
+    return item
+
+
+def _load_pdf_bytes(item: PaperworkItem) -> bytes:
+    if item.pdf_path and Path(item.pdf_path).exists():
+        pdf_path_obj = Path(item.pdf_path)
+    else:
+        generated_path = generate_notice_letter_pdf(item.notice, item.owner)
+        pdf_path_obj = Path(generated_path)
+        item.pdf_path = generated_path
+    return pdf_path_obj.read_bytes()
+
+
+def _parse_delivered_at(value) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    return None
+
+
+@router.post("/{paperwork_id}/dispatch", response_model=PaperworkListItem)
+def dispatch_paperwork(
+    paperwork_id: int,
+    payload: PaperworkDispatchRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*BOARD_ROLES)),
+) -> PaperworkListItem:
+    item = _load_dispatch_item(db, paperwork_id)
+    if item.status == "MAILED":
+        return _serialize_paperwork(item)
+
     try:
-        if item.pdf_path and Path(item.pdf_path).exists():
-            pdf_path_obj = Path(item.pdf_path)
+        pdf_bytes = _load_pdf_bytes(item)
+        if payload.delivery_method == DELIVERY_METHOD_STANDARD:
+            if not click2mail_client.is_configured:
+                raise HTTPException(status_code=400, detail="Click2Mail integration is not configured.")
+            job = click2mail_client.dispatch_notice(item.notice, item.owner, pdf_bytes)
+            provider = "CLICK2MAIL"
+            provider_status = job.get("status") or "QUEUED"
+            provider_job_id = str(job.get("id") or job.get("jobId") or "")
+            tracking_number = job.get("trackingNumber") or job.get("tracking_number")
+            provider_meta = job
+            delivery_status = provider_status
+            delivered_at = _parse_delivered_at(job.get("deliveredAt") or job.get("delivered_at"))
+        elif payload.delivery_method == DELIVERY_METHOD_CERTIFIED:
+            if not certified_mail_client.is_configured:
+                raise HTTPException(status_code=400, detail="Certified mail integration is not configured.")
+            response = certified_mail_client.dispatch_notice(item.notice, item.owner, pdf_bytes)
+            provider = "CERTIFIED_MAIL"
+            provider_status = response.get("status") or "QUEUED"
+            provider_job_id = str(response.get("id") or response.get("jobId") or "")
+            tracking_number = response.get("trackingNumber") or response.get("tracking_number")
+            provider_meta = response
+            delivery_status = response.get("deliveryStatus") or provider_status
+            delivered_at = _parse_delivered_at(response.get("deliveredAt") or response.get("delivered_at"))
         else:
-            generated_path = generate_notice_letter_pdf(item.notice, item.owner)
-            pdf_path_obj = Path(generated_path)
-            item.pdf_path = generated_path
-        pdf_bytes = pdf_path_obj.read_bytes()
-        job = click2mail_client.dispatch_notice(item.notice, item.owner, pdf_bytes)
+            raise HTTPException(status_code=400, detail="Unsupported delivery method.")
     except FileNotFoundError as exc:
         logger = logging.getLogger(__name__)
-        logger.exception("Unable to read generated notice PDF for Click2Mail dispatch.")
+        logger.exception("Unable to read generated notice PDF for dispatch.")
         raise HTTPException(status_code=500, detail="Unable to generate notice PDF.") from exc
-    except Click2MailError as exc:
+    except (Click2MailError, CertifiedMailError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     item.status = "MAILED"
     item.mailed_at = datetime.now(timezone.utc)
-    item.delivery_provider = "CLICK2MAIL"
-    item.provider_job_id = str(job.get("id") or job.get("jobId") or "")
-    item.provider_status = job.get("status") or "QUEUED"
-    item.provider_meta = job
+    item.delivery_method = payload.delivery_method
+    item.delivery_provider = provider
+    item.provider_job_id = provider_job_id
+    item.provider_status = provider_status
+    item.provider_meta = provider_meta
+    item.tracking_number = tracking_number
+    item.delivery_status = delivery_status
+    item.delivered_at = delivered_at
     item.notice.status = "MAILED"
     item.notice.mailed_at = item.mailed_at
+    item.notice.delivery_method = payload.delivery_method
+    item.notice.tracking_number = tracking_number
+    item.notice.delivery_status = delivery_status
+    item.notice.delivered_at = delivered_at
     db.add_all([item, item.notice])
     db.commit()
     db.refresh(item)
+    if payload.delivery_method == DELIVERY_METHOD_CERTIFIED:
+        audit_log(
+            db_session=db,
+            actor_user_id=user.id,
+            action="paperwork.certified_dispatch",
+            target_entity_type="PaperworkItem",
+            target_entity_id=str(item.id),
+            after={
+                "delivery_method": payload.delivery_method,
+                "provider": provider,
+                "tracking_number": tracking_number,
+            },
+        )
     return _serialize_paperwork(item)
+
+
+@router.post("/{paperwork_id}/dispatch-click2mail", response_model=PaperworkListItem)
+def dispatch_click2mail(
+    paperwork_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles(*BOARD_ROLES)),
+) -> PaperworkListItem:
+    payload = PaperworkDispatchRequest(delivery_method=DELIVERY_METHOD_STANDARD)
+    return dispatch_paperwork(paperwork_id, payload, db, user)
 
 
 @router.get("/{paperwork_id}/print", response_class=HTMLResponse)

@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     click2mail_default_state: Optional[str] = Field(None, env="CLICK2MAIL_DEFAULT_STATE")
     click2mail_default_postal: Optional[str] = Field(None, env="CLICK2MAIL_DEFAULT_POSTAL")
 
+    # --- Certified Mail ---
+    certified_mail_enabled: bool = Field(False, env="CERTIFIED_MAIL_ENABLED")
+
     class Config:
         env_file = ".env"
         case_sensitive = True
