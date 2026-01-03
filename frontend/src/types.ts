@@ -438,6 +438,11 @@ export interface Contract {
   auto_renew: boolean;
   termination_notice_deadline?: string | null;
   file_path?: string | null;
+  attachment_file_name?: string | null;
+  attachment_content_type?: string | null;
+  attachment_file_size?: number | null;
+  attachment_uploaded_at?: string | null;
+  attachment_download_url?: string | null;
   value?: string | null;
   notes?: string | null;
   created_at: string;

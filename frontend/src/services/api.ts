@@ -458,6 +458,50 @@ export const fetchContracts = async (): Promise<Contract[]> => {
   return data;
 };
 
+export interface ContractCreatePayload {
+  vendor_name: string;
+  service_type?: string | null;
+  start_date: string;
+  end_date?: string | null;
+  auto_renew: boolean;
+  termination_notice_deadline?: string | null;
+  value?: string | null;
+  notes?: string | null;
+}
+
+export interface ContractUpdatePayload {
+  vendor_name?: string | null;
+  service_type?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  auto_renew?: boolean;
+  termination_notice_deadline?: string | null;
+  value?: string | null;
+  notes?: string | null;
+}
+
+export const createContract = async (payload: ContractCreatePayload): Promise<Contract> => {
+  const { data } = await api.post<Contract>('/contracts/', payload);
+  return data;
+};
+
+export const updateContract = async (contractId: number, payload: ContractUpdatePayload): Promise<Contract> => {
+  const { data } = await api.patch<Contract>(`/contracts/${contractId}`, payload);
+  return data;
+};
+
+export const uploadContractAttachment = async (contractId: number, file: File): Promise<Contract> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await api.post<Contract>(`/contracts/${contractId}/attachment`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+};
+
+export const getContractAttachmentDownloadUrl = (contractId: number): string =>
+  `${API_BASE_URL}/contracts/${contractId}/attachment`;
+
 export const submitElectionVote = async (
   electionId: number,
   payload: { candidate_id?: number; write_in?: string },

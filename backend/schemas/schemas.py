@@ -612,7 +612,9 @@ class ContractCreate(BaseModel):
 
 
 class ContractUpdate(BaseModel):
+    vendor_name: Optional[str]
     service_type: Optional[str]
+    start_date: Optional[date]
     end_date: Optional[date]
     auto_renew: Optional[bool]
     termination_notice_deadline: Optional[date]
@@ -630,6 +632,11 @@ class ContractRead(BaseModel):
     auto_renew: bool
     termination_notice_deadline: Optional[date]
     file_path: Optional[str]
+    attachment_file_name: Optional[str]
+    attachment_content_type: Optional[str]
+    attachment_file_size: Optional[int]
+    attachment_uploaded_at: Optional[datetime]
+    attachment_download_url: Optional[str]
     value: Optional[Decimal]
     notes: Optional[str]
     created_at: datetime
