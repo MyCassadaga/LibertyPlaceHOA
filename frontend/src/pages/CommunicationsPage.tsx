@@ -183,6 +183,38 @@ const CommunicationsPage: React.FC = () => {
   const broadcastPreview = renderMergeTags(broadcastBody, mergeTags);
   const broadcastSubjectPreview = renderMergeTags(broadcastSubject, mergeTags);
 
+  const unifiedHistory = useMemo(() => {
+    const normalizedAnnouncements = announcements.map((announcement) => ({
+      id: `announcement-${announcement.id}`,
+      type: 'ANNOUNCEMENT' as const,
+      subject: announcement.subject,
+      body: announcement.body,
+      created_at: announcement.created_at,
+      delivery_methods: announcement.delivery_methods,
+      recipient_count: announcement.recipient_count,
+      recipients: announcement.recipients ?? [],
+      sender_snapshot: announcement.sender_snapshot,
+    }));
+    const normalizedBroadcasts = broadcasts.map((broadcast) => ({
+      id: `broadcast-${broadcast.id}`,
+      type: 'BROADCAST' as const,
+      subject: broadcast.subject,
+      body: broadcast.body,
+      created_at: broadcast.created_at,
+      delivery_methods: broadcast.delivery_methods ?? ['email'],
+      recipient_count: broadcast.recipient_count,
+      recipients: broadcast.recipients ?? [],
+      sender_snapshot: broadcast.sender_snapshot,
+      segment: broadcast.segment,
+    }));
+    return [...normalizedAnnouncements, ...normalizedBroadcasts].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+  }, [announcements, broadcasts]);
+
+  const formatDeliveryMethods = (methods: string[]) =>
+    methods.map((method) => method.replace(/_/g, ' ')).map((method) => method.toLowerCase()).join(', ');
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-semibold text-slate-700">Community Communications</h2>
@@ -286,58 +318,6 @@ const CommunicationsPage: React.FC = () => {
       </section>
 
       <section className="rounded border border-slate-200 p-4">
-        <h3 className="mb-3 text-lg font-semibold text-slate-700">Broadcast History</h3>
-        {broadcastsQuery.isError && (
-          <p className="mb-3 text-sm text-red-600">Unable to load recorded broadcasts.</p>
-        )}
-        {broadcasts.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            {broadcastsQuery.isLoading ? 'Loading history…' : 'No outbound email broadcasts have been recorded.'}
-          </p>
-        ) : (
-          <ul className="space-y-3 text-sm">
-            {broadcasts.map((broadcast) => (
-              <li key={broadcast.id} className="rounded border border-slate-200 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h4 className="font-semibold text-slate-700">{broadcast.subject}</h4>
-                    <p className="text-xs uppercase text-slate-400">
-                      Segment: {resolveSegmentLabel(broadcast.segment)} • Recipients stored:{' '}
-                      {broadcast.recipient_count}
-                    </p>
-                  </div>
-                  <span className="text-xs text-slate-500">
-                    {new Date(broadcast.created_at).toLocaleString()}
-                  </span>
-                </div>
-                <p className="mt-2 whitespace-pre-wrap text-slate-600">{broadcast.body}</p>
-                <details className="mt-3">
-                  <summary className="cursor-pointer text-xs font-semibold text-primary-600">
-                    View recipient snapshot ({broadcast.recipient_count})
-                  </summary>
-                  <ul className="mt-2 grid gap-2 text-xs md:grid-cols-2">
-                    {(broadcast.recipients ?? []).map((recipient) => (
-                      <li
-                        key={`${recipient.email}-${recipient.owner_id ?? 'none'}-${recipient.contact_type ?? 'contact'}`}
-                        className="rounded border border-slate-200 p-2"
-                      >
-                        <p className="font-medium text-slate-700">{recipient.email}</p>
-                        <p className="text-slate-500">
-                          {recipient.owner_name ?? 'Unassigned'}
-                          {recipient.property_address ? ` • ${recipient.property_address}` : ''}
-                          {recipient.contact_type ? ` (${recipient.contact_type})` : ''}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section className="rounded border border-slate-200 p-4">
         <h3 className="mb-3 text-lg font-semibold text-slate-700">Community Announcements</h3>
         <form onSubmit={handleAnnouncementSubmit} className="space-y-4">
           <div>
@@ -416,34 +396,71 @@ const CommunicationsPage: React.FC = () => {
           </button>
         </form>
 
-        <div className="mt-6">
-          <h4 className="mb-2 text-base font-semibold text-slate-700">Recent Announcements</h4>
-          {announcements.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              {announcementsQuery.isLoading ? 'Loading announcements…' : 'No announcements yet.'}
-            </p>
-          ) : (
-            <ul className="space-y-3 text-sm">
-              {announcements.map((announcement) => (
-                <li key={announcement.id} className="rounded border border-slate-200 p-3">
-                  <div className="flex items-center justify-between">
-                    <h5 className="font-semibold text-slate-700">{announcement.subject}</h5>
-                    <span className="text-xs text-slate-500">
-                      {new Date(announcement.created_at).toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="mt-2 whitespace-pre-wrap text-slate-600">{announcement.body}</p>
-                  <p className="mt-2 text-xs uppercase text-slate-400">
-                    Delivery: {announcement.delivery_methods.join(', ')}
-                    {announcement.pdf_path && (
-                      <span className="ml-2 text-primary-600">PDF generated: {announcement.pdf_path}</span>
+      </section>
+
+      <section className="rounded border border-slate-200 p-4">
+        <h3 className="mb-3 text-lg font-semibold text-slate-700">Communications History</h3>
+        {(broadcastsQuery.isError || announcementsQuery.isError) && (
+          <p className="mb-3 text-sm text-red-600">Unable to load communications history.</p>
+        )}
+        {unifiedHistory.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            {broadcastsQuery.isLoading || announcementsQuery.isLoading
+              ? 'Loading history…'
+              : 'No communications have been recorded yet.'}
+          </p>
+        ) : (
+          <ul className="space-y-3 text-sm">
+            {unifiedHistory.map((entry) => (
+              <li key={entry.id} className="rounded border border-slate-200 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h4 className="font-semibold text-slate-700">{entry.subject}</h4>
+                    <p className="text-xs uppercase text-slate-400">
+                      {entry.type === 'BROADCAST' ? 'Email broadcast' : 'Announcement'} • Delivery:{' '}
+                      {formatDeliveryMethods(entry.delivery_methods)} • Recipients stored: {entry.recipient_count}
+                    </p>
+                    {entry.type === 'BROADCAST' && entry.segment && (
+                      <p className="text-xs text-slate-400">Segment: {resolveSegmentLabel(entry.segment)}</p>
                     )}
+                  </div>
+                  <span className="text-xs text-slate-500">{new Date(entry.created_at).toLocaleString()}</span>
+                </div>
+                {entry.sender_snapshot && (
+                  <p className="mt-2 text-xs text-slate-500">
+                    Sent by {entry.sender_snapshot.full_name ?? 'Board member'} (
+                    {entry.sender_snapshot.email})
                   </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+                )}
+                <p className="mt-2 whitespace-pre-wrap text-slate-600">{entry.body}</p>
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-xs font-semibold text-primary-600">
+                    View recipient snapshot ({entry.recipient_count})
+                  </summary>
+                  <ul className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                    {entry.recipients.map((recipient, index) => {
+                      const address = 'mailing_address' in recipient ? recipient.mailing_address : undefined;
+                      const email = 'email' in recipient ? recipient.email : undefined;
+                      return (
+                        <li
+                          key={`${email ?? address ?? 'recipient'}-${recipient.owner_id ?? 'none'}-${recipient.contact_type ?? index}`}
+                          className="rounded border border-slate-200 p-2"
+                        >
+                          <p className="font-medium text-slate-700">{email ?? address ?? 'No contact on file'}</p>
+                          <p className="text-slate-500">
+                            {recipient.owner_name ?? 'Unassigned'}
+                            {recipient.property_address ? ` • ${recipient.property_address}` : ''}
+                            {recipient.contact_type ? ` (${recipient.contact_type})` : ''}
+                          </p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </details>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   );

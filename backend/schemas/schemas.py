@@ -715,6 +715,21 @@ class TemplateMergeTag(BaseModel):
     sample: str
 
 
+class CommunicationSender(BaseModel):
+    user_id: int
+    full_name: Optional[str]
+    email: EmailStr
+
+
+class AnnouncementRecipient(BaseModel):
+    owner_id: Optional[int]
+    owner_name: Optional[str]
+    property_address: Optional[str]
+    mailing_address: Optional[str]
+    email: Optional[EmailStr]
+    contact_type: Optional[str]
+
+
 class AnnouncementRead(BaseModel):
     id: int
     subject: str
@@ -722,10 +737,14 @@ class AnnouncementRead(BaseModel):
     created_at: datetime
     created_by_user_id: int
     delivery_methods: List[str]
+    recipients: List[AnnouncementRecipient] = Field(alias="recipient_snapshot")
+    recipient_count: int
+    sender_snapshot: Optional[CommunicationSender]
     pdf_path: Optional[str]
 
     class Config:
         orm_mode = True
+        allow_population_by_field_name = True
 
 
 class EmailBroadcastRecipient(BaseModel):
@@ -749,6 +768,8 @@ class EmailBroadcastRead(BaseModel):
     segment: str
     recipients: List[EmailBroadcastRecipient] = Field(alias="recipient_snapshot")
     recipient_count: int
+    delivery_methods: List[str]
+    sender_snapshot: Optional[CommunicationSender]
     created_at: datetime
     created_by_user_id: int
 
