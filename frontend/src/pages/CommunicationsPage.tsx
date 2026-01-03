@@ -297,39 +297,68 @@ const CommunicationsPage: React.FC = () => {
         ) : (
           <ul className="space-y-3 text-sm">
             {broadcasts.map((broadcast) => (
-              <li key={broadcast.id} className="rounded border border-slate-200 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h4 className="font-semibold text-slate-700">{broadcast.subject}</h4>
-                    <p className="text-xs uppercase text-slate-400">
-                      Segment: {resolveSegmentLabel(broadcast.segment)} • Recipients stored:{' '}
-                      {broadcast.recipient_count}
-                    </p>
-                  </div>
-                  <span className="text-xs text-slate-500">
-                    {new Date(broadcast.created_at).toLocaleString()}
-                  </span>
-                </div>
-                <p className="mt-2 whitespace-pre-wrap text-slate-600">{broadcast.body}</p>
-                <details className="mt-3">
-                  <summary className="cursor-pointer text-xs font-semibold text-primary-600">
-                    View recipient snapshot ({broadcast.recipient_count})
-                  </summary>
-                  <ul className="mt-2 grid gap-2 text-xs md:grid-cols-2">
-                    {(broadcast.recipients ?? []).map((recipient) => (
-                      <li
-                        key={`${recipient.email}-${recipient.owner_id ?? 'none'}-${recipient.contact_type ?? 'contact'}`}
-                        className="rounded border border-slate-200 p-2"
-                      >
-                        <p className="font-medium text-slate-700">{recipient.email}</p>
-                        <p className="text-slate-500">
-                          {recipient.owner_name ?? 'Unassigned'}
-                          {recipient.property_address ? ` • ${recipient.property_address}` : ''}
-                          {recipient.contact_type ? ` (${recipient.contact_type})` : ''}
+              <li key={broadcast.id} className="rounded border border-slate-200">
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded px-3 py-3 hover:bg-slate-50">
+                    <div className="grid w-full gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-center">
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase text-slate-400">Email broadcast</p>
+                        <h4 className="truncate font-semibold text-slate-700">{broadcast.subject}</h4>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400">Delivery method</p>
+                        <p className="font-medium text-slate-600">Email</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-400">Sent</p>
+                        <p className="font-medium text-slate-600">
+                          {new Date(broadcast.created_at).toLocaleString()}
                         </p>
-                      </li>
-                    ))}
-                  </ul>
+                      </div>
+                    </div>
+                    <span className="text-xs font-semibold text-primary-600 group-open:text-primary-700">
+                      Details
+                    </span>
+                  </summary>
+                  <div className="border-t border-slate-200 px-3 py-3">
+                    <div className="grid gap-4 text-xs text-slate-600 sm:grid-cols-3">
+                      <div>
+                        <p className="text-slate-400">Segment</p>
+                        <p className="font-semibold text-slate-700">
+                          {resolveSegmentLabel(broadcast.segment)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400">Recipients stored</p>
+                        <p className="font-semibold text-slate-700">{broadcast.recipient_count}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400">Printable</p>
+                        <p className="font-semibold text-slate-700">Not available</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">{broadcast.body}</p>
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold text-primary-600">
+                        Recipient snapshot ({broadcast.recipient_count})
+                      </p>
+                      <ul className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                        {(broadcast.recipients ?? []).map((recipient) => (
+                          <li
+                            key={`${recipient.email}-${recipient.owner_id ?? 'none'}-${recipient.contact_type ?? 'contact'}`}
+                            className="rounded border border-slate-200 p-2"
+                          >
+                            <p className="font-medium text-slate-700">{recipient.email}</p>
+                            <p className="text-slate-500">
+                              {recipient.owner_name ?? 'Unassigned'}
+                              {recipient.property_address ? ` • ${recipient.property_address}` : ''}
+                              {recipient.contact_type ? ` (${recipient.contact_type})` : ''}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
                 </details>
               </li>
             ))}
@@ -425,20 +454,68 @@ const CommunicationsPage: React.FC = () => {
           ) : (
             <ul className="space-y-3 text-sm">
               {announcements.map((announcement) => (
-                <li key={announcement.id} className="rounded border border-slate-200 p-3">
-                  <div className="flex items-center justify-between">
-                    <h5 className="font-semibold text-slate-700">{announcement.subject}</h5>
-                    <span className="text-xs text-slate-500">
-                      {new Date(announcement.created_at).toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="mt-2 whitespace-pre-wrap text-slate-600">{announcement.body}</p>
-                  <p className="mt-2 text-xs uppercase text-slate-400">
-                    Delivery: {announcement.delivery_methods.join(', ')}
-                    {announcement.pdf_path && (
-                      <span className="ml-2 text-primary-600">PDF generated: {announcement.pdf_path}</span>
-                    )}
-                  </p>
+                <li key={announcement.id} className="rounded border border-slate-200">
+                  <details className="group">
+                    <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded px-3 py-3 hover:bg-slate-50">
+                      <div className="grid w-full gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-center">
+                        <div className="min-w-0">
+                          <p className="text-xs uppercase text-slate-400">Announcement</p>
+                          <h5 className="truncate font-semibold text-slate-700">
+                            {announcement.subject}
+                          </h5>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-400">Delivery method</p>
+                          <p className="font-medium text-slate-600">
+                            {announcement.delivery_methods.join(', ')}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-slate-400">Sent</p>
+                          <p className="font-medium text-slate-600">
+                            {new Date(announcement.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold text-primary-600 group-open:text-primary-700">
+                        Details
+                      </span>
+                    </summary>
+                    <div className="border-t border-slate-200 px-3 py-3">
+                      <div className="grid gap-4 text-xs text-slate-600 sm:grid-cols-3">
+                        <div>
+                          <p className="text-slate-400">Delivery methods</p>
+                          <p className="font-semibold text-slate-700">
+                            {announcement.delivery_methods.join(', ')}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Printable packet</p>
+                          <p className="font-semibold text-slate-700">
+                            {announcement.pdf_path ? 'Available' : 'Not available'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Printable link</p>
+                          {announcement.pdf_path ? (
+                            <a
+                              className="font-semibold text-primary-600 hover:text-primary-500"
+                              href={announcement.pdf_path}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              View PDF
+                            </a>
+                          ) : (
+                            <p className="font-semibold text-slate-700">—</p>
+                          )}
+                        </div>
+                      </div>
+                      <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">
+                        {announcement.body}
+                      </p>
+                    </div>
+                  </details>
                 </li>
               ))}
             </ul>
