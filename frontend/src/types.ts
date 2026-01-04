@@ -451,7 +451,25 @@ export interface Announcement {
   created_at: string;
   created_by_user_id: number;
   delivery_methods: string[];
+  recipients: AnnouncementRecipient[];
+  recipient_count: number;
+  sender_snapshot?: CommunicationSender | null;
   pdf_path?: string | null;
+}
+
+export interface CommunicationSender {
+  user_id: number;
+  full_name?: string | null;
+  email: string;
+}
+
+export interface AnnouncementRecipient {
+  owner_id?: number | null;
+  owner_name?: string | null;
+  property_address?: string | null;
+  mailing_address?: string | null;
+  email?: string | null;
+  contact_type?: string | null;
 }
 
 export interface Template {
@@ -489,6 +507,8 @@ export interface EmailBroadcast {
   segment: string;
   recipients: EmailBroadcastRecipient[];
   recipient_count: number;
+  delivery_methods: string[];
+  sender_snapshot?: CommunicationSender | null;
   created_at: string;
   created_by_user_id: number;
 }

@@ -377,6 +377,9 @@ class Announcement(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     delivery_methods = Column(JSON, nullable=False, default=["email"])
+    recipient_snapshot = Column(JSON, nullable=False, default=list)
+    recipient_count = Column(Integer, nullable=False, default=0)
+    sender_snapshot = Column(JSON, nullable=True)
     pdf_path = Column(String, nullable=True)
 
     creator = orm_relationship("User", foreign_keys=[created_by_user_id])
@@ -391,6 +394,8 @@ class EmailBroadcast(Base):
     segment = Column(String, nullable=False)
     recipient_snapshot = Column(JSON, nullable=False, default=list)
     recipient_count = Column(Integer, nullable=False, default=0)
+    delivery_methods = Column(JSON, nullable=False, default=["email"])
+    sender_snapshot = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 
