@@ -454,6 +454,20 @@ export interface Announcement {
   pdf_path?: string | null;
 }
 
+export interface CommunicationMessage {
+  id: number;
+  message_type: 'ANNOUNCEMENT' | 'BROADCAST';
+  subject: string;
+  body: string;
+  segment?: string | null;
+  delivery_methods: string[];
+  recipients: EmailBroadcastRecipient[];
+  recipient_count: number;
+  pdf_path?: string | null;
+  created_at: string;
+  created_by_user_id: number;
+}
+
 export interface Template {
   id: number;
   name: string;
