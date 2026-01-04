@@ -174,6 +174,38 @@ const CommunicationsPage: React.FC = () => {
   const bodyPreview = renderMergeTags(messageBody, mergeTags);
   const subjectPreview = renderMergeTags(subject, mergeTags);
 
+  const unifiedHistory = useMemo(() => {
+    const normalizedAnnouncements = announcements.map((announcement) => ({
+      id: `announcement-${announcement.id}`,
+      type: 'ANNOUNCEMENT' as const,
+      subject: announcement.subject,
+      body: announcement.body,
+      created_at: announcement.created_at,
+      delivery_methods: announcement.delivery_methods,
+      recipient_count: announcement.recipient_count,
+      recipients: announcement.recipients ?? [],
+      sender_snapshot: announcement.sender_snapshot,
+    }));
+    const normalizedBroadcasts = broadcasts.map((broadcast) => ({
+      id: `broadcast-${broadcast.id}`,
+      type: 'BROADCAST' as const,
+      subject: broadcast.subject,
+      body: broadcast.body,
+      created_at: broadcast.created_at,
+      delivery_methods: broadcast.delivery_methods ?? ['email'],
+      recipient_count: broadcast.recipient_count,
+      recipients: broadcast.recipients ?? [],
+      sender_snapshot: broadcast.sender_snapshot,
+      segment: broadcast.segment,
+    }));
+    return [...normalizedAnnouncements, ...normalizedBroadcasts].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+  }, [announcements, broadcasts]);
+
+  const formatDeliveryMethods = (methods: string[]) =>
+    methods.map((method) => method.replace(/_/g, ' ')).map((method) => method.toLowerCase()).join(', ');
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-semibold text-slate-700">Community Communications</h2>

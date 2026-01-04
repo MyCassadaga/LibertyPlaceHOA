@@ -85,19 +85,60 @@ def _owner_contacts(owner: Owner) -> List[Dict[str, Optional[str]]]:
     return contacts
 
 
+def _announcement_recipients(owners: List[Owner], delivery_methods: List[str]) -> List[Dict[str, Optional[str]]]:
+    recipients: List[Dict[str, Optional[str]]] = []
+    delivery_set = {method.lower() for method in delivery_methods}
+    if "email" in delivery_set:
+        for owner in owners:
+            recipients.extend(_owner_contacts(owner))
+    if "print" in delivery_set:
+        for owner in owners:
+            recipients.append(
+                {
+                    "owner_id": owner.id,
+                    "owner_name": owner.primary_name,
+                    "property_address": owner.property_address,
+                    "mailing_address": owner.mailing_address or owner.property_address,
+                    "email": None,
+                    "contact_type": "mailing",
+                }
+            )
+    return recipients
+
+
+def _sender_snapshot(actor: User) -> Dict[str, Optional[str]]:
+    return {
+        "user_id": actor.id,
+        "full_name": actor.full_name,
+        "email": actor.email,
+    }
+
+
 def _dedupe_and_sort(recipients: List[Dict[str, Optional[str]]]) -> List[Dict[str, Optional[str]]]:
     seen = set()
     unique: List[Dict[str, Optional[str]]] = []
     for recipient in recipients:
         email_value = recipient.get("email")
-        if not email_value:
+        address_value = recipient.get("mailing_address")
+        if email_value:
+            dedupe_key = email_value.lower()
+        elif address_value:
+            dedupe_key = address_value.lower()
+        else:
             continue
-        email_key = email_value.lower()
-        if email_key in seen:
+        if dedupe_key in seen:
             continue
-        seen.add(email_key)
+        seen.add(dedupe_key)
         unique.append(recipient)
-    unique.sort(key=lambda item: ((item.get("owner_name") or "") + "|" + (item.get("email") or "")))
+    unique.sort(
+        key=lambda item: (
+            (item.get("owner_name") or "")
+            + "|"
+            + (item.get("email") or "")
+            + "|"
+            + (item.get("mailing_address") or "")
+        )
+    )
     return unique
 
 
@@ -179,6 +220,8 @@ def create_email_broadcast(
         segment=segment.value,
         recipient_snapshot=recipients,
         recipient_count=len(recipients),
+        delivery_methods=["email"],
+        sender_snapshot=_sender_snapshot(actor),
         created_by_user_id=actor.id,
     )
     db.add(broadcast)
@@ -304,9 +347,12 @@ def create_announcement(
     db: Session = Depends(get_db),
     actor: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
 ) -> Announcement:
-    recipient_emails = [owner.primary_email for owner in db.query(Owner).all() if owner.primary_email]
+    owners = db.query(Owner).all()
+    delivery_methods = [method.lower() for method in payload.delivery_methods]
+    recipients = _dedupe_and_sort(_announcement_recipients(owners, delivery_methods))
+    recipient_emails = [recipient["email"] for recipient in recipients if recipient.get("email")]
     pdf_path = None
-    if "print" in [method.lower() for method in payload.delivery_methods]:
+    if "print" in delivery_methods:
         pdf_path = generate_announcement_packet(payload.subject, payload.body)
 
     announcement = Announcement(
@@ -314,13 +360,16 @@ def create_announcement(
         body=payload.body,
         created_by_user_id=actor.id,
         delivery_methods=payload.delivery_methods,
+        recipient_snapshot=recipients,
+        recipient_count=len(recipients),
+        sender_snapshot=_sender_snapshot(actor),
         pdf_path=pdf_path,
     )
     db.add(announcement)
     db.commit()
     db.refresh(announcement)
 
-    if "email" in [method.lower() for method in payload.delivery_methods]:
+    if "email" in delivery_methods:
         _queue_email(background, payload.subject, payload.body, recipient_emails)
 
     audit_log(

@@ -456,6 +456,9 @@ export interface Announcement {
   created_at: string;
   created_by_user_id: number;
   delivery_methods: string[];
+  recipients: AnnouncementRecipient[];
+  recipient_count: number;
+  sender_snapshot?: CommunicationSender | null;
   pdf_path?: string | null;
 }
 
@@ -508,6 +511,8 @@ export interface EmailBroadcast {
   segment: string;
   recipients: EmailBroadcastRecipient[];
   recipient_count: number;
+  delivery_methods: string[];
+  sender_snapshot?: CommunicationSender | null;
   created_at: string;
   created_by_user_id: number;
 }
