@@ -2,41 +2,34 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import {
-  createAnnouncement,
-  createEmailBroadcast,
-  fetchAnnouncements,
+  createCommunicationMessage,
   fetchBroadcastSegments,
-  fetchEmailBroadcasts,
+  fetchCommunicationMessages,
   fetchTemplateMergeTags,
   fetchTemplates,
 } from '../services/api';
-import { Announcement, EmailBroadcast, EmailBroadcastSegment, Template } from '../types';
+import {
+  CommunicationMessage,
+  EmailBroadcastSegment,
+  Template,
+} from '../types';
 import { queryKeys } from '../lib/api/queryKeys';
 import { renderMergeTags } from '../utils/mergeTags';
 
 const CommunicationsPage: React.FC = () => {
-  const [announcementSubject, setAnnouncementSubject] = useState('');
-  const [announcementMessage, setAnnouncementMessage] = useState('');
+  const [messageType, setMessageType] = useState<'BROADCAST' | 'ANNOUNCEMENT'>('BROADCAST');
+  const [subject, setSubject] = useState('');
+  const [messageBody, setMessageBody] = useState('');
   const [deliveryEmail, setDeliveryEmail] = useState(true);
   const [deliveryPrint, setDeliveryPrint] = useState(false);
-  const [announcementStatus, setAnnouncementStatus] = useState<string | null>(null);
-  const [announcementError, setAnnouncementError] = useState<string | null>(null);
-  const [announcementTemplateId, setAnnouncementTemplateId] = useState('');
-
   const [selectedSegment, setSelectedSegment] = useState('');
-  const [broadcastSubject, setBroadcastSubject] = useState('');
-  const [broadcastBody, setBroadcastBody] = useState('');
-  const [broadcastStatus, setBroadcastStatus] = useState<string | null>(null);
-  const [broadcastFormError, setBroadcastFormError] = useState<string | null>(null);
-  const [broadcastTemplateId, setBroadcastTemplateId] = useState('');
-  const announcementsQuery = useQuery<Announcement[]>({
-    queryKey: queryKeys.announcements,
-    queryFn: fetchAnnouncements,
-  });
+  const [formStatus, setFormStatus] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [templateId, setTemplateId] = useState('');
 
-  const broadcastsQuery = useQuery<EmailBroadcast[]>({
-    queryKey: queryKeys.broadcasts,
-    queryFn: fetchEmailBroadcasts,
+  const messagesQuery = useQuery<CommunicationMessage[]>({
+    queryKey: queryKeys.communicationsMessages,
+    queryFn: fetchCommunicationMessages,
   });
 
   const segmentsQuery = useQuery<EmailBroadcastSegment[]>({
@@ -59,10 +52,15 @@ const CommunicationsPage: React.FC = () => {
     queryFn: fetchTemplateMergeTags,
   });
 
-  const announcements = announcementsQuery.data ?? [];
-  const broadcasts = broadcastsQuery.data ?? [];
-  const announcementTemplates = announcementTemplatesQuery.data ?? [];
-  const broadcastTemplates = broadcastTemplatesQuery.data ?? [];
+  const messages = messagesQuery.data ?? [];
+  const announcementTemplates = useMemo(
+    () => announcementTemplatesQuery.data ?? [],
+    [announcementTemplatesQuery.data],
+  );
+  const broadcastTemplates = useMemo(
+    () => broadcastTemplatesQuery.data ?? [],
+    [broadcastTemplatesQuery.data],
+  );
   const mergeTags = mergeTagsQuery.data ?? [];
   const broadcastSegments = useMemo(
     () => segmentsQuery.data ?? [],
@@ -79,65 +77,64 @@ const CommunicationsPage: React.FC = () => {
     return broadcastSegments[0]?.key ?? '';
   }, [broadcastSegments, selectedSegment]);
 
-  const handleAnnouncementSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    try {
-      const deliveryMethods = [] as string[];
-      if (deliveryEmail) deliveryMethods.push('email');
-      if (deliveryPrint) deliveryMethods.push('print');
-      if (deliveryMethods.length === 0) {
-        setAnnouncementError('Select at least one delivery method.');
-        return;
-      }
-      await createAnnouncement({
-        subject: announcementSubject,
-        body: announcementMessage,
-        delivery_methods: deliveryMethods,
-      });
-      setAnnouncementSubject('');
-      setAnnouncementMessage('');
-      setDeliveryEmail(true);
-      setDeliveryPrint(false);
-      setAnnouncementError(null);
-      setAnnouncementStatus('Announcement queued successfully.');
-      setAnnouncementTemplateId('');
-      await announcementsQuery.refetch();
-    } catch (err) {
-      console.error('Unable to create announcement', err);
-      setAnnouncementStatus(null);
-      setAnnouncementError('Unable to create announcement.');
-    }
+  const handleMessageTypeChange = (value: 'BROADCAST' | 'ANNOUNCEMENT') => {
+    setMessageType(value);
+    setTemplateId('');
+    setFormStatus(null);
+    setFormError(null);
   };
 
-  const handleBroadcastSubmit = async (event: React.FormEvent) => {
+  const handleMessageSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    setBroadcastStatus(null);
-    setBroadcastFormError(null);
-    if (!resolvedSegment) {
-      setBroadcastFormError('Choose at least one recipient segment.');
-      return;
-    }
-    if (!broadcastSubject.trim() || !broadcastBody.trim()) {
-      setBroadcastFormError('Subject and message are both required.');
+    setFormStatus(null);
+    setFormError(null);
+
+    if (!subject.trim() || !messageBody.trim()) {
+      setFormError('Subject and message are both required.');
       return;
     }
 
     try {
-      await createEmailBroadcast({
-        subject: broadcastSubject,
-        body: broadcastBody,
-        segment: resolvedSegment,
-      });
-      setBroadcastSubject('');
-      setBroadcastBody('');
-      setBroadcastStatus('Broadcast recorded for compliance.');
-      setBroadcastFormError(null);
-      setBroadcastTemplateId('');
-      await Promise.all([broadcastsQuery.refetch(), segmentsQuery.refetch()]);
+      if (messageType === 'BROADCAST') {
+        if (!resolvedSegment) {
+          setFormError('Choose at least one recipient segment.');
+          return;
+        }
+        await createCommunicationMessage({
+          message_type: 'BROADCAST',
+          subject,
+          body: messageBody,
+          segment: resolvedSegment,
+        });
+        setFormStatus('Broadcast recorded for compliance.');
+      } else {
+        const deliveryMethods = [] as string[];
+        if (deliveryEmail) deliveryMethods.push('email');
+        if (deliveryPrint) deliveryMethods.push('print');
+        if (deliveryMethods.length === 0) {
+          setFormError('Select at least one delivery method.');
+          return;
+        }
+        await createCommunicationMessage({
+          message_type: 'ANNOUNCEMENT',
+          subject,
+          body: messageBody,
+          delivery_methods: deliveryMethods,
+        });
+        setFormStatus('Announcement queued successfully.');
+      }
+
+      setSubject('');
+      setMessageBody('');
+      setDeliveryEmail(true);
+      setDeliveryPrint(false);
+      setFormError(null);
+      setTemplateId('');
+      await messagesQuery.refetch();
     } catch (err) {
-      console.error('Unable to record broadcast', err);
-      setBroadcastStatus(null);
-      setBroadcastFormError('Unable to record the broadcast.');
+      console.error('Unable to create communication message', err);
+      setFormStatus(null);
+      setFormError('Unable to record the communication.');
     }
   };
 
@@ -160,80 +157,127 @@ const CommunicationsPage: React.FC = () => {
     return segmentKey.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (char) => char.toUpperCase());
   };
 
-  const handleAnnouncementTemplateChange = (templateId: string) => {
-    setAnnouncementTemplateId(templateId);
-    const template = announcementTemplates.find((item) => item.id === Number(templateId));
+  const availableTemplates = useMemo(
+    () => (messageType === 'BROADCAST' ? broadcastTemplates : announcementTemplates),
+    [announcementTemplates, broadcastTemplates, messageType],
+  );
+
+  const handleTemplateChange = (selectedId: string) => {
+    setTemplateId(selectedId);
+    const template = availableTemplates.find((item) => item.id === Number(selectedId));
     if (template) {
-      setAnnouncementSubject(template.subject);
-      setAnnouncementMessage(template.body);
+      setSubject(template.subject);
+      setMessageBody(template.body);
     }
   };
 
-  const handleBroadcastTemplateChange = (templateId: string) => {
-    setBroadcastTemplateId(templateId);
-    const template = broadcastTemplates.find((item) => item.id === Number(templateId));
-    if (template) {
-      setBroadcastSubject(template.subject);
-      setBroadcastBody(template.body);
-    }
-  };
-
-  const announcementPreview = renderMergeTags(announcementMessage, mergeTags);
-  const announcementSubjectPreview = renderMergeTags(announcementSubject, mergeTags);
-  const broadcastPreview = renderMergeTags(broadcastBody, mergeTags);
-  const broadcastSubjectPreview = renderMergeTags(broadcastSubject, mergeTags);
+  const bodyPreview = renderMergeTags(messageBody, mergeTags);
+  const subjectPreview = renderMergeTags(subject, mergeTags);
 
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-semibold text-slate-700">Community Communications</h2>
 
       <section className="rounded border border-slate-200 p-4">
-        <h3 className="mb-3 text-lg font-semibold text-slate-700">Record Email Broadcast</h3>
-        <form className="space-y-4" onSubmit={handleBroadcastSubmit}>
-          <div>
-            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="broadcast-segment">
-              Recipient segment
-            </label>
-            <select
-              id="broadcast-segment"
-              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-              value={resolvedSegment}
-              onChange={(event) => setSelectedSegment(event.target.value)}
-              disabled={segmentsQuery.isLoading || broadcastSegments.length === 0}
-            >
-              {segmentsQuery.isLoading && <option value="">Loading segments...</option>}
-              {broadcastSegments.map((segment) => (
-                <option key={segment.key} value={segment.key}>
-                  {segment.label} ({segment.recipient_count})
-                </option>
-              ))}
-            </select>
-            {selectedSegmentDetails && (
-              <p className="mt-2 text-xs text-slate-500">
-                {selectedSegmentDetails.description}{' '}
-                <span className="font-medium text-slate-600">
-                  • Recipients with email: {selectedSegmentDetails.recipient_count}
-                </span>
-              </p>
-            )}
-            {segmentsQuery.isError && (
-              <p className="mt-2 text-xs text-red-600">Unable to load broadcast segments.</p>
-            )}
-          </div>
+        <h3 className="mb-3 text-lg font-semibold text-slate-700">Create Communication</h3>
+        <form className="space-y-4" onSubmit={handleMessageSubmit}>
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium text-slate-600">Delivery type</legend>
+            <div className="flex flex-wrap gap-4 text-sm text-slate-600">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="delivery-type"
+                  value="BROADCAST"
+                  checked={messageType === 'BROADCAST'}
+                  onChange={() => handleMessageTypeChange('BROADCAST')}
+                />
+                Email broadcast
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="delivery-type"
+                  value="ANNOUNCEMENT"
+                  checked={messageType === 'ANNOUNCEMENT'}
+                  onChange={() => handleMessageTypeChange('ANNOUNCEMENT')}
+                />
+                Announcement
+              </label>
+            </div>
+          </fieldset>
+
+          {messageType === 'BROADCAST' && (
+            <div>
+              <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="broadcast-segment">
+                Recipient segment
+              </label>
+              <select
+                id="broadcast-segment"
+                className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                value={resolvedSegment}
+                onChange={(event) => setSelectedSegment(event.target.value)}
+                disabled={segmentsQuery.isLoading || broadcastSegments.length === 0}
+              >
+                {segmentsQuery.isLoading && <option value="">Loading segments...</option>}
+                {broadcastSegments.map((segment) => (
+                  <option key={segment.key} value={segment.key}>
+                    {segment.label} ({segment.recipient_count})
+                  </option>
+                ))}
+              </select>
+              {selectedSegmentDetails && (
+                <p className="mt-2 text-xs text-slate-500">
+                  {selectedSegmentDetails.description}{' '}
+                  <span className="font-medium text-slate-600">
+                    • Recipients with email: {selectedSegmentDetails.recipient_count}
+                  </span>
+                </p>
+              )}
+              {segmentsQuery.isError && (
+                <p className="mt-2 text-xs text-red-600">Unable to load broadcast segments.</p>
+              )}
+            </div>
+          )}
+
+          {messageType === 'ANNOUNCEMENT' && (
+            <fieldset className="flex gap-4 text-sm text-slate-600">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={deliveryEmail}
+                  onChange={(event) => setDeliveryEmail(event.target.checked)}
+                />
+                Email blast
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={deliveryPrint}
+                  onChange={(event) => setDeliveryPrint(event.target.checked)}
+                />
+                Print-ready packet
+              </label>
+            </fieldset>
+          )}
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="broadcast-template">
+            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="message-template">
               Template (optional)
             </label>
             <select
-              id="broadcast-template"
+              id="message-template"
               className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-              value={broadcastTemplateId}
-              onChange={(event) => handleBroadcastTemplateChange(event.target.value)}
-              disabled={broadcastTemplatesQuery.isLoading || broadcastTemplates.length === 0}
+              value={templateId}
+              onChange={(event) => handleTemplateChange(event.target.value)}
+              disabled={
+                (messageType === 'BROADCAST' && broadcastTemplatesQuery.isLoading) ||
+                (messageType === 'ANNOUNCEMENT' && announcementTemplatesQuery.isLoading) ||
+                availableTemplates.length === 0
+              }
             >
               <option value="">No template</option>
-              {broadcastTemplates.map((template) => (
+              {availableTemplates.map((template) => (
                 <option key={template.id} value={template.id}>
                   {template.name}
                 </option>
@@ -242,57 +286,57 @@ const CommunicationsPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="broadcast-subject">
+            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="message-subject">
               Subject
             </label>
             <input
-              id="broadcast-subject"
+              id="message-subject"
               className="w-full rounded border border-slate-300 px-3 py-2"
-              value={broadcastSubject}
-              onChange={(event) => setBroadcastSubject(event.target.value)}
+              value={subject}
+              onChange={(event) => setSubject(event.target.value)}
               required
             />
           </div>
 
           <div>
-            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="broadcast-body">
+            <label className="mb-1 block text-sm font-medium text-slate-600" htmlFor="message-body">
               Message
             </label>
             <textarea
-              id="broadcast-body"
+              id="message-body"
               rows={5}
               className="w-full rounded border border-slate-300 px-3 py-2"
-              value={broadcastBody}
-              onChange={(event) => setBroadcastBody(event.target.value)}
+              value={messageBody}
+              onChange={(event) => setMessageBody(event.target.value)}
               required
             />
             <p className="mt-2 text-xs text-slate-500">
-              Preview: <span className="font-medium text-slate-600">{broadcastSubjectPreview || '—'}</span>
+              Preview: <span className="font-medium text-slate-600">{subjectPreview || '—'}</span>
             </p>
-            <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{broadcastPreview || '—'}</p>
+            <p className="mt-1 whitespace-pre-wrap text-xs text-slate-500">{bodyPreview || '—'}</p>
           </div>
 
-          {broadcastStatus && <p className="text-sm text-green-600">{broadcastStatus}</p>}
-          {broadcastFormError && <p className="text-sm text-red-600">{broadcastFormError}</p>}
+          {formStatus && <p className="text-sm text-green-600">{formStatus}</p>}
+          {formError && <p className="text-sm text-red-600">{formError}</p>}
 
           <button
             type="submit"
             className="rounded bg-primary-600 px-4 py-2 text-white hover:bg-primary-500 disabled:cursor-not-allowed disabled:bg-slate-300"
-            disabled={broadcastSegments.length === 0}
+            disabled={messageType === 'BROADCAST' && broadcastSegments.length === 0}
           >
-            Record Broadcast
+            {messageType === 'BROADCAST' ? 'Record Broadcast' : 'Send Announcement'}
           </button>
         </form>
       </section>
 
       <section className="rounded border border-slate-200 p-4">
-        <h3 className="mb-3 text-lg font-semibold text-slate-700">Broadcast History</h3>
-        {broadcastsQuery.isError && (
-          <p className="mb-3 text-sm text-red-600">Unable to load recorded broadcasts.</p>
+        <h3 className="mb-3 text-lg font-semibold text-slate-700">Communication History</h3>
+        {messagesQuery.isError && (
+          <p className="mb-3 text-sm text-red-600">Unable to load communication history.</p>
         )}
-        {broadcasts.length === 0 ? (
+        {messages.length === 0 ? (
           <p className="text-sm text-slate-500">
-            {broadcastsQuery.isLoading ? 'Loading history…' : 'No outbound email broadcasts have been recorded.'}
+            {messagesQuery.isLoading ? 'Loading history…' : 'No communications have been recorded yet.'}
           </p>
         ) : (
           <ul className="space-y-3 text-sm">
@@ -517,10 +561,10 @@ const CommunicationsPage: React.FC = () => {
                     </div>
                   </details>
                 </li>
-              ))}
-            </ul>
-          )}
-        </div>
+              );
+            })}
+          </ul>
+        )}
       </section>
     </div>
   );

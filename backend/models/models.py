@@ -397,6 +397,24 @@ class EmailBroadcast(Base):
     creator = orm_relationship("User", back_populates="email_broadcasts")
 
 
+class CommunicationMessage(Base):
+    __tablename__ = "communication_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_type = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    segment = Column(String, nullable=True)
+    delivery_methods = Column(JSON, nullable=False, default=list)
+    recipient_snapshot = Column(JSON, nullable=False, default=list)
+    recipient_count = Column(Integer, nullable=False, default=0)
+    pdf_path = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    creator = orm_relationship("User", foreign_keys=[created_by_user_id])
+
+
 class Template(Base):
     __tablename__ = "templates"
 

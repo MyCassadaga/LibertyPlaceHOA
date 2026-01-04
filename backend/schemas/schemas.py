@@ -749,6 +749,44 @@ class EmailBroadcastRecipient(BaseModel):
     contact_type: Optional[str]
 
 
+class CommunicationMessageCreate(BaseModel):
+    message_type: Literal["ANNOUNCEMENT", "BROADCAST"]
+    subject: str
+    body: str
+    segment: Optional[str]
+    delivery_methods: Optional[List[str]]
+
+    @root_validator
+    def validate_message_type(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        message_type = values.get("message_type")
+        segment = values.get("segment")
+        delivery_methods = values.get("delivery_methods")
+        if message_type == "BROADCAST" and not segment:
+            raise ValueError("segment is required for broadcasts")
+        if message_type == "ANNOUNCEMENT":
+            if delivery_methods is not None and len(delivery_methods) == 0:
+                raise ValueError("delivery_methods must include at least one item")
+        return values
+
+
+class CommunicationMessageRead(BaseModel):
+    id: int
+    message_type: str
+    subject: str
+    body: str
+    segment: Optional[str]
+    delivery_methods: List[str]
+    recipients: List[EmailBroadcastRecipient] = Field(alias="recipient_snapshot")
+    recipient_count: int
+    pdf_path: Optional[str]
+    created_at: datetime
+    created_by_user_id: int
+
+    class Config:
+        orm_mode = True
+        allow_population_by_field_name = True
+
+
 class EmailBroadcastCreate(BaseModel):
     subject: str
     body: str

@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 
 from ..api.dependencies import get_db
 from ..auth.jwt import require_roles
-from ..models.models import Announcement, EmailBroadcast, Owner, User
+from ..models.models import Announcement, CommunicationMessage, EmailBroadcast, Owner, User
 from ..schemas.schemas import (
     AnnouncementCreate,
     AnnouncementRead,
+    CommunicationMessageCreate,
+    CommunicationMessageRead,
     EmailBroadcastCreate,
     EmailBroadcastRead,
     EmailBroadcastSegmentPreview,
@@ -196,6 +198,95 @@ def create_email_broadcast(
         },
     )
     return EmailBroadcastRead.from_orm(broadcast)
+
+
+@router.get("/messages", response_model=List[CommunicationMessageRead])
+def list_communication_messages(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
+) -> List[CommunicationMessageRead]:
+    messages = db.query(CommunicationMessage).order_by(CommunicationMessage.created_at.desc()).all()
+    return [CommunicationMessageRead.from_orm(message) for message in messages]
+
+
+@router.post("/messages", response_model=CommunicationMessageRead, status_code=status.HTTP_201_CREATED)
+def create_communication_message(
+    payload: CommunicationMessageCreate,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
+) -> CommunicationMessageRead:
+    subject = payload.subject.strip()
+    body = payload.body.strip()
+    if not subject or not body:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Subject and body cannot be empty.")
+
+    recipient_snapshot: List[Dict[str, Optional[str]]] = []
+    recipient_count = 0
+    pdf_path = None
+    segment_value = None
+    delivery_methods: List[str] = []
+
+    if payload.message_type == "BROADCAST":
+        try:
+            segment = BroadcastSegment(payload.segment)
+        except ValueError as exc:  # pragma: no cover - defensive, should be prevented by schema Literal
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown recipient segment."
+            ) from exc
+
+        recipient_snapshot = _resolve_segment_recipients(db, segment)
+        if not recipient_snapshot:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No recipients have emails for the selected segment. Update owner records before broadcasting.",
+            )
+        segment_value = segment.value
+        recipient_count = len(recipient_snapshot)
+        delivery_methods = ["email"]
+    else:
+        delivery_methods = [method.lower() for method in (payload.delivery_methods or ["email"])]
+        if not delivery_methods:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Select at least one delivery method."
+            )
+        recipient_emails = [owner.primary_email for owner in db.query(Owner).all() if owner.primary_email]
+        recipient_count = len(recipient_emails)
+        if "print" in delivery_methods:
+            pdf_path = generate_announcement_packet(subject, body)
+        if "email" in delivery_methods:
+            _queue_email(background, subject, body, recipient_emails)
+
+    message = CommunicationMessage(
+        message_type=payload.message_type,
+        subject=subject,
+        body=body,
+        segment=segment_value,
+        delivery_methods=delivery_methods,
+        recipient_snapshot=recipient_snapshot,
+        recipient_count=recipient_count,
+        pdf_path=pdf_path,
+        created_by_user_id=actor.id,
+    )
+    db.add(message)
+    db.commit()
+    db.refresh(message)
+
+    audit_log(
+        db_session=db,
+        actor_user_id=actor.id,
+        action="communications.message.create",
+        target_entity_type="CommunicationMessage",
+        target_entity_id=str(message.id),
+        after={
+            "message_type": message.message_type,
+            "subject": message.subject,
+            "segment": message.segment,
+            "delivery_methods": message.delivery_methods,
+            "recipient_count": message.recipient_count,
+        },
+    )
+    return CommunicationMessageRead.from_orm(message)
 
 
 @router.get("/announcements", response_model=List[AnnouncementRead])
