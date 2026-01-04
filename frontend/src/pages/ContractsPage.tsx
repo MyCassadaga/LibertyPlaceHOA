@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import { fetchContracts } from '../services/api';
+import {
+  createContract,
+  fetchContracts,
+  getContractAttachmentDownloadUrl,
+  updateContract,
+  uploadContractAttachment,
+} from '../services/api';
 import {
   useContractsQuery,
   useCreateVendorPaymentMutation,
@@ -36,7 +42,9 @@ const ContractsPage: React.FC = () => {
   const [vendorError, setVendorError] = useState<string | null>(null);
 
   const managerRoles = useMemo(() => ['BOARD', 'TREASURER', 'SYSADMIN'], []);
+  const editorRoles = useMemo(() => ['TREASURER', 'SYSADMIN'], []);
   const isManager = useMemo(() => userHasAnyRole(user, managerRoles), [user, managerRoles]);
+  const canEditContracts = useMemo(() => userHasAnyRole(user, editorRoles), [user, editorRoles]);
 
   const contractsQuery = useContractsQuery(isManager);
   const vendorPaymentsQuery = useVendorPaymentsQuery(isManager);
@@ -46,6 +54,21 @@ const ContractsPage: React.FC = () => {
 
   const vendorPayments = vendorPaymentsQuery.data ?? [];
   const isCheckPayment = vendorForm.paymentMethod === 'CHECK';
+
+  const resetContractForm = () => {
+    setContractForm({
+      vendorName: '',
+      serviceType: '',
+      startDate: '',
+      endDate: '',
+      autoRenew: false,
+      terminationNoticeDeadline: '',
+      value: '',
+      notes: '',
+    });
+    setEditingContractId(null);
+    setAttachmentFile(null);
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -70,6 +93,64 @@ const ContractsPage: React.FC = () => {
     const parsedRaw = typeof value === 'string' ? Number(value) : value;
     const parsed = Number.isFinite(parsedRaw) ? parsedRaw : 0;
     return parsed.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
+  };
+
+  const handleContractFormChange = (field: keyof typeof contractForm, value: string | boolean) => {
+    setContractForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleEditContract = (contract: Contract) => {
+    setContractForm({
+      vendorName: contract.vendor_name,
+      serviceType: contract.service_type ?? '',
+      startDate: contract.start_date ?? '',
+      endDate: contract.end_date ?? '',
+      autoRenew: contract.auto_renew,
+      terminationNoticeDeadline: contract.termination_notice_deadline ?? '',
+      value: contract.value ?? '',
+      notes: contract.notes ?? '',
+    });
+    setEditingContractId(contract.id);
+    setAttachmentFile(null);
+    setContractStatus(null);
+    setContractError(null);
+  };
+
+  const handleSaveContract = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setContractBusy(true);
+    setContractStatus(null);
+    setContractError(null);
+    try {
+      const payload = {
+        vendor_name: contractForm.vendorName.trim(),
+        service_type: contractForm.serviceType.trim() || null,
+        start_date: contractForm.startDate,
+        end_date: contractForm.endDate || null,
+        auto_renew: contractForm.autoRenew,
+        termination_notice_deadline: contractForm.terminationNoticeDeadline || null,
+        value: contractForm.value || null,
+        notes: contractForm.notes.trim() || null,
+      };
+
+      let saved: Contract;
+      if (editingContractId) {
+        saved = await updateContract(editingContractId, payload);
+      } else {
+        saved = await createContract(payload);
+      }
+
+      if (attachmentFile) {
+        saved = await uploadContractAttachment(saved.id, attachmentFile);
+      }
+      await contractsQuery.refetch();
+      setContractStatus(editingContractId ? 'Contract updated.' : 'Contract created.');
+      resetContractForm();
+    } catch {
+      setContractError('Unable to save contract.');
+    } finally {
+      setContractBusy(false);
+    }
   };
 
   const handleVendorFormChange = (field: keyof typeof vendorForm, value: string) => {
@@ -173,6 +254,9 @@ const ContractsPage: React.FC = () => {
                 <th className="px-3 py-2 text-left font-medium text-slate-600">Start</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600">End</th>
                 <th className="px-3 py-2 text-left font-medium text-slate-600">Auto Renew</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600">Value</th>
+                <th className="px-3 py-2 text-left font-medium text-slate-600">Attachment</th>
+                {canEditContracts && <th className="px-3 py-2 text-right font-medium text-slate-600">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -180,7 +264,7 @@ const ContractsPage: React.FC = () => {
                 <tr key={contract.id}>
                   <td className="px-3 py-2">
                     <p className="font-semibold text-slate-700">{contract.vendor_name}</p>
-                    {contract.memo && <p className="text-xs text-slate-500">{contract.memo}</p>}
+                    {contract.notes && <p className="text-xs text-slate-500">{contract.notes}</p>}
                   </td>
                   <td className="px-3 py-2">{contract.service_type ?? '—'}</td>
                   <td className="px-3 py-2">{new Date(contract.start_date).toLocaleDateString()}</td>
@@ -188,6 +272,32 @@ const ContractsPage: React.FC = () => {
                     {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : 'Open'}
                   </td>
                   <td className="px-3 py-2">{contract.auto_renew ? 'Yes' : 'No'}</td>
+                  <td className="px-3 py-2">{contract.value ? formatCurrency(contract.value) : '—'}</td>
+                  <td className="px-3 py-2">
+                    {contract.attachment_download_url ? (
+                      <a
+                        className="text-xs font-semibold text-primary-600 hover:text-primary-500"
+                        href={contract.attachment_download_url || getContractAttachmentDownloadUrl(contract.id)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Download PDF
+                      </a>
+                    ) : (
+                      <span className="text-xs text-slate-400">No file</span>
+                    )}
+                  </td>
+                  {canEditContracts && (
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        type="button"
+                        className="rounded border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                        onClick={() => handleEditContract(contract)}
+                      >
+                        Edit
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -196,7 +306,136 @@ const ContractsPage: React.FC = () => {
             <p className="px-3 py-4 text-sm text-slate-500">No contracts recorded yet.</p>
           )}
         </div>
+        {!canEditContracts && (
+          <p className="text-sm text-slate-500">
+            You have read-only access to contracts. Contact a treasurer or sysadmin to make changes.
+          </p>
+        )}
       </div>
+
+      {canEditContracts && (
+        <section className="rounded border border-slate-200 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-700">
+                {editingContractId ? 'Edit contract' : 'Add contract'}
+              </h3>
+              <p className="text-sm text-slate-500">Upload contract PDFs and track renewal dates.</p>
+            </div>
+            {contractStatus && <span className="text-xs text-emerald-600">{contractStatus}</span>}
+          </div>
+          {contractError && <p className="mt-2 text-sm text-red-600">{contractError}</p>}
+          <form className="mt-4 grid gap-3 md:grid-cols-3" onSubmit={handleSaveContract}>
+            <label className="text-sm">
+              <span className="text-xs uppercase text-slate-500">Vendor</span>
+              <input
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={contractForm.vendorName}
+                onChange={(event) => handleContractFormChange('vendorName', event.target.value)}
+                placeholder="ACME Landscaping"
+                required
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-xs uppercase text-slate-500">Service</span>
+              <input
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={contractForm.serviceType}
+                onChange={(event) => handleContractFormChange('serviceType', event.target.value)}
+                placeholder="Landscaping"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-xs uppercase text-slate-500">Value</span>
+              <input
+                type="number"
+                step="0.01"
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={contractForm.value}
+                onChange={(event) => handleContractFormChange('value', event.target.value)}
+                placeholder="0.00"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-xs uppercase text-slate-500">Start date</span>
+              <input
+                type="date"
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={contractForm.startDate}
+                onChange={(event) => handleContractFormChange('startDate', event.target.value)}
+                required
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-xs uppercase text-slate-500">End date</span>
+              <input
+                type="date"
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={contractForm.endDate}
+                onChange={(event) => handleContractFormChange('endDate', event.target.value)}
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-xs uppercase text-slate-500">Notice deadline</span>
+              <input
+                type="date"
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={contractForm.terminationNoticeDeadline}
+                onChange={(event) => handleContractFormChange('terminationNoticeDeadline', event.target.value)}
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300 text-primary-600"
+                checked={contractForm.autoRenew}
+                onChange={(event) => handleContractFormChange('autoRenew', event.target.checked)}
+              />
+              <span className="text-xs uppercase text-slate-500">Auto renew</span>
+            </label>
+            <label className="text-sm md:col-span-2">
+              <span className="text-xs uppercase text-slate-500">Attachment (PDF)</span>
+              <input
+                type="file"
+                accept="application/pdf"
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-xs"
+                onChange={(event) => setAttachmentFile(event.target.files?.[0] ?? null)}
+              />
+              {editingContractId && (
+                <p className="mt-1 text-xs text-slate-400">Uploading a file replaces the existing attachment.</p>
+              )}
+            </label>
+            <label className="text-sm md:col-span-3">
+              <span className="text-xs uppercase text-slate-500">Notes</span>
+              <textarea
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                rows={3}
+                value={contractForm.notes}
+                onChange={(event) => handleContractFormChange('notes', event.target.value)}
+                placeholder="Renewal notes or contact details"
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-3 md:col-span-3">
+              <button
+                type="submit"
+                className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
+                disabled={contractBusy}
+              >
+                {contractBusy ? 'Saving…' : editingContractId ? 'Save changes' : 'Create contract'}
+              </button>
+              {editingContractId && (
+                <button
+                  type="button"
+                  className="rounded border border-slate-300 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 hover:bg-slate-50"
+                  onClick={resetContractForm}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </form>
+        </section>
+      )}
 
       {isManager && (
         <section className="rounded border border-slate-200 p-4">
