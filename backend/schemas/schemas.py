@@ -639,16 +639,27 @@ class ContractRead(BaseModel):
         orm_mode = True
 
 
+VendorPaymentMethod = Literal["ACH", "CHECK", "WIRE", "CARD", "CASH", "OTHER"]
+
+
 class VendorPaymentCreate(BaseModel):
     contract_id: Optional[int]
     vendor_name: Optional[str]
     amount: condecimal(ge=0, max_digits=12, decimal_places=2)
-    memo: Optional[str]
+    payment_method: VendorPaymentMethod
+    check_number: Optional[str]
+    notes: Optional[str]
 
     @root_validator
     def vendor_requirement(cls, values):
         if not values.get("vendor_name") and not values.get("contract_id"):
             raise ValueError("vendor_name is required when contract_id is not provided")
+        payment_method = values.get("payment_method")
+        check_number = values.get("check_number")
+        if payment_method == "CHECK" and not check_number:
+            raise ValueError("check_number is required when payment_method is CHECK")
+        if payment_method != "CHECK" and check_number:
+            raise ValueError("check_number is only allowed when payment_method is CHECK")
         return values
 
 
@@ -657,7 +668,9 @@ class VendorPaymentRead(BaseModel):
     contract_id: Optional[int]
     vendor_name: str
     amount: Decimal
-    memo: Optional[str]
+    payment_method: VendorPaymentMethod
+    check_number: Optional[str]
+    notes: Optional[str]
     status: str
     provider: str
     provider_status: Optional[str]
