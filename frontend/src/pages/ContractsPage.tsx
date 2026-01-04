@@ -22,26 +22,20 @@ const ContractsPage: React.FC = () => {
   const { user } = useAuth();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
-  const [contractForm, setContractForm] = useState({
-    vendorName: '',
-    serviceType: '',
-    startDate: '',
-    endDate: '',
-    autoRenew: false,
-    terminationNoticeDeadline: '',
-    value: '',
-    notes: '',
-  });
-  const [editingContractId, setEditingContractId] = useState<number | null>(null);
-  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
-  const [contractBusy, setContractBusy] = useState(false);
-  const [contractStatus, setContractStatus] = useState<string | null>(null);
-  const [contractError, setContractError] = useState<string | null>(null);
-  const [vendorForm, setVendorForm] = useState<{ contractId: string; vendorName: string; amount: string; memo: string }>({
+  const [vendorForm, setVendorForm] = useState<{
+    contractId: string;
+    vendorName: string;
+    amount: string;
+    paymentMethod: 'ACH' | 'CHECK' | 'WIRE' | 'CARD' | 'CASH' | 'OTHER';
+    checkNumber: string;
+    notes: string;
+  }>({
     contractId: '',
     vendorName: '',
     amount: '',
-    memo: '',
+    paymentMethod: 'ACH',
+    checkNumber: '',
+    notes: '',
   });
   const [vendorBusy, setVendorBusy] = useState(false);
   const [vendorStatus, setVendorStatus] = useState<string | null>(null);
@@ -59,6 +53,7 @@ const ContractsPage: React.FC = () => {
   const markVendorPaymentPaidMutation = useMarkVendorPaymentPaidMutation();
 
   const vendorPayments = vendorPaymentsQuery.data ?? [];
+  const isCheckPayment = vendorForm.paymentMethod === 'CHECK';
 
   const resetContractForm = () => {
     setContractForm({
@@ -168,6 +163,13 @@ const ContractsPage: React.FC = () => {
           vendorName: selected ? selected.vendor_name : prev.vendorName,
         };
       }
+      if (field === 'paymentMethod') {
+        return {
+          ...prev,
+          paymentMethod: value as typeof prev.paymentMethod,
+          checkNumber: value === 'CHECK' ? prev.checkNumber : '',
+        };
+      }
       return { ...prev, [field]: value };
     });
   };
@@ -182,9 +184,12 @@ const ContractsPage: React.FC = () => {
         contract_id?: number | null;
         vendor_name?: string;
         amount: string;
-        memo?: string;
+        payment_method: 'ACH' | 'CHECK' | 'WIRE' | 'CARD' | 'CASH' | 'OTHER';
+        check_number?: string;
+        notes?: string;
       } = {
         amount: vendorForm.amount,
+        payment_method: vendorForm.paymentMethod,
       };
       if (vendorForm.contractId) {
         payload.contract_id = Number(vendorForm.contractId);
@@ -192,12 +197,15 @@ const ContractsPage: React.FC = () => {
       if (vendorForm.vendorName.trim()) {
         payload.vendor_name = vendorForm.vendorName.trim();
       }
-      if (vendorForm.memo.trim()) {
-        payload.memo = vendorForm.memo.trim();
+      if (vendorForm.checkNumber.trim()) {
+        payload.check_number = vendorForm.checkNumber.trim();
+      }
+      if (vendorForm.notes.trim()) {
+        payload.notes = vendorForm.notes.trim();
       }
       const record = await createVendorPayment.mutateAsync(payload);
       setVendorStatus(`Drafted payment for ${record.vendor_name}.`);
-      setVendorForm({ contractId: '', vendorName: '', amount: '', memo: '' });
+      setVendorForm({ contractId: '', vendorName: '', amount: '', paymentMethod: 'ACH', checkNumber: '', notes: '' });
       await vendorPaymentsQuery.refetch();
     } catch {
       setVendorError('Unable to create vendor payment.');
@@ -442,7 +450,7 @@ const ContractsPage: React.FC = () => {
           {vendorPaymentsQuery.isError && (
             <p className="mt-2 text-sm text-red-600">Unable to load vendor payments.</p>
           )}
-          <form className="mt-3 grid gap-3 md:grid-cols-4" onSubmit={handleCreateVendorPayment}>
+          <form className="mt-3 grid gap-3 md:grid-cols-6" onSubmit={handleCreateVendorPayment}>
             <label className="text-sm">
               <span className="text-xs uppercase text-slate-500">Contract</span>
               <select
@@ -480,15 +488,42 @@ const ContractsPage: React.FC = () => {
               />
             </label>
             <label className="text-sm">
-              <span className="text-xs uppercase text-slate-500">Memo</span>
+              <span className="text-xs uppercase text-slate-500">Payment method</span>
+              <select
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={vendorForm.paymentMethod}
+                onChange={(event) => handleVendorFormChange('paymentMethod', event.target.value)}
+              >
+                <option value="ACH">ACH</option>
+                <option value="CHECK">Check</option>
+                <option value="WIRE">Wire</option>
+                <option value="CARD">Card</option>
+                <option value="CASH">Cash</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </label>
+            <label className="text-sm">
+              <span className="text-xs uppercase text-slate-500">Check #</span>
               <input
                 className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
-                value={vendorForm.memo}
-                onChange={(event) => handleVendorFormChange('memo', event.target.value)}
-                placeholder="Monthly retainer"
+                value={vendorForm.checkNumber}
+                onChange={(event) => handleVendorFormChange('checkNumber', event.target.value)}
+                placeholder={isCheckPayment ? '100245' : 'N/A'}
+                disabled={!isCheckPayment}
+                required={isCheckPayment}
               />
             </label>
-            <div className="md:col-span-4">
+            <label className="text-sm md:col-span-3">
+              <span className="text-xs uppercase text-slate-500">Notes</span>
+              <textarea
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={vendorForm.notes}
+                onChange={(event) => handleVendorFormChange('notes', event.target.value)}
+                placeholder="Invoice #, scope of work, or internal notes"
+                rows={2}
+              />
+            </label>
+            <div className="md:col-span-6">
               <button
                 type="submit"
                 className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
@@ -507,6 +542,7 @@ const ContractsPage: React.FC = () => {
                   <tr>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Vendor</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Amount</th>
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Method</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Status</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Requested</th>
                     <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Actions</th>
@@ -517,9 +553,13 @@ const ContractsPage: React.FC = () => {
                     <tr key={payment.id}>
                       <td className="px-3 py-2">
                         <p className="font-semibold text-slate-700">{payment.vendor_name}</p>
-                        {payment.memo && <p className="text-xs text-slate-500">{payment.memo}</p>}
+                        {payment.notes && <p className="text-xs text-slate-500">{payment.notes}</p>}
                       </td>
                       <td className="px-3 py-2">{formatCurrency(payment.amount)}</td>
+                      <td className="px-3 py-2 text-xs text-slate-500">
+                        <p className="uppercase">{payment.payment_method}</p>
+                        {payment.check_number && <p className="text-slate-400">Check #{payment.check_number}</p>}
+                      </td>
                       <td className="px-3 py-2 text-xs uppercase text-slate-500">{payment.status}</td>
                       <td className="px-3 py-2 text-xs text-slate-500">
                         {new Date(payment.requested_at).toLocaleDateString()}
@@ -553,7 +593,7 @@ const ContractsPage: React.FC = () => {
                   ))}
                   {!vendorPayments.length && (
                     <tr>
-                      <td colSpan={5} className="px-3 py-4 text-center text-sm text-slate-500">
+                      <td colSpan={6} className="px-3 py-4 text-center text-sm text-slate-500">
                         No vendor payouts yet.
                       </td>
                     </tr>

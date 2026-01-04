@@ -401,6 +401,24 @@ class EmailBroadcast(Base):
     creator = orm_relationship("User", back_populates="email_broadcasts")
 
 
+class CommunicationMessage(Base):
+    __tablename__ = "communication_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_type = Column(String, nullable=False)
+    subject = Column(String, nullable=False)
+    body = Column(Text, nullable=False)
+    segment = Column(String, nullable=True)
+    delivery_methods = Column(JSON, nullable=False, default=list)
+    recipient_snapshot = Column(JSON, nullable=False, default=list)
+    recipient_count = Column(Integer, nullable=False, default=0)
+    pdf_path = Column(String, nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    creator = orm_relationship("User", foreign_keys=[created_by_user_id])
+
+
 class Template(Base):
     __tablename__ = "templates"
 
@@ -482,7 +500,9 @@ class VendorPayment(Base):
     contract_id = Column(Integer, ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True)
     vendor_name = Column(String, nullable=False)
     amount = Column(Numeric(12, 2), nullable=False)
-    memo = Column(Text, nullable=True)
+    payment_method = Column(String, nullable=False, default="OTHER")
+    check_number = Column(String, nullable=True)
+    notes = Column(Text, nullable=True)
     requested_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     status = Column(String, nullable=False, default="PENDING")
     provider = Column(String, nullable=False, default="STRIPE")

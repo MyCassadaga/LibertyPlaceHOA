@@ -459,6 +459,20 @@ export interface Announcement {
   pdf_path?: string | null;
 }
 
+export interface CommunicationMessage {
+  id: number;
+  message_type: 'ANNOUNCEMENT' | 'BROADCAST';
+  subject: string;
+  body: string;
+  segment?: string | null;
+  delivery_methods: string[];
+  recipients: EmailBroadcastRecipient[];
+  recipient_count: number;
+  pdf_path?: string | null;
+  created_at: string;
+  created_by_user_id: number;
+}
+
 export interface Template {
   id: number;
   name: string;
@@ -766,7 +780,9 @@ export interface VendorPayment {
   contract_id?: number | null;
   vendor_name: string;
   amount: string;
-  memo?: string | null;
+  payment_method: 'ACH' | 'CHECK' | 'WIRE' | 'CARD' | 'CASH' | 'OTHER';
+  check_number?: string | null;
+  notes?: string | null;
   status: 'PENDING' | 'SUBMITTED' | 'FAILED' | 'PAID';
   provider: string;
   provider_status?: string | null;
