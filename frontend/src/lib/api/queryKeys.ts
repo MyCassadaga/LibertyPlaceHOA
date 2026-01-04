@@ -4,6 +4,7 @@ export const queryKeys = {
   contractReminders: ['contracts', 'reminders'] as const,
   announcements: ['communications', 'announcements'] as const,
   broadcasts: ['communications', 'broadcasts'] as const,
+  communicationsMessages: ['communications', 'messages'] as const,
   broadcastSegments: ['communications', 'broadcast-segments'] as const,
   templates: ['templates'] as const,
   templateMergeTags: ['templates', 'merge-tags'] as const,
