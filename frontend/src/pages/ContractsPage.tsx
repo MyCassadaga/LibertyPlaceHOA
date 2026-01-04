@@ -37,6 +37,21 @@ const ContractsPage: React.FC = () => {
     checkNumber: '',
     notes: '',
   });
+  const [contractForm, setContractForm] = useState({
+    vendorName: '',
+    serviceType: '',
+    startDate: '',
+    endDate: '',
+    autoRenew: false,
+    terminationNoticeDeadline: '',
+    value: '',
+    notes: '',
+  });
+  const [editingContractId, setEditingContractId] = useState<number | null>(null);
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [contractBusy, setContractBusy] = useState(false);
+  const [contractStatus, setContractStatus] = useState<string | null>(null);
+  const [contractError, setContractError] = useState<string | null>(null);
   const [vendorBusy, setVendorBusy] = useState(false);
   const [vendorStatus, setVendorStatus] = useState<string | null>(null);
   const [vendorError, setVendorError] = useState<string | null>(null);
