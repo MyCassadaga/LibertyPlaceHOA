@@ -9,6 +9,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session, joinedload
 
 from .api import (
@@ -105,7 +106,19 @@ async def lifespan(app: FastAPI):
         ensure_user_role_links(session)
         ensure_billing_policy(session)
         ensure_notice_types(session)
-        created_reminders = generate_contract_renewal_reminders(session)
+        try:
+            created_reminders = generate_contract_renewal_reminders(session)
+        except ProgrammingError as exc:
+            if "attachment_file_name" in str(exc) and "contracts" in str(exc):
+                logger.warning(
+                    "Skipping contract renewal reminders; contracts table is missing attachment columns. "
+                    "Run migrations to add contract attachment fields.",
+                    exc_info=exc,
+                )
+                session.rollback()
+                created_reminders = 0
+            else:
+                raise
         if created_reminders:
             session.commit()
         ensure_homeowner_owner_records(session)
