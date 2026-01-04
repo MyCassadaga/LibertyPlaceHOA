@@ -1,5 +1,6 @@
 import {
   Announcement,
+  CommunicationMessage,
   Appeal,
   ARCCondition,
   ARCInspection,
@@ -120,7 +121,9 @@ export const createVendorPaymentRequest = async (payload: {
   contract_id?: number | null;
   vendor_name?: string;
   amount: string;
-  memo?: string;
+  payment_method: 'ACH' | 'CHECK' | 'WIRE' | 'CARD' | 'CASH' | 'OTHER';
+  check_number?: string;
+  notes?: string;
 }): Promise<VendorPayment> => {
   const { data } = await api.post<VendorPayment>('/payments/vendors', payload);
   return data;
@@ -570,6 +573,26 @@ export const createAnnouncement = async (payload: AnnouncementPayload): Promise<
 
 export const fetchAnnouncements = async (): Promise<Announcement[]> => {
   const { data } = await api.get<Announcement[]>('/communications/announcements');
+  return data;
+};
+
+export interface CommunicationMessagePayload {
+  message_type: 'ANNOUNCEMENT' | 'BROADCAST';
+  subject: string;
+  body: string;
+  segment?: string;
+  delivery_methods?: string[];
+}
+
+export const createCommunicationMessage = async (
+  payload: CommunicationMessagePayload,
+): Promise<CommunicationMessage> => {
+  const { data } = await api.post<CommunicationMessage>('/communications/messages', payload);
+  return data;
+};
+
+export const fetchCommunicationMessages = async (): Promise<CommunicationMessage[]> => {
+  const { data } = await api.get<CommunicationMessage[]>('/communications/messages');
   return data;
 };
 

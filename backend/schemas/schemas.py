@@ -639,16 +639,27 @@ class ContractRead(BaseModel):
         orm_mode = True
 
 
+VendorPaymentMethod = Literal["ACH", "CHECK", "WIRE", "CARD", "CASH", "OTHER"]
+
+
 class VendorPaymentCreate(BaseModel):
     contract_id: Optional[int]
     vendor_name: Optional[str]
     amount: condecimal(ge=0, max_digits=12, decimal_places=2)
-    memo: Optional[str]
+    payment_method: VendorPaymentMethod
+    check_number: Optional[str]
+    notes: Optional[str]
 
     @root_validator
     def vendor_requirement(cls, values):
         if not values.get("vendor_name") and not values.get("contract_id"):
             raise ValueError("vendor_name is required when contract_id is not provided")
+        payment_method = values.get("payment_method")
+        check_number = values.get("check_number")
+        if payment_method == "CHECK" and not check_number:
+            raise ValueError("check_number is required when payment_method is CHECK")
+        if payment_method != "CHECK" and check_number:
+            raise ValueError("check_number is only allowed when payment_method is CHECK")
         return values
 
 
@@ -657,7 +668,9 @@ class VendorPaymentRead(BaseModel):
     contract_id: Optional[int]
     vendor_name: str
     amount: Decimal
-    memo: Optional[str]
+    payment_method: VendorPaymentMethod
+    check_number: Optional[str]
+    notes: Optional[str]
     status: str
     provider: str
     provider_status: Optional[str]
@@ -753,6 +766,44 @@ class EmailBroadcastRecipient(BaseModel):
     property_address: Optional[str]
     email: EmailStr
     contact_type: Optional[str]
+
+
+class CommunicationMessageCreate(BaseModel):
+    message_type: Literal["ANNOUNCEMENT", "BROADCAST"]
+    subject: str
+    body: str
+    segment: Optional[str]
+    delivery_methods: Optional[List[str]]
+
+    @root_validator
+    def validate_message_type(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        message_type = values.get("message_type")
+        segment = values.get("segment")
+        delivery_methods = values.get("delivery_methods")
+        if message_type == "BROADCAST" and not segment:
+            raise ValueError("segment is required for broadcasts")
+        if message_type == "ANNOUNCEMENT":
+            if delivery_methods is not None and len(delivery_methods) == 0:
+                raise ValueError("delivery_methods must include at least one item")
+        return values
+
+
+class CommunicationMessageRead(BaseModel):
+    id: int
+    message_type: str
+    subject: str
+    body: str
+    segment: Optional[str]
+    delivery_methods: List[str]
+    recipients: List[EmailBroadcastRecipient] = Field(alias="recipient_snapshot")
+    recipient_count: int
+    pdf_path: Optional[str]
+    created_at: datetime
+    created_by_user_id: int
+
+    class Config:
+        orm_mode = True
+        allow_population_by_field_name = True
 
 
 class EmailBroadcastCreate(BaseModel):
