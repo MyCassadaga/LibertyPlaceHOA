@@ -121,7 +121,9 @@ export const createVendorPaymentRequest = async (payload: {
   contract_id?: number | null;
   vendor_name?: string;
   amount: string;
-  memo?: string;
+  payment_method: 'ACH' | 'CHECK' | 'WIRE' | 'CARD' | 'CASH' | 'OTHER';
+  check_number?: string;
+  notes?: string;
 }): Promise<VendorPayment> => {
   const { data } = await api.post<VendorPayment>('/payments/vendors', payload);
   return data;
