@@ -53,6 +53,14 @@ const CommunicationsPage: React.FC = () => {
   });
 
   const messages = messagesQuery.data ?? [];
+  const announcements = useMemo(
+    () => messages.filter((message) => message.message_type === 'ANNOUNCEMENT'),
+    [messages],
+  );
+  const broadcasts = useMemo(
+    () => messages.filter((message) => message.message_type === 'BROADCAST'),
+    [messages],
+  );
   const announcementTemplates = useMemo(
     () => announcementTemplatesQuery.data ?? [],
     [announcementTemplatesQuery.data],
@@ -174,37 +182,59 @@ const CommunicationsPage: React.FC = () => {
   const bodyPreview = renderMergeTags(messageBody, mergeTags);
   const subjectPreview = renderMergeTags(subject, mergeTags);
 
-  const unifiedHistory = useMemo(() => {
-    const normalizedAnnouncements = announcements.map((announcement) => ({
-      id: `announcement-${announcement.id}`,
-      type: 'ANNOUNCEMENT' as const,
-      subject: announcement.subject,
-      body: announcement.body,
-      created_at: announcement.created_at,
-      delivery_methods: announcement.delivery_methods,
-      recipient_count: announcement.recipient_count,
-      recipients: announcement.recipients ?? [],
-      sender_snapshot: announcement.sender_snapshot,
-    }));
-    const normalizedBroadcasts = broadcasts.map((broadcast) => ({
-      id: `broadcast-${broadcast.id}`,
-      type: 'BROADCAST' as const,
-      subject: broadcast.subject,
-      body: broadcast.body,
-      created_at: broadcast.created_at,
-      delivery_methods: broadcast.delivery_methods ?? ['email'],
-      recipient_count: broadcast.recipient_count,
-      recipients: broadcast.recipients ?? [],
-      sender_snapshot: broadcast.sender_snapshot,
-      segment: broadcast.segment,
-    }));
-    return [...normalizedAnnouncements, ...normalizedBroadcasts].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-    );
-  }, [announcements, broadcasts]);
+  const [announcementTemplateId, setAnnouncementTemplateId] = useState('');
+  const [announcementSubject, setAnnouncementSubject] = useState('');
+  const [announcementMessage, setAnnouncementMessage] = useState('');
+  const [announcementStatus, setAnnouncementStatus] = useState<string | null>(null);
+  const [announcementError, setAnnouncementError] = useState<string | null>(null);
 
-  const formatDeliveryMethods = (methods: string[]) =>
-    methods.map((method) => method.replace(/_/g, ' ')).map((method) => method.toLowerCase()).join(', ');
+  const handleAnnouncementTemplateChange = (selectedId: string) => {
+    setAnnouncementTemplateId(selectedId);
+    const template = announcementTemplates.find((item) => item.id === Number(selectedId));
+    if (template) {
+      setAnnouncementSubject(template.subject);
+      setAnnouncementMessage(template.body);
+    }
+  };
+
+  const handleAnnouncementSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setAnnouncementStatus(null);
+    setAnnouncementError(null);
+
+    if (!announcementSubject.trim() || !announcementMessage.trim()) {
+      setAnnouncementError('Subject and message are both required.');
+      return;
+    }
+
+    const deliveryMethods = [] as string[];
+    if (deliveryEmail) deliveryMethods.push('email');
+    if (deliveryPrint) deliveryMethods.push('print');
+    if (deliveryMethods.length === 0) {
+      setAnnouncementError('Select at least one delivery method.');
+      return;
+    }
+
+    try {
+      await createCommunicationMessage({
+        message_type: 'ANNOUNCEMENT',
+        subject: announcementSubject,
+        body: announcementMessage,
+        delivery_methods: deliveryMethods,
+      });
+      setAnnouncementStatus('Announcement queued successfully.');
+      setAnnouncementSubject('');
+      setAnnouncementMessage('');
+      setAnnouncementTemplateId('');
+      await messagesQuery.refetch();
+    } catch (err) {
+      console.error('Unable to create announcement', err);
+      setAnnouncementError('Unable to record the announcement.');
+    }
+  };
+
+  const announcementPreview = renderMergeTags(announcementMessage, mergeTags);
+  const announcementSubjectPreview = renderMergeTags(announcementSubject, mergeTags);
 
   return (
     <div className="space-y-6">
@@ -366,7 +396,7 @@ const CommunicationsPage: React.FC = () => {
         {messagesQuery.isError && (
           <p className="mb-3 text-sm text-red-600">Unable to load communication history.</p>
         )}
-        {messages.length === 0 ? (
+        {broadcasts.length === 0 ? (
           <p className="text-sm text-slate-500">
             {messagesQuery.isLoading ? 'Loading history…' : 'No communications have been recorded yet.'}
           </p>
@@ -525,7 +555,7 @@ const CommunicationsPage: React.FC = () => {
           <h4 className="mb-2 text-base font-semibold text-slate-700">Recent Announcements</h4>
           {announcements.length === 0 ? (
             <p className="text-sm text-slate-500">
-              {announcementsQuery.isLoading ? 'Loading announcements…' : 'No announcements yet.'}
+              {messagesQuery.isLoading ? 'Loading announcements…' : 'No announcements yet.'}
             </p>
           ) : (
             <ul className="space-y-3 text-sm">
