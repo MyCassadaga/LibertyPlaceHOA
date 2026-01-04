@@ -318,6 +318,87 @@ const CommunicationsPage: React.FC = () => {
       </section>
 
       <section className="rounded border border-slate-200 p-4">
+        <h3 className="mb-3 text-lg font-semibold text-slate-700">Broadcast History</h3>
+        {broadcastsQuery.isError && (
+          <p className="mb-3 text-sm text-red-600">Unable to load recorded broadcasts.</p>
+        )}
+        {broadcasts.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            {broadcastsQuery.isLoading ? 'Loading history…' : 'No outbound email broadcasts have been recorded.'}
+          </p>
+        ) : (
+          <ul className="space-y-3 text-sm">
+            {broadcasts.map((broadcast) => (
+              <li key={broadcast.id} className="rounded border border-slate-200">
+                <details className="group">
+                  <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded px-3 py-3 hover:bg-slate-50">
+                    <div className="grid w-full gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-center">
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase text-slate-400">Email broadcast</p>
+                        <h4 className="truncate font-semibold text-slate-700">{broadcast.subject}</h4>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-400">Delivery method</p>
+                        <p className="font-medium text-slate-600">Email</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs text-slate-400">Sent</p>
+                        <p className="font-medium text-slate-600">
+                          {new Date(broadcast.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-xs font-semibold text-primary-600 group-open:text-primary-700">
+                      Details
+                    </span>
+                  </summary>
+                  <div className="border-t border-slate-200 px-3 py-3">
+                    <div className="grid gap-4 text-xs text-slate-600 sm:grid-cols-3">
+                      <div>
+                        <p className="text-slate-400">Segment</p>
+                        <p className="font-semibold text-slate-700">
+                          {resolveSegmentLabel(broadcast.segment)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400">Recipients stored</p>
+                        <p className="font-semibold text-slate-700">{broadcast.recipient_count}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400">Printable</p>
+                        <p className="font-semibold text-slate-700">Not available</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">{broadcast.body}</p>
+                    <div className="mt-4">
+                      <p className="text-xs font-semibold text-primary-600">
+                        Recipient snapshot ({broadcast.recipient_count})
+                      </p>
+                      <ul className="mt-2 grid gap-2 text-xs md:grid-cols-2">
+                        {(broadcast.recipients ?? []).map((recipient) => (
+                          <li
+                            key={`${recipient.email}-${recipient.owner_id ?? 'none'}-${recipient.contact_type ?? 'contact'}`}
+                            className="rounded border border-slate-200 p-2"
+                          >
+                            <p className="font-medium text-slate-700">{recipient.email}</p>
+                            <p className="text-slate-500">
+                              {recipient.owner_name ?? 'Unassigned'}
+                              {recipient.property_address ? ` • ${recipient.property_address}` : ''}
+                              {recipient.contact_type ? ` (${recipient.contact_type})` : ''}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </details>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="rounded border border-slate-200 p-4">
         <h3 className="mb-3 text-lg font-semibold text-slate-700">Community Announcements</h3>
         <form onSubmit={handleAnnouncementSubmit} className="space-y-4">
           <div>
@@ -396,71 +477,82 @@ const CommunicationsPage: React.FC = () => {
           </button>
         </form>
 
-      </section>
-
-      <section className="rounded border border-slate-200 p-4">
-        <h3 className="mb-3 text-lg font-semibold text-slate-700">Communications History</h3>
-        {(broadcastsQuery.isError || announcementsQuery.isError) && (
-          <p className="mb-3 text-sm text-red-600">Unable to load communications history.</p>
-        )}
-        {unifiedHistory.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            {broadcastsQuery.isLoading || announcementsQuery.isLoading
-              ? 'Loading history…'
-              : 'No communications have been recorded yet.'}
-          </p>
-        ) : (
-          <ul className="space-y-3 text-sm">
-            {unifiedHistory.map((entry) => (
-              <li key={entry.id} className="rounded border border-slate-200 p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h4 className="font-semibold text-slate-700">{entry.subject}</h4>
-                    <p className="text-xs uppercase text-slate-400">
-                      {entry.type === 'BROADCAST' ? 'Email broadcast' : 'Announcement'} • Delivery:{' '}
-                      {formatDeliveryMethods(entry.delivery_methods)} • Recipients stored: {entry.recipient_count}
-                    </p>
-                    {entry.type === 'BROADCAST' && entry.segment && (
-                      <p className="text-xs text-slate-400">Segment: {resolveSegmentLabel(entry.segment)}</p>
-                    )}
-                  </div>
-                  <span className="text-xs text-slate-500">{new Date(entry.created_at).toLocaleString()}</span>
-                </div>
-                {entry.sender_snapshot && (
-                  <p className="mt-2 text-xs text-slate-500">
-                    Sent by {entry.sender_snapshot.full_name ?? 'Board member'} (
-                    {entry.sender_snapshot.email})
-                  </p>
-                )}
-                <p className="mt-2 whitespace-pre-wrap text-slate-600">{entry.body}</p>
-                <details className="mt-3">
-                  <summary className="cursor-pointer text-xs font-semibold text-primary-600">
-                    View recipient snapshot ({entry.recipient_count})
-                  </summary>
-                  <ul className="mt-2 grid gap-2 text-xs md:grid-cols-2">
-                    {entry.recipients.map((recipient, index) => {
-                      const address = 'mailing_address' in recipient ? recipient.mailing_address : undefined;
-                      const email = 'email' in recipient ? recipient.email : undefined;
-                      return (
-                        <li
-                          key={`${email ?? address ?? 'recipient'}-${recipient.owner_id ?? 'none'}-${recipient.contact_type ?? index}`}
-                          className="rounded border border-slate-200 p-2"
-                        >
-                          <p className="font-medium text-slate-700">{email ?? address ?? 'No contact on file'}</p>
-                          <p className="text-slate-500">
-                            {recipient.owner_name ?? 'Unassigned'}
-                            {recipient.property_address ? ` • ${recipient.property_address}` : ''}
-                            {recipient.contact_type ? ` (${recipient.contact_type})` : ''}
+        <div className="mt-6">
+          <h4 className="mb-2 text-base font-semibold text-slate-700">Recent Announcements</h4>
+          {announcements.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              {announcementsQuery.isLoading ? 'Loading announcements…' : 'No announcements yet.'}
+            </p>
+          ) : (
+            <ul className="space-y-3 text-sm">
+              {announcements.map((announcement) => (
+                <li key={announcement.id} className="rounded border border-slate-200">
+                  <details className="group">
+                    <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded px-3 py-3 hover:bg-slate-50">
+                      <div className="grid w-full gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] sm:items-center">
+                        <div className="min-w-0">
+                          <p className="text-xs uppercase text-slate-400">Announcement</p>
+                          <h5 className="truncate font-semibold text-slate-700">
+                            {announcement.subject}
+                          </h5>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-400">Delivery method</p>
+                          <p className="font-medium text-slate-600">
+                            {announcement.delivery_methods.join(', ')}
                           </p>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </details>
-              </li>
-            ))}
-          </ul>
-        )}
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-slate-400">Sent</p>
+                          <p className="font-medium text-slate-600">
+                            {new Date(announcement.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold text-primary-600 group-open:text-primary-700">
+                        Details
+                      </span>
+                    </summary>
+                    <div className="border-t border-slate-200 px-3 py-3">
+                      <div className="grid gap-4 text-xs text-slate-600 sm:grid-cols-3">
+                        <div>
+                          <p className="text-slate-400">Delivery methods</p>
+                          <p className="font-semibold text-slate-700">
+                            {announcement.delivery_methods.join(', ')}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Printable packet</p>
+                          <p className="font-semibold text-slate-700">
+                            {announcement.pdf_path ? 'Available' : 'Not available'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-slate-400">Printable link</p>
+                          {announcement.pdf_path ? (
+                            <a
+                              className="font-semibold text-primary-600 hover:text-primary-500"
+                              href={announcement.pdf_path}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              View PDF
+                            </a>
+                          ) : (
+                            <p className="font-semibold text-slate-700">—</p>
+                          )}
+                        </div>
+                      </div>
+                      <p className="mt-3 whitespace-pre-wrap text-sm text-slate-600">
+                        {announcement.body}
+                      </p>
+                    </div>
+                  </details>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
     </div>
   );

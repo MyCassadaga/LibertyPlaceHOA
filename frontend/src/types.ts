@@ -781,7 +781,9 @@ export interface VendorPayment {
   contract_id?: number | null;
   vendor_name: string;
   amount: string;
-  memo?: string | null;
+  payment_method: 'ACH' | 'CHECK' | 'WIRE' | 'CARD' | 'CASH' | 'OTHER';
+  check_number?: string | null;
+  notes?: string | null;
   status: 'PENDING' | 'SUBMITTED' | 'FAILED' | 'PAID';
   provider: string;
   provider_status?: string | null;
