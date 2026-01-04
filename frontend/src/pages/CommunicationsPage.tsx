@@ -593,10 +593,10 @@ const CommunicationsPage: React.FC = () => {
                     </div>
                   </details>
                 </li>
-              );
-            })}
-          </ul>
-        )}
+              ))}
+            </ul>
+          )}
+        </div>
       </section>
     </div>
   );
