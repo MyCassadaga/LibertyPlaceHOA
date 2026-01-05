@@ -201,11 +201,21 @@ def transition_arc_request_status(
     arc_request_id: int,
     payload: ARCRequestStatusUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_roles("ARC", "SYSADMIN")),
+    user: User = Depends(require_roles("HOMEOWNER", "ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
 ) -> ARCRequest:
     arc_request = db.get(ARCRequest, arc_request_id)
     if not arc_request:
         raise HTTPException(status_code=404, detail="ARC request not found.")
+
+    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
+    is_manager = user.has_any_role(*manager_roles)
+
+    if user.has_role("HOMEOWNER") and not is_manager:
+        owner = get_owner_for_user(db, user)
+        if not owner or owner.id != arc_request.owner_id:
+            raise HTTPException(status_code=403, detail="Not allowed to update this request.")
+        if payload.target_status != "SUBMITTED":
+            raise HTTPException(status_code=400, detail="Homeowners may only submit draft requests.")
 
     try:
         arc_service.transition_arc_request(

@@ -6,6 +6,7 @@ import { RequireAuth, RequireRole } from './components/AuthGuards';
 import { useAuth } from './hooks/useAuth';
 import FullPageSpinner from './components/feedback/FullPageSpinner';
 import AppErrorBoundary from './components/feedback/AppErrorBoundary';
+import { userHasRole } from './utils/roles';
 
 const BillingPage = lazy(() => import('./pages/BillingPage'));
 const CommunicationsPage = lazy(() => import('./pages/CommunicationsPage'));
@@ -28,10 +29,12 @@ const DocumentsPage = lazy(() => import('./pages/DocumentsPage'));
 const MeetingsPage = lazy(() => import('./pages/MeetingsPage'));
 const NotificationsPage = lazy(() => import('./pages/NotificationsPage'));
 const TemplatesPage = lazy(() => import('./pages/TemplatesPage'));
+const LegalPage = lazy(() => import('./pages/LegalPage'));
 
 const App: React.FC = () => {
   const { user, loading } = useAuth();
   const loadingScreen = <FullPageSpinner label="Bootstrapping session…" />;
+  const defaultRoute = userHasRole(user, 'LEGAL') ? '/legal' : '/dashboard';
 
   return (
     <AppErrorBoundary>
@@ -39,7 +42,7 @@ const App: React.FC = () => {
         <Routes>
         <Route
           path="/login"
-          element={user ? <Navigate to="/dashboard" replace /> : loading ? loadingScreen : <LoginPage />}
+          element={user ? <Navigate to={defaultRoute} replace /> : loading ? loadingScreen : <LoginPage />}
         />
       <Route
         path="/"
@@ -49,7 +52,7 @@ const App: React.FC = () => {
           </RequireAuth>
         }
       >
-        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route index element={<Navigate to={defaultRoute} replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="billing" element={<BillingPage />} />
@@ -83,7 +86,7 @@ const App: React.FC = () => {
         <Route
           path="contracts"
           element={
-            <RequireRole allowed={["BOARD", "TREASURER", "ATTORNEY", "SYSADMIN"]}>
+            <RequireRole allowed={["BOARD", "TREASURER", "ATTORNEY", "SYSADMIN", "LEGAL"]}>
               <ContractsPage />
             </RequireRole>
           }
@@ -99,8 +102,16 @@ const App: React.FC = () => {
         <Route
           path="templates"
           element={
-            <RequireRole allowed={["BOARD", "SECRETARY", "SYSADMIN"]}>
+            <RequireRole allowed={["SYSADMIN"]}>
               <TemplatesPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="legal"
+          element={
+            <RequireRole allowed={["LEGAL", "SYSADMIN"]}>
+              <LegalPage />
             </RequireRole>
           }
         />
@@ -123,7 +134,7 @@ const App: React.FC = () => {
         <Route
           path="arc"
           element={
-            <RequireRole allowed={["BOARD", "SYSADMIN", "SECRETARY", "HOMEOWNER"]}>
+            <RequireRole allowed={["BOARD", "ARC", "SYSADMIN", "SECRETARY", "TREASURER", "HOMEOWNER"]}>
               <ARCPage />
             </RequireRole>
           }

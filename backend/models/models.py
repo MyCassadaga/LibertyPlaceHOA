@@ -356,6 +356,7 @@ class Contract(Base):
     id = Column(Integer, primary_key=True, index=True)
     vendor_name = Column(String, nullable=False)
     service_type = Column(String, nullable=True)
+    contact_email = Column(String, nullable=True)
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=True)
     auto_renew = Column(Boolean, default=False, nullable=False)
@@ -670,6 +671,20 @@ class Reconciliation(Base):
 
     creator = orm_relationship("User")
     transactions = orm_relationship("BankTransaction", back_populates="reconciliation", cascade="all, delete-orphan")
+
+
+class BankBalanceSnapshot(Base):
+    __tablename__ = "bank_balance_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    recorded_date = Column(Date, nullable=False)
+    balance = Column(Numeric(14, 2), nullable=False)
+    snapshot_type = Column(String, nullable=False, default="CURRENT")  # CURRENT | YEAR_END
+    note = Column(Text, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    creator = orm_relationship("User")
 
 
 class BankTransaction(Base):

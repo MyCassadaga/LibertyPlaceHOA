@@ -8,6 +8,7 @@ import {
   ARCAttachment,
   BankImportSummary,
   BankTransaction,
+  BankBalanceSnapshot,
   BillingPolicy,
   BillingPolicyUpdatePayload,
   BillingSummary,
@@ -464,6 +465,7 @@ export const fetchContracts = async (): Promise<Contract[]> => {
 export interface ContractCreatePayload {
   vendor_name: string;
   service_type?: string | null;
+  contact_email?: string | null;
   start_date: string;
   end_date?: string | null;
   auto_renew: boolean;
@@ -475,6 +477,7 @@ export interface ContractCreatePayload {
 export interface ContractUpdatePayload {
   vendor_name?: string | null;
   service_type?: string | null;
+  contact_email?: string | null;
   start_date?: string | null;
   end_date?: string | null;
   auto_renew?: boolean;
@@ -695,6 +698,23 @@ export const updateTemplate = async (templateId: number, payload: Partial<Templa
 
 export const fetchTemplateMergeTags = async (): Promise<TemplateMergeTag[]> => {
   const { data } = await api.get<TemplateMergeTag[]>('/templates/merge-tags');
+  return data;
+};
+
+export const fetchLegalTemplates = async (): Promise<Template[]> => {
+  const { data } = await api.get<Template[]>('/legal/templates');
+  return data;
+};
+
+export const sendLegalMessage = async (payload: {
+  contract_id: number;
+  subject: string;
+  body: string;
+}): Promise<{ contract_id: number; recipient: string; sent_to: string[] }> => {
+  const { data } = await api.post<{ contract_id: number; recipient: string; sent_to: string[] }>(
+    '/legal/messages',
+    payload,
+  );
   return data;
 };
 
@@ -1100,6 +1120,21 @@ export const fetchReconciliationById = async (id: number): Promise<Reconciliatio
 export const fetchBankTransactions = async (status?: string): Promise<BankTransaction[]> => {
   const params = status ? `?status=${encodeURIComponent(status)}` : '';
   const { data } = await api.get<BankTransaction[]>(`/banking/transactions${params}`);
+  return data;
+};
+
+export const fetchBankBalanceSnapshots = async (): Promise<BankBalanceSnapshot[]> => {
+  const { data } = await api.get<BankBalanceSnapshot[]>('/banking/balances');
+  return data;
+};
+
+export const createBankBalanceSnapshot = async (payload: {
+  recorded_date: string;
+  balance: string;
+  snapshot_type: 'CURRENT' | 'YEAR_END';
+  note?: string | null;
+}): Promise<BankBalanceSnapshot> => {
+  const { data } = await api.post<BankBalanceSnapshot>('/banking/balances', payload);
   return data;
 };
 

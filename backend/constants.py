@@ -6,6 +6,7 @@ DEFAULT_ROLES = [
     ("ARC", "Architectural Review Committee member"),
     ("AUDITOR", "Auditor/CPA with read access to financial records"),
     ("ATTORNEY", "Attorney with access to legal documents"),
+    ("LEGAL", "Legal contract holder access"),
     ("SYSADMIN", "System administrator with full access"),
 ]
 
@@ -15,6 +16,7 @@ ROLE_PRIORITY = {
     "ARC": 20,
     "SECRETARY": 30,
     "ATTORNEY": 35,
+    "LEGAL": 36,
     "BOARD": 40,
     "TREASURER": 50,
     "AUDITOR": 60,

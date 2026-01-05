@@ -6,8 +6,14 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..api.dependencies import get_db
 from ..auth.jwt import get_current_user, require_roles
-from ..models.models import BankTransaction, Reconciliation, User
-from ..schemas.schemas import BankImportSummary, BankTransactionRead, ReconciliationRead
+from ..models.models import BankTransaction, Reconciliation, User, BankBalanceSnapshot
+from ..schemas.schemas import (
+    BankBalanceSnapshotCreate,
+    BankBalanceSnapshotRead,
+    BankImportSummary,
+    BankTransactionRead,
+    ReconciliationRead,
+)
 from ..services import bank_reconciliation
 from ..services.audit import audit_log
 
@@ -108,3 +114,46 @@ def list_transactions(
         target_entity_id=status or "all",
     )
     return transactions
+
+
+@router.get("/balances", response_model=List[BankBalanceSnapshotRead])
+def list_balance_snapshots(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("BOARD", "TREASURER", "SYSADMIN")),
+) -> List[BankBalanceSnapshot]:
+    return (
+        db.query(BankBalanceSnapshot)
+        .order_by(BankBalanceSnapshot.recorded_date.desc(), BankBalanceSnapshot.created_at.desc())
+        .all()
+    )
+
+
+@router.post("/balances", response_model=BankBalanceSnapshotRead, status_code=201)
+def create_balance_snapshot(
+    payload: BankBalanceSnapshotCreate,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_roles("TREASURER", "SYSADMIN")),
+) -> BankBalanceSnapshot:
+    snapshot = BankBalanceSnapshot(
+        recorded_date=payload.recorded_date,
+        balance=payload.balance,
+        snapshot_type=payload.snapshot_type,
+        note=payload.note,
+        created_by_user_id=actor.id,
+    )
+    db.add(snapshot)
+    db.commit()
+    db.refresh(snapshot)
+    audit_log(
+        db_session=db,
+        actor_user_id=actor.id,
+        action="banking.balance.create",
+        target_entity_type="BankBalanceSnapshot",
+        target_entity_id=str(snapshot.id),
+        after={
+            "recorded_date": snapshot.recorded_date.isoformat(),
+            "balance": str(snapshot.balance),
+            "snapshot_type": snapshot.snapshot_type,
+        },
+    )
+    return snapshot

@@ -433,6 +433,7 @@ export interface Contract {
   id: number;
   vendor_name: string;
   service_type?: string | null;
+  contact_email?: string | null;
   start_date: string;
   end_date?: string | null;
   auto_renew: boolean;
@@ -731,6 +732,16 @@ export interface Reconciliation {
 
 export interface BankImportSummary {
   reconciliation: Reconciliation;
+}
+
+export interface BankBalanceSnapshot {
+  id: number;
+  recorded_date: string;
+  balance: string;
+  snapshot_type: 'CURRENT' | 'YEAR_END';
+  note?: string | null;
+  created_by_user_id?: number | null;
+  created_at: string;
 }
 
 export interface BillingSummary {

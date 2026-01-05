@@ -496,9 +496,12 @@ const ElectionsPage: React.FC = () => {
                           { label: 'Abstentions', value: String(stats.abstentions) },
                           { label: 'Write-ins', value: String(stats.write_in_count) },
                         ].map((card) => (
-                          <div key={card.label} className="rounded border border-primary-200 bg-white/90 p-3">
-                            <p className="text-[11px] uppercase text-primary-500">{card.label}</p>
-                            <p className="text-lg font-semibold text-primary-700">{card.value}</p>
+                          <div
+                            key={card.label}
+                            className="min-w-0 rounded border border-primary-200 bg-white/90 p-3"
+                          >
+                            <p className="break-words text-[11px] uppercase text-primary-500">{card.label}</p>
+                            <p className="break-words text-lg font-semibold text-primary-700">{card.value}</p>
                           </div>
                         ))}
                       </div>

@@ -28,6 +28,7 @@ from .api import (
     notices,
     owners,
     paperwork,
+    legal,
     payments,
     reminders,
     reports,
@@ -331,6 +332,7 @@ app.include_router(reports.router, tags=["reports"])
 app.include_router(violations.router, prefix="/violations", tags=["violations"])
 app.include_router(arc.router, tags=["arc"])
 app.include_router(banking.router, tags=["banking"])
+app.include_router(legal.router, tags=["legal"])
 app.include_router(elections.router, prefix="/elections", tags=["elections"])
 app.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 app.include_router(paperwork.router)

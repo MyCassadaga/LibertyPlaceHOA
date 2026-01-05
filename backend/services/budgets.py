@@ -7,7 +7,7 @@ from typing import List, Tuple
 
 from sqlalchemy.orm import Session
 
-from ..models.models import Budget, Role, User, user_roles
+from ..models.models import Budget, Role, User, user_roles, ReservePlanItem
 
 
 DecimalT = Decimal
@@ -28,12 +28,31 @@ def compute_totals(budget: Budget) -> Tuple[DecimalT, DecimalT, DecimalT]:
             reserves_total += amount
         else:
             operations_total += amount
+    reserves_total += _calculate_reserve_contributions(budget)
     total = operations_total + reserves_total
     return (
         operations_total.quantize(Decimal("0.01")),
         reserves_total.quantize(Decimal("0.01")),
         total.quantize(Decimal("0.01")),
     )
+
+
+def _calculate_reserve_contributions(budget: Budget) -> DecimalT:
+    total = Decimal("0")
+    for item in budget.reserve_items:
+        annual = _reserve_item_annual_contribution(budget.year, item)
+        total += annual
+    return total
+
+
+def _reserve_item_annual_contribution(budget_year: int, item: ReservePlanItem) -> DecimalT:
+    years_remaining = max(item.target_year - budget_year, 1)
+    inflation_rate = Decimal(str(item.inflation_rate or 0))
+    projected_cost = _as_decimal(item.estimated_cost) * (Decimal("1") + inflation_rate) ** years_remaining
+    remaining = projected_cost - _as_decimal(item.current_funding)
+    if remaining <= 0:
+        return Decimal("0")
+    return (remaining / Decimal(years_remaining)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 def calculate_assessment(total_annual: DecimalT, home_count: int) -> DecimalT:

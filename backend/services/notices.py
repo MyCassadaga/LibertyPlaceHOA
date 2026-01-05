@@ -12,6 +12,7 @@ from ..services.templates import build_merge_context, render_template
 from ..utils.pdf_utils import generate_notice_letter_pdf
 
 DeliveryChannel = Literal['EMAIL', 'PAPER', 'EMAIL_AND_PAPER']
+WELCOME_NOTICE_CODE = "USPS_WELCOME"
 
 
 def resolve_delivery(owner: Owner, notice_type: NoticeType) -> DeliveryChannel:
@@ -108,3 +109,32 @@ def create_notice(
         },
     )
     return notice
+
+
+def create_usps_welcome_notice(session: Session, owner: Owner, created_by: Optional[User]) -> Notice:
+    notice_type = session.query(NoticeType).filter(NoticeType.code == WELCOME_NOTICE_CODE).first()
+    if not notice_type:
+        notice_type = NoticeType(
+            code=WELCOME_NOTICE_CODE,
+            name="USPS Welcome Packet",
+            description="Draft USPS onboarding packet for new homeowners.",
+            allow_electronic=False,
+            requires_paper=True,
+            default_delivery="PAPER_ONLY",
+        )
+        session.add(notice_type)
+        session.flush()
+
+    subject = "Welcome to Liberty Place HOA"
+    body = (
+        "Welcome to Liberty Place HOA. This packet includes important community information, "
+        "rules, and next steps. Please review and reach out with any questions."
+    )
+    return create_notice(
+        session,
+        owner=owner,
+        notice_type=notice_type,
+        subject=subject,
+        body_html=body,
+        created_by=created_by,
+    )

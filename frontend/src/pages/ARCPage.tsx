@@ -49,11 +49,11 @@ const ARCPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const isHomeowner = useMemo(() => userHasRole(user, 'HOMEOWNER'), [user]);
-  const canReview = useMemo(
-    () => userHasAnyRole(user, ['BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER']),
+  const canReview = useMemo(() => userHasAnyRole(user, ['ARC', 'BOARD']), [user]);
+  const canViewStaff = useMemo(
+    () => userHasAnyRole(user, ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER']),
     [user],
   );
-  const canManageStatus = useMemo(() => userHasAnyRole(user, ['SYSADMIN']), [user]);
   const arcRequestsQuery = useArcRequestsQuery(statusFilter !== 'ALL' ? statusFilter : undefined);
   const requests = useMemo(() => arcRequestsQuery.data ?? [], [arcRequestsQuery.data]);
   const loading = arcRequestsQuery.isLoading;
@@ -65,13 +65,12 @@ const ARCPage: React.FC = () => {
   const addConditionMutation = useAddArcConditionMutation();
   const resolveConditionMutation = useResolveArcConditionMutation();
   const createInspectionMutation = useCreateArcInspectionMutation();
-  const ownersQuery = useOwnersQuery(canReview);
+  const ownersQuery = useOwnersQuery(canViewStaff);
   const owners = useMemo(() => ownersQuery.data ?? [], [ownersQuery.data]);
-  const ownersError = ownersQuery.isError && canReview ? 'Unable to load owners.' : null;
+  const ownersError = ownersQuery.isError && canViewStaff ? 'Unable to load owners.' : null;
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ title: '', project_type: '', description: '', owner_id: '' });
   const [transitionStatus, setTransitionStatus] = useState('');
-  const [inspectionDate, setInspectionDate] = useState('');
   const [inspectionNotes, setInspectionNotes] = useState('');
   const [inspectionResult, setInspectionResult] = useState('');
   const [commentText, setCommentText] = useState('');
@@ -92,7 +91,6 @@ const ARCPage: React.FC = () => {
     (request: ARCRequest) => {
       setSelectedId(request.id);
       setTransitionStatus('');
-      setInspectionDate('');
       setInspectionNotes('');
       setInspectionResult('');
       setCommentText('');
@@ -128,7 +126,7 @@ const ARCPage: React.FC = () => {
         title: form.title,
         project_type: form.project_type || undefined,
         description: form.description || undefined,
-        owner_id: canReview && form.owner_id ? Number(form.owner_id) : undefined,
+        owner_id: canViewStaff && form.owner_id ? Number(form.owner_id) : undefined,
       });
       setSuccess('ARC request created.');
       setForm({ title: '', project_type: '', description: '', owner_id: '' });
@@ -152,6 +150,20 @@ const ARCPage: React.FC = () => {
       setTransitionStatus('');
     } catch (err) {
       reportError('Unable to update status. Check permissions and required fields.', err);
+    }
+  };
+
+  const handleSubmitDraft = async () => {
+    if (!selected) return;
+    setError(null);
+    try {
+      await transitionMutation.mutateAsync({
+        requestId: selected.id,
+        target_status: 'SUBMITTED',
+      });
+      setSuccess('Request submitted.');
+    } catch (err) {
+      reportError('Unable to submit request.', err);
     }
   };
 
@@ -212,15 +224,15 @@ const ARCPage: React.FC = () => {
     event.preventDefault();
     if (!selected) return;
     try {
+      const today = new Date().toISOString().slice(0, 10);
       await createInspectionMutation.mutateAsync({
         requestId: selected.id,
         payload: {
-        scheduled_date: inspectionDate || undefined,
-        result: inspectionResult || undefined,
-        notes: inspectionNotes || undefined,
+          scheduled_date: today,
+          result: inspectionResult || undefined,
+          notes: inspectionNotes || undefined,
         },
       });
-      setInspectionDate('');
       setInspectionNotes('');
       setInspectionResult('');
       setSuccess('Inspection recorded.');
@@ -231,12 +243,10 @@ const ARCPage: React.FC = () => {
 
   const allowedTransitions = useMemo(() => {
     if (!selected) return [];
-    const list = TRANSITIONS[selected.status] || [];
-    if (isHomeowner) {
-      return list.filter((status) => ['SUBMITTED', 'ARCHIVED'].includes(status));
-    }
-    return list;
-  }, [selected, isHomeowner]);
+    if (selected.status === 'DRAFT') return [];
+    if (!canReview) return [];
+    return TRANSITIONS[selected.status] || [];
+  }, [selected, canReview]);
   const conditions = useMemo(() => selected?.conditions ?? [], [selected]);
   const inspections = useMemo(() => selected?.inspections ?? [], [selected]);
 
@@ -244,6 +254,11 @@ const ARCPage: React.FC = () => {
     if (!selected || !canReview) return false;
     return ['APPROVED', 'APPROVED_WITH_CONDITIONS', 'DENIED', 'COMPLETED', 'ARCHIVED'].includes(selected.status);
   }, [selected, canReview]);
+  const canSubmitDraft = useMemo(
+    () => !!selected && selected.status === 'DRAFT' && (isHomeowner || canReview || canViewStaff),
+    [selected, isHomeowner, canReview, canViewStaff],
+  );
+  const canComment = useMemo(() => isHomeowner || canReview, [isHomeowner, canReview]);
 
   const timelineEvents = useMemo<TimelineEvent[]>(() => {
     if (!selected) return [];
@@ -327,7 +342,7 @@ const ARCPage: React.FC = () => {
         <section className="rounded border border-slate-200">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
             <h3 className="text-sm font-semibold text-slate-600">
-              {canReview ? 'Request Queue' : 'Your Requests'}
+              {canViewStaff ? 'Request Queue' : 'Your Requests'}
             </h3>
           </div>
           <div className="max-h-[480px] overflow-y-auto">
@@ -369,10 +384,10 @@ const ARCPage: React.FC = () => {
         <div className="space-y-6">
           <section className="rounded border border-slate-200 p-4">
             <h3 className="mb-3 text-sm font-semibold text-slate-600">
-              {canReview ? 'Submit on behalf of owner' : 'New ARC Request'}
+              {canViewStaff ? 'Submit on behalf of owner' : 'New ARC Request'}
             </h3>
             <form className="space-y-3" onSubmit={handleCreate}>
-              {canReview && (
+              {canViewStaff && (
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="owner-select">
                     Owner
@@ -522,6 +537,18 @@ const ARCPage: React.FC = () => {
                 </form>
               )}
 
+              {canSubmitDraft && (
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500"
+                    onClick={handleSubmitDraft}
+                  >
+                    Submit request
+                  </button>
+                </div>
+              )}
+
               <section className="mt-4">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-semibold uppercase text-slate-500">Attachments</h4>
@@ -586,24 +613,26 @@ const ARCPage: React.FC = () => {
                           )}
                         </div>
                       </li>
-                    ))}
-                  </ul>
+                  ))}
+                </ul>
+              )}
+                {canComment && (
+                  <form className="mt-3 flex gap-2" onSubmit={handleCommentSubmit}>
+                    <input
+                      className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
+                      placeholder="Add comment..."
+                      value={commentText}
+                      onChange={(event) => setCommentText(event.target.value)}
+                    />
+                    <button
+                      type="submit"
+                      className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
+                      disabled={!commentText.trim()}
+                    >
+                      Post
+                    </button>
+                  </form>
                 )}
-                <form className="mt-3 flex gap-2" onSubmit={handleCommentSubmit}>
-                  <input
-                    className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
-                    placeholder="Add comment..."
-                    value={commentText}
-                    onChange={(event) => setCommentText(event.target.value)}
-                  />
-                  <button
-                    type="submit"
-                    className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
-                    disabled={!commentText.trim()}
-                  >
-                    Post
-                  </button>
-                </form>
               </section>
 
               {canReview && (
@@ -634,28 +663,19 @@ const ARCPage: React.FC = () => {
                   )}
                   <form className="mt-3 grid gap-2 sm:grid-cols-2" onSubmit={handleInspectionCreate}>
                     <div className="sm:col-span-1">
-                      <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-date">
-                        Inspection Date
-                      </label>
-                      <input
-                        id="inspection-date"
-                        type="date"
-                        className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                        value={inspectionDate}
-                        onChange={(event) => setInspectionDate(event.target.value)}
-                      />
-                    </div>
-                    <div className="sm:col-span-1">
                       <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-result">
                         Result
                       </label>
-                      <input
+                      <select
                         id="inspection-result"
                         className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                         value={inspectionResult}
                         onChange={(event) => setInspectionResult(event.target.value)}
-                        placeholder="Was passed / failed / N/A"
-                      />
+                      >
+                        <option value="">Select result…</option>
+                        <option value="Pass">Pass</option>
+                        <option value="Fail">Fail</option>
+                      </select>
                     </div>
                     <div className="sm:col-span-2">
                       <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-notes">
