@@ -973,8 +973,8 @@ class ViolationMessageRead(BaseModel):
     user_id: Optional[int]
     body: str
     created_at: datetime
-    author_name: Optional[str]
-    author_email: Optional[str]
+    author_name: Optional[str] = None
+    author_email: Optional[str] = None
 
     class Config:
         orm_mode = True
