@@ -177,11 +177,44 @@ const ReconciliationPage: React.FC = () => {
     if (!list.length) return null;
     return [...list].sort((a, b) => b.year - a.year)[0];
   }, [budgetsQuery.data]);
-  const latestBalance = balanceSnapshots[0] ?? null;
-  const variance = latestBudget && latestBalance
-    ? Number(latestBalance.balance) - Number(latestBudget.total_annual)
+  const currentSnapshot = useMemo(
+    () => balanceSnapshots.find((snapshot) => snapshot.snapshot_type === 'CURRENT') ?? null,
+    [balanceSnapshots],
+  );
+  const currentSnapshotDate = currentSnapshot?.recorded_date ? new Date(currentSnapshot.recorded_date) : null;
+  const yearEndSnapshot = useMemo(() => {
+    if (!currentSnapshotDate) {
+      return balanceSnapshots.find((snapshot) => snapshot.snapshot_type === 'YEAR_END') ?? null;
+    }
+    return (
+      balanceSnapshots.find((snapshot) => {
+        if (snapshot.snapshot_type !== 'YEAR_END') return false;
+        return new Date(snapshot.recorded_date).getTime() <= currentSnapshotDate.getTime();
+      }) ?? null
+    );
+  }, [balanceSnapshots, currentSnapshotDate]);
+  const yearProgress = useMemo(() => {
+    if (!currentSnapshotDate) return null;
+    const startOfYear = new Date(currentSnapshotDate.getFullYear(), 0, 1);
+    const startOfNextYear = new Date(currentSnapshotDate.getFullYear() + 1, 0, 1);
+    const totalMs = startOfNextYear.getTime() - startOfYear.getTime();
+    const elapsedMs = currentSnapshotDate.getTime() - startOfYear.getTime();
+    if (totalMs <= 0) return null;
+    return Math.min(Math.max(elapsedMs / totalMs, 0), 1);
+  }, [currentSnapshotDate]);
+  const changeSinceYearEnd = currentSnapshot && yearEndSnapshot
+    ? Number(currentSnapshot.balance) - Number(yearEndSnapshot.balance)
     : null;
-  const onTrack = variance !== null ? variance >= 0 : null;
+  const budgetToDate = latestBudget && yearProgress !== null
+    ? Number(latestBudget.total_annual) * yearProgress
+    : null;
+  const paceVariance = changeSinceYearEnd !== null && budgetToDate !== null
+    ? changeSinceYearEnd + budgetToDate
+    : null;
+  const annualVariance = currentSnapshot && latestBudget
+    ? Number(currentSnapshot.balance) - Number(latestBudget.total_annual)
+    : null;
+  const onTrack = paceVariance !== null ? paceVariance >= 0 : annualVariance !== null ? annualVariance >= 0 : null;
 
   if (!isAuthorized) {
     return <p className="text-sm text-red-600">You do not have access to bank reconciliation reports.</p>;
@@ -271,7 +304,8 @@ const ReconciliationPage: React.FC = () => {
           <div>
             <h3 className="text-sm font-semibold text-slate-600">Balance Snapshots</h3>
             <p className="text-xs text-slate-500">
-              Record current balances or year-end closing balances to track on/off-track status.
+              Record current balances manually or upload a CSV to match transactions. Year-end snapshots act as the
+              baseline so you can separate operating activity from reserves across the year.
             </p>
           </div>
           {latestBudget && (
@@ -279,6 +313,54 @@ const ReconciliationPage: React.FC = () => {
               Budget reference: {latestBudget.year} annual total {Number(latestBudget.total_annual).toFixed(2)}
             </div>
           )}
+        </div>
+        <div className="mt-3 grid gap-3 rounded border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600 md:grid-cols-4">
+          <div>
+            <p className="text-[11px] uppercase text-slate-400">Current balance</p>
+            <p className="text-sm font-semibold text-slate-700">
+              {currentSnapshot ? `$${Number(currentSnapshot.balance).toFixed(2)}` : '—'}
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {currentSnapshotDate ? currentSnapshotDate.toLocaleDateString() : 'Add a current snapshot'}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase text-slate-400">Year-end baseline</p>
+            <p className="text-sm font-semibold text-slate-700">
+              {yearEndSnapshot ? `$${Number(yearEndSnapshot.balance).toFixed(2)}` : '—'}
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {yearEndSnapshot ? new Date(yearEndSnapshot.recorded_date).toLocaleDateString() : 'Save a year-end snapshot'}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase text-slate-400">Change since year-end</p>
+            <p
+              className={`text-sm font-semibold ${
+                changeSinceYearEnd === null ? 'text-slate-600' : changeSinceYearEnd >= 0 ? 'text-emerald-600' : 'text-rose-600'
+              }`}
+            >
+              {changeSinceYearEnd !== null ? `${changeSinceYearEnd >= 0 ? '+' : '−'}$${Math.abs(changeSinceYearEnd).toFixed(2)}` : '—'}
+            </p>
+            <p className="text-[11px] text-slate-400">Operating activity vs reserves baseline</p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase text-slate-400">Budget pace variance</p>
+            <p className={`text-sm font-semibold ${onTrack === null ? 'text-slate-600' : onTrack ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {paceVariance !== null
+                ? `${paceVariance >= 0 ? '+' : '−'}$${Math.abs(paceVariance).toFixed(2)}`
+                : annualVariance !== null
+                  ? `${annualVariance >= 0 ? '+' : '−'}$${Math.abs(annualVariance).toFixed(2)}`
+                  : '—'}
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {paceVariance !== null
+                ? `Compared to ${(yearProgress ?? 0) * 100 < 100 ? `${Math.round((yearProgress ?? 0) * 100)}%` : '100%'} of the annual budget`
+                : latestBudget
+                  ? 'Compared to full annual budget'
+                  : 'Add a budget to enable pacing'}
+            </p>
+          </div>
         </div>
 
         <form className="mt-3 grid gap-3 md:grid-cols-4" onSubmit={handleBalanceSubmit}>
@@ -328,14 +410,14 @@ const ReconciliationPage: React.FC = () => {
             />
           </div>
           <div className="md:col-span-4 flex flex-wrap items-center justify-between gap-3">
-            {latestBalance && (
+            {currentSnapshot && (
               <div className="text-xs text-slate-600">
-                Latest snapshot: {new Date(latestBalance.recorded_date).toLocaleDateString()} • $
-                {Number(latestBalance.balance).toFixed(2)}
-                {variance !== null && (
+                Current snapshot: {new Date(currentSnapshot.recorded_date).toLocaleDateString()} • $
+                {Number(currentSnapshot.balance).toFixed(2)}
+                {onTrack !== null && (
                   <span className={onTrack ? 'text-emerald-600' : 'text-rose-600'}>
                     {' '}
-                    • {onTrack ? 'On track' : 'Off track'} by ${Math.abs(variance).toFixed(2)}
+                    • {onTrack ? 'On track' : 'Off track'} by ${Math.abs(paceVariance ?? annualVariance ?? 0).toFixed(2)}
                   </span>
                 )}
               </div>
