@@ -973,8 +973,8 @@ class ViolationMessageRead(BaseModel):
     user_id: Optional[int]
     body: str
     created_at: datetime
-    author_name: Optional[str]
-    author_email: Optional[str]
+    author_name: Optional[str] = None
+    author_email: Optional[str] = None
 
     class Config:
         orm_mode = True
@@ -1144,6 +1144,45 @@ class ReconciliationRead(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class ARAgingReportRow(BaseModel):
+    invoice_id: int
+    owner_id: int
+    owner_name: Optional[str]
+    lot: Optional[str]
+    amount: Decimal
+    due_date: Optional[date]
+    status: str
+    days_past_due: Optional[int]
+
+
+class CashFlowReportRow(BaseModel):
+    reconciliation_id: int
+    statement_date: Optional[date]
+    matched_amount: Decimal
+    unmatched_amount: Decimal
+    matched_transactions: int
+    unmatched_transactions: int
+    total_transactions: int
+
+
+class ViolationsSummaryReportRow(BaseModel):
+    status: str
+    category: str
+    count: int
+
+
+class ArcSlaReportRow(BaseModel):
+    id: int
+    title: str
+    status: str
+    created_at: datetime
+    submitted_at: Optional[datetime]
+    final_decision_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    days_to_decision: Optional[int]
+    days_to_completion: Optional[int]
 
 
 class BankBalanceSnapshotCreate(BaseModel):

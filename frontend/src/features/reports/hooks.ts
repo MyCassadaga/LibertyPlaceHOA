@@ -1,28 +1,38 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { fetchARCRequests, fetchInvoices, fetchReconciliations, fetchViolations } from '../../services/api';
-import type { ARCRequest, Invoice, Reconciliation, Violation } from '../../types';
+import {
+  fetchARAgingReportData,
+  fetchArcSlaReportData,
+  fetchCashFlowReportData,
+  fetchViolationsSummaryReportData,
+} from '../../services/api';
+import type {
+  ARAgingReportRow,
+  ArcSlaReportRow,
+  CashFlowReportRow,
+  ViolationsSummaryReportRow,
+} from '../../types';
 
-export const useInvoicesQuery = () =>
-  useQuery<Invoice[]>({
-    queryKey: ['reports', 'invoices'],
-    queryFn: fetchInvoices,
+export const useArAgingReportQuery = () =>
+  useQuery<ARAgingReportRow[]>({
+    queryKey: ['reports', 'ar-aging'],
+    queryFn: fetchARAgingReportData,
   });
 
-export const useReconciliationsQuery = () =>
-  useQuery<Reconciliation[]>({
-    queryKey: ['reports', 'reconciliations'],
-    queryFn: fetchReconciliations,
+export const useCashFlowReportQuery = () =>
+  useQuery<CashFlowReportRow[]>({
+    queryKey: ['reports', 'cash-flow'],
+    queryFn: fetchCashFlowReportData,
   });
 
-export const useViolationsQuery = () =>
-  useQuery<Violation[]>({
-    queryKey: ['reports', 'violations'],
-    queryFn: () => fetchViolations({}),
+export const useViolationsSummaryReportQuery = () =>
+  useQuery<ViolationsSummaryReportRow[]>({
+    queryKey: ['reports', 'violations-summary'],
+    queryFn: fetchViolationsSummaryReportData,
   });
 
-export const useArcRequestsQuery = () =>
-  useQuery<ARCRequest[]>({
-    queryKey: ['reports', 'arc-requests'],
-    queryFn: fetchARCRequests,
+export const useArcSlaReportQuery = () =>
+  useQuery<ArcSlaReportRow[]>({
+    queryKey: ['reports', 'arc-sla'],
+    queryFn: fetchArcSlaReportData,
   });

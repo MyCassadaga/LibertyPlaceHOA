@@ -1,3 +1,4 @@
+import axios, { AxiosError } from 'axios';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
@@ -16,6 +17,7 @@ import {
   useVendorPaymentsQuery,
 } from '../features/billing/hooks';
 import { userHasAnyRole } from '../utils/roles';
+import { ApiErrorPayload } from '../lib/api/client';
 import { Contract } from '../types';
 
 const ContractsPage: React.FC = () => {
@@ -56,6 +58,32 @@ const ContractsPage: React.FC = () => {
   const [vendorBusy, setVendorBusy] = useState(false);
   const [vendorStatus, setVendorStatus] = useState<string | null>(null);
   const [vendorError, setVendorError] = useState<string | null>(null);
+
+  const getApiErrorMessage = (error: unknown, fallback: string) => {
+    if (!axios.isAxiosError(error)) {
+      return fallback;
+    }
+    const responseError = error as AxiosError<ApiErrorPayload>;
+    const detail = responseError.response?.data?.detail;
+    if (!detail) {
+      return fallback;
+    }
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((item) => {
+          if (item && typeof item === 'object' && 'msg' in item) {
+            return String(item.msg);
+          }
+          return String(item);
+        })
+        .filter(Boolean);
+      return messages.length > 0 ? messages.join(' ') : fallback;
+    }
+    if (typeof detail === 'string') {
+      return detail;
+    }
+    return fallback;
+  };
 
   const managerRoles = useMemo(() => ['BOARD', 'TREASURER', 'SYSADMIN'], []);
   const editorRoles = useMemo(() => ['TREASURER', 'SYSADMIN'], []);
@@ -159,14 +187,29 @@ const ContractsPage: React.FC = () => {
         saved = await createContract(payload);
       }
 
+      let uploadFailed = false;
       if (attachmentFile) {
-        saved = await uploadContractAttachment(saved.id, attachmentFile);
+        try {
+          saved = await uploadContractAttachment(saved.id, attachmentFile);
+        } catch (error) {
+          uploadFailed = true;
+          setContractError(getApiErrorMessage(error, 'Contract saved, but unable to upload the attachment.'));
+        }
       }
-      await contractsQuery.refetch();
-      setContractStatus(editingContractId ? 'Contract updated.' : 'Contract created.');
-      resetContractForm();
-    } catch {
-      setContractError('Unable to save contract.');
+
+      try {
+        await contractsQuery.refetch();
+      } catch (error) {
+        setContractError(getApiErrorMessage(error, 'Contract saved, but unable to refresh the list.'));
+        uploadFailed = true;
+      }
+
+      if (!uploadFailed) {
+        setContractStatus(editingContractId ? 'Contract updated.' : 'Contract created.');
+        resetContractForm();
+      }
+    } catch (error) {
+      setContractError(getApiErrorMessage(error, 'Unable to save contract.'));
     } finally {
       setContractBusy(false);
     }

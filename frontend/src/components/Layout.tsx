@@ -41,21 +41,21 @@ const Layout: React.FC = () => {
   );
 
   const homeownerLinks = [
-    { label: 'ARC Requests', to: '/arc' },
     { label: 'Account', to: '/owner-profile' },
+    { label: 'ARC Requests', to: '/arc' },
     { label: 'Billing', to: '/billing' },
     { label: 'Documents', to: '/documents' },
+    { label: 'Elections', to: '/elections' },
     { label: 'Facebook', href: 'https://www.facebook.com/groups/456044389610375' },
     { label: 'Meetings', to: '/meetings' },
     { label: 'Violations', to: '/violations' },
-    { label: 'Elections', to: '/elections' },
   ];
 
   const boardLinks = [
     { label: 'Announcements', to: '/communications' },
+    { label: 'Budget', to: '/budget' },
     { label: 'Contracts', to: '/contracts' },
     { label: 'Owners', to: '/owners' },
-    { label: 'Budget', to: '/budget' },
     { label: 'Reconciliation', to: '/reconciliation' },
     { label: 'Reports', to: '/reports' },
     { label: 'USPS', to: '/board/paperwork' },
@@ -76,6 +76,19 @@ const Layout: React.FC = () => {
   );
   const canViewTemplates = useMemo(() => userHasAnyRole(user, ['SYSADMIN']), [user]);
   const canViewLegal = useMemo(() => userHasAnyRole(user, ['LEGAL', 'SYSADMIN']), [user]);
+  const boardNavItems = useMemo(() => {
+    const items = [...boardLinks];
+
+    if (canViewLegal) {
+      items.push({ label: 'Legal', to: '/legal' });
+    }
+
+    if (canViewTemplates) {
+      items.push({ label: 'Templates', to: '/templates' });
+    }
+
+    return items.sort((a, b) => a.label.localeCompare(b.label));
+  }, [canViewLegal, canViewTemplates]);
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -130,8 +143,7 @@ const Layout: React.FC = () => {
               <div>
                 <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Board</p>
                 <div className="mt-1 space-y-1">
-                  {boardLinks.map((item, index) => renderLink(item.to, item.label, index))}
-                  {canViewLegal && renderLink('/legal', 'Legal', 902)}
+                  {boardNavItems.map((item, index) => renderLink(item.to, item.label, index))}
                 </div>
               </div>
             )}

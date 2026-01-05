@@ -101,6 +101,45 @@ export interface LedgerEntry {
   timestamp: string;
 }
 
+export interface ARAgingReportRow {
+  invoice_id: number;
+  owner_id: number;
+  owner_name?: string | null;
+  lot?: string | null;
+  amount: string;
+  due_date?: string | null;
+  status: string;
+  days_past_due?: number | null;
+}
+
+export interface CashFlowReportRow {
+  reconciliation_id: number;
+  statement_date?: string | null;
+  matched_amount: string;
+  unmatched_amount: string;
+  matched_transactions: number;
+  unmatched_transactions: number;
+  total_transactions: number;
+}
+
+export interface ViolationsSummaryReportRow {
+  status: string;
+  category: string;
+  count: number;
+}
+
+export interface ArcSlaReportRow {
+  id: number;
+  title: string;
+  status: ARCStatus;
+  created_at: string;
+  submitted_at?: string | null;
+  final_decision_at?: string | null;
+  completed_at?: string | null;
+  days_to_decision?: number | null;
+  days_to_completion?: number | null;
+}
+
 export interface Owner {
   id: number;
   primary_name: string;
