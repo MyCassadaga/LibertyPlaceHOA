@@ -449,6 +449,21 @@ export interface Contract {
   updated_at: string;
 }
 
+export interface CommunicationSender {
+  user_id: number;
+  full_name?: string | null;
+  email: string;
+}
+
+export interface AnnouncementRecipient {
+  owner_id?: number | null;
+  owner_name?: string | null;
+  property_address?: string | null;
+  mailing_address?: string | null;
+  email?: string | null;
+  contact_type?: string | null;
+}
+
 export interface Announcement {
   id: number;
   subject: string;

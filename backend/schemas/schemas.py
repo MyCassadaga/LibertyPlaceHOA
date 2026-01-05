@@ -653,7 +653,7 @@ class VendorPaymentCreate(BaseModel):
     contract_id: Optional[int]
     vendor_name: Optional[str]
     amount: condecimal(ge=0, max_digits=12, decimal_places=2)
-    payment_method: VendorPaymentMethod
+    payment_method: VendorPaymentMethod = "OTHER"
     check_number: Optional[str]
     notes: Optional[str]
 
