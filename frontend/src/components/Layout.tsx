@@ -131,7 +131,6 @@ const Layout: React.FC = () => {
                 <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Board</p>
                 <div className="mt-1 space-y-1">
                   {boardLinks.map((item, index) => renderLink(item.to, item.label, index))}
-                  {canViewTemplates && renderLink('/templates', 'Templates', 901)}
                   {canViewLegal && renderLink('/legal', 'Legal', 902)}
                 </div>
               </div>
@@ -152,6 +151,7 @@ const Layout: React.FC = () => {
                 <div className="mt-1 space-y-1">
                   {canViewAdminPortal && renderLink('/admin', 'Admin', 999)}
                   {canViewAuditLog && renderLink('/audit-log', 'Audit Log', 1000)}
+                  {canViewTemplates && renderLink('/templates', 'Templates', 1001)}
                 </div>
               </div>
             )}
