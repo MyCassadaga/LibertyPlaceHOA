@@ -163,6 +163,7 @@ const Layout: React.FC = () => {
                 <div className="mt-1 space-y-1">
                   {canViewAdminPortal && renderLink('/admin', 'Admin', 999)}
                   {canViewAuditLog && renderLink('/audit-log', 'Audit Log', 1000)}
+                  {canViewTemplates && renderLink('/templates', 'Templates', 1001)}
                 </div>
               </div>
             )}
