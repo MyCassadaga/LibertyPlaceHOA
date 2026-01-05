@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import NavBar from './NavBar';
+import { useAuth } from '../hooks/useAuth';
+import { userHasAnyRole } from '../utils/roles';
 
 const Layout: React.FC = () => {
   const [isNavOpen, setIsNavOpen] = useState(false);
+  const { user } = useAuth();
 
   const handleNavToggle = () => setIsNavOpen((prev) => !prev);
   const closeNav = () => setIsNavOpen(false);
@@ -31,7 +34,6 @@ const Layout: React.FC = () => {
     { label: 'Meetings', to: '/meetings' },
     { label: 'Violations', to: '/violations' },
     { label: 'Elections', to: '/elections' },
-    { label: 'ARC', to: '/arc' },
     { label: 'ARC Requests', to: '/arc' },
   ];
 
@@ -45,6 +47,20 @@ const Layout: React.FC = () => {
     { label: 'Paperwork', to: '/board/paperwork' },
     { label: 'Templates', to: '/templates' },
   ];
+
+  const canViewBoard = useMemo(
+    () => userHasAnyRole(user, ['BOARD', 'TREASURER', 'SECRETARY', 'ATTORNEY', 'SYSADMIN']),
+    [user],
+  );
+  const canViewAdmin = useMemo(
+    () => userHasAnyRole(user, ['SYSADMIN', 'AUDITOR']),
+    [user],
+  );
+  const canViewAdminPortal = useMemo(() => userHasAnyRole(user, ['SYSADMIN']), [user]);
+  const canViewAuditLog = useMemo(
+    () => userHasAnyRole(user, ['SYSADMIN', 'AUDITOR']),
+    [user],
+  );
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -91,20 +107,24 @@ const Layout: React.FC = () => {
               </div>
             </div>
 
-            <div>
-              <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Board</p>
-              <div className="mt-1 space-y-1">
-                {boardLinks.map((item, index) => renderLink(item.to, item.label, index))}
+            {canViewBoard && (
+              <div>
+                <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Board</p>
+                <div className="mt-1 space-y-1">
+                  {boardLinks.map((item, index) => renderLink(item.to, item.label, index))}
+                </div>
               </div>
-            </div>
+            )}
 
-            <div>
-              <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Admin</p>
-              <div className="mt-1 space-y-1">
-                {renderLink('/admin', 'Admin', 999)}
-                {renderLink('/audit-log', 'Audit Log', 1000)}
+            {canViewAdmin && (
+              <div>
+                <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Admin</p>
+                <div className="mt-1 space-y-1">
+                  {canViewAdminPortal && renderLink('/admin', 'Admin', 999)}
+                  {canViewAuditLog && renderLink('/audit-log', 'Audit Log', 1000)}
+                </div>
               </div>
-            </div>
+            )}
           </nav>
         </aside>
         <main id="main-content" role="main" className="min-w-0 flex-1 rounded bg-white p-4 shadow sm:p-6">

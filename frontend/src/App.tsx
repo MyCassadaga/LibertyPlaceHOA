@@ -58,7 +58,7 @@ const App: React.FC = () => {
         <Route
           path="budget"
           element={
-            <RequireRole allowed={['HOMEOWNER', 'BOARD', 'TREASURER', 'SYSADMIN']}>
+            <RequireRole allowed={['BOARD', 'TREASURER', 'SYSADMIN']}>
               <BudgetPage />
             </RequireRole>
           }
@@ -123,7 +123,7 @@ const App: React.FC = () => {
         <Route
           path="arc"
           element={
-            <RequireRole allowed={["ARC", "BOARD", "SYSADMIN", "SECRETARY", "HOMEOWNER"]}>
+            <RequireRole allowed={["BOARD", "SYSADMIN", "SECRETARY", "HOMEOWNER"]}>
               <ARCPage />
             </RequireRole>
           }

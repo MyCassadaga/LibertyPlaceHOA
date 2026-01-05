@@ -16,7 +16,7 @@ import {
   useUploadArcAttachmentMutation,
 } from '../features/arc/hooks';
 import { useOwnersQuery } from '../features/billing/hooks';
-import { userHasRole } from '../utils/roles';
+import { userHasAnyRole, userHasRole } from '../utils/roles';
 
 const STATUS_LABELS: Record<ARCStatus, string> = {
   DRAFT: 'Draft',
@@ -49,8 +49,11 @@ const ARCPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const isHomeowner = useMemo(() => userHasRole(user, 'HOMEOWNER'), [user]);
-  const canReview = ['ARC', 'BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER'].includes(user?.role.name ?? '');
-  const canManageStatus = ['ARC', 'SYSADMIN'].includes(user?.role.name ?? '');
+  const canReview = useMemo(
+    () => userHasAnyRole(user, ['BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER']),
+    [user],
+  );
+  const canManageStatus = useMemo(() => userHasAnyRole(user, ['SYSADMIN']), [user]);
   const arcRequestsQuery = useArcRequestsQuery(statusFilter !== 'ALL' ? statusFilter : undefined);
   const requests = useMemo(() => arcRequestsQuery.data ?? [], [arcRequestsQuery.data]);
   const loading = arcRequestsQuery.isLoading;
