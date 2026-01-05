@@ -16,7 +16,7 @@ router = APIRouter(prefix="/templates", tags=["templates"])
 
 @router.get("/merge-tags", response_model=List[TemplateMergeTag])
 def list_merge_tags(
-    _: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
+    _: User = Depends(require_roles("SYSADMIN")),
 ) -> List[TemplateMergeTag]:
     return [TemplateMergeTag(**tag) for tag in merge_tag_definitions()]
 
@@ -27,7 +27,7 @@ def list_templates(
     include_archived: bool = False,
     query: Optional[str] = None,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
+    _: User = Depends(require_roles("SYSADMIN")),
 ) -> List[Template]:
     templates_query = db.query(Template)
     if template_type:
@@ -46,7 +46,7 @@ def list_templates(
 def create_template(
     payload: TemplateCreate,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
+    actor: User = Depends(require_roles("SYSADMIN")),
 ) -> Template:
     template = Template(
         name=payload.name.strip(),
@@ -87,7 +87,7 @@ def _get_template_or_404(db: Session, template_id: int) -> Template:
 def get_template(
     template_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
+    _: User = Depends(require_roles("SYSADMIN")),
 ) -> Template:
     return _get_template_or_404(db, template_id)
 
@@ -97,7 +97,7 @@ def update_template(
     template_id: int,
     payload: TemplateUpdate,
     db: Session = Depends(get_db),
-    actor: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
+    actor: User = Depends(require_roles("SYSADMIN")),
 ) -> Template:
     template = _get_template_or_404(db, template_id)
     before = {column.name: getattr(template, column.name) for column in Template.__table__.columns}

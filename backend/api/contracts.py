@@ -31,6 +31,7 @@ def _serialize_contract(contract: Contract) -> ContractRead:
         id=contract.id,
         vendor_name=contract.vendor_name,
         service_type=contract.service_type,
+        contact_email=contract.contact_email,
         start_date=contract.start_date,
         end_date=contract.end_date,
         auto_renew=contract.auto_renew,
@@ -51,7 +52,7 @@ def _serialize_contract(contract: Contract) -> ContractRead:
 @router.get("/", response_model=List[ContractRead])
 def list_contracts(
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("BOARD", "TREASURER", "SECRETARY", "SYSADMIN", "ATTORNEY", "AUDITOR")),
+    _: User = Depends(require_roles("BOARD", "TREASURER", "SECRETARY", "SYSADMIN", "ATTORNEY", "AUDITOR", "LEGAL")),
 ) -> List[ContractRead]:
     contracts = (
         db.query(Contract)

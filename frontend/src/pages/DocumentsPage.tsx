@@ -334,22 +334,25 @@ const handleDeleteFolder = async (folderId: number) => {
                   <p className="text-xs text-slate-500">Download governance docs & shared reports.</p>
                 </div>
                 {canManage && (
-                  <form className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center" onSubmit={handleUpload}>
+                  <form
+                    className="flex w-full flex-col gap-2 text-sm sm:flex-row sm:flex-wrap sm:items-center"
+                    onSubmit={handleUpload}
+                  >
                     <input
-                      className="rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm sm:w-40"
                       placeholder="Title"
                       value={uploadForm.title}
                       onChange={(event) => setUploadForm((prev) => ({ ...prev, title: event.target.value }))}
                     />
                     <input
-                      className="rounded border border-slate-300 px-3 py-2 text-sm"
+                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm sm:w-52"
                       placeholder="Note"
                       value={uploadForm.description}
                       onChange={(event) => setUploadForm((prev) => ({ ...prev, description: event.target.value }))}
                     />
                     <input
                       type="file"
-                      className="text-xs"
+                      className="w-full text-xs sm:w-auto"
                       onChange={(event) =>
                         setUploadForm((prev) => ({ ...prev, file: event.target.files?.[0] ?? null }))
                       }
@@ -357,7 +360,7 @@ const handleDeleteFolder = async (folderId: number) => {
                     />
                     <button
                       type="submit"
-                      className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold text-white"
+                      className="w-full rounded bg-primary-600 px-3 py-2 text-xs font-semibold text-white sm:w-auto"
                     >
                       Upload
                     </button>

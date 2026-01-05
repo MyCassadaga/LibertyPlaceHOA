@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -128,7 +128,7 @@ def create_violation(
         category=payload.category,
         description=payload.description,
         location=payload.location,
-        due_date=payload.due_date,
+        due_date=payload.due_date or date.today(),
     )
     db.add(violation)
     db.commit()

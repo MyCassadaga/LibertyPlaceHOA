@@ -102,8 +102,16 @@ def _write_local_email(subject: str, body: str, recipients: List[str]) -> str:
     return str(path)
 
 
-def _send_via_sendgrid(subject: str, body: str, recipients: List[str]) -> SendResult:
+def _send_via_sendgrid(
+    subject: str,
+    body: str,
+    recipients: List[str],
+    from_address_override: Optional[str] = None,
+    reply_to_override: Optional[str] = None,
+) -> SendResult:
     from_address, display_name = _resolve_sender()
+    if from_address_override:
+        from_address = from_address_override
     if not settings.sendgrid_api_key or not from_address:
         raise RuntimeError("SendGrid backend requires SENDGRID_API_KEY and EMAIL_FROM_ADDRESS.")
 
@@ -113,7 +121,7 @@ def _send_via_sendgrid(subject: str, body: str, recipients: List[str]) -> SendRe
     except ImportError as exc:  # pragma: no cover - runtime guard
         raise RuntimeError("SendGrid backend requires the sendgrid package.") from exc
 
-    reply_to = settings.email_reply_to or from_address
+    reply_to = reply_to_override or settings.email_reply_to or from_address
     from_email = Email(email=from_address, name=display_name)
     reply_to_email = Email(email=reply_to) if reply_to else None
     message = Mail(
@@ -154,12 +162,20 @@ def _send_via_sendgrid(subject: str, body: str, recipients: List[str]) -> SendRe
     return SendResult(backend="sendgrid", status_code=response.status_code, request_id=request_id, error=None)
 
 
-def _send_via_smtp(subject: str, body: str, recipients: List[str]) -> SendResult:
+def _send_via_smtp(
+    subject: str,
+    body: str,
+    recipients: List[str],
+    from_address_override: Optional[str] = None,
+    reply_to_override: Optional[str] = None,
+) -> SendResult:
     if not settings.email_host:
         raise RuntimeError("SMTP backend requires EMAIL_HOST.")
     if not settings.email_host_user or not settings.email_host_password:
         raise RuntimeError("SMTP backend requires EMAIL_HOST_USER and EMAIL_HOST_PASSWORD.")
     from_address, display_name = _resolve_sender()
+    if from_address_override:
+        from_address = from_address_override
     if not from_address:
         raise RuntimeError("SMTP backend requires EMAIL_FROM_ADDRESS.")
 
@@ -167,7 +183,7 @@ def _send_via_smtp(subject: str, body: str, recipients: List[str]) -> SendResult
     message["Subject"] = subject
     message["From"] = formataddr((display_name, from_address))
     message["To"] = ", ".join(recipients)
-    reply_to = settings.email_reply_to or from_address
+    reply_to = reply_to_override or settings.email_reply_to or from_address
     if reply_to:
         message["Reply-To"] = reply_to
     message.set_content(body)
@@ -231,6 +247,39 @@ def send_announcement(subject: str, body: str, recipients: Iterable[str]) -> Lis
     except Exception:
         logger.exception("Email dispatch failed for backend=%s.", backend)
         raise
+
+    return recipient_list
+
+
+def send_custom_email(
+    subject: str,
+    body: str,
+    recipients: Iterable[str],
+    from_address: Optional[str] = None,
+    reply_to: Optional[str] = None,
+) -> List[str]:
+    recipient_list = _normalize_recipients(recipients)
+    if not recipient_list:
+        logger.info("Email dispatch skipped: no recipients (subject=%s).", _mask_subject(subject))
+        return []
+
+    backend = (settings.email_backend or "local").strip().strip("'\"").lower()
+    fallback_from, _ = _resolve_sender()
+    effective_from = from_address or fallback_from
+    reply_to_address = reply_to or settings.email_reply_to or effective_from
+    if not effective_from:
+        raise RuntimeError("Email backend requires a sender address.")
+    _log_send_attempt(backend, subject, effective_from, recipient_list, reply_to_address)
+
+    if backend == "local":
+        _write_local_email(subject, body, recipient_list)
+    elif backend == "sendgrid":
+        _send_via_sendgrid(subject, body, recipient_list, effective_from, reply_to_address)
+    elif backend in {"smtp", "sendgrid_smtp"}:
+        _send_via_smtp(subject, body, recipient_list, effective_from, reply_to_address)
+    else:
+        logger.warning("Unknown EMAIL_BACKEND '%s'. Defaulting to local stub.", backend)
+        _write_local_email(subject, body, recipient_list)
 
     return recipient_list
 

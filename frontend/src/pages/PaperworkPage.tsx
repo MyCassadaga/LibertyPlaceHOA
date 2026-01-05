@@ -115,8 +115,10 @@ const PaperworkPage: React.FC = () => {
     <div className="space-y-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-primary-600">Paperwork Queue</h2>
-          <p className="text-sm text-slate-500">Track physical mailings and keep the board in sync.</p>
+          <h2 className="text-xl font-semibold text-primary-600">USPS Mailings</h2>
+          <p className="text-sm text-slate-500">
+            Manage USPS mailings, draft packets, and board-required paper workflows.
+          </p>
         </div>
         <div className="flex items-center gap-4 text-sm">
           <label className="flex items-center gap-2">
@@ -129,6 +131,34 @@ const PaperworkPage: React.FC = () => {
           </label>
         </div>
       </header>
+
+      <section className="rounded border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        <h3 className="text-sm font-semibold text-slate-700">USPS Workflow (Draft)</h3>
+        <p className="mt-2 text-xs text-slate-500">
+          Draft USPS packets are automatically created for new homeowners. This workflow is intentionally stubby so we
+          can return later to configure USPS integration, template selection, and certified mail handling.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">Packet template (stub)</label>
+            <input
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              placeholder="USPS Welcome Packet Template"
+              disabled
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-500">USPS submission (stub)</label>
+            <button
+              type="button"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-400"
+              disabled
+            >
+              Submit to USPS (coming soon)
+            </button>
+          </div>
+        </div>
+      </section>
 
       <div className="flex gap-3 text-sm">
         {STATUS_TABS.map((tab) => (

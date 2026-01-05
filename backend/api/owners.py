@@ -27,6 +27,7 @@ from ..schemas.schemas import (
     UserRead,
 )
 from ..services.audit import audit_log
+from ..services import notices as notice_service
 
 router = APIRouter()
 
@@ -195,6 +196,11 @@ def create_owner(
     db.add(owner)
     db.commit()
     db.refresh(owner)
+    try:
+        notice_service.create_usps_welcome_notice(db, owner, actor)
+        db.commit()
+    except Exception:
+        db.rollback()
     audit_log(
         db_session=db,
         actor_user_id=actor.id,

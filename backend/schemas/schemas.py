@@ -602,6 +602,7 @@ class LedgerEntryRead(BaseModel):
 class ContractCreate(BaseModel):
     vendor_name: str
     service_type: Optional[str]
+    contact_email: Optional[EmailStr]
     start_date: date
     end_date: Optional[date]
     auto_renew: bool = False
@@ -614,6 +615,7 @@ class ContractCreate(BaseModel):
 class ContractUpdate(BaseModel):
     vendor_name: Optional[str]
     service_type: Optional[str]
+    contact_email: Optional[EmailStr]
     start_date: Optional[date]
     end_date: Optional[date]
     auto_renew: Optional[bool]
@@ -627,6 +629,7 @@ class ContractRead(BaseModel):
     id: int
     vendor_name: str
     service_type: Optional[str]
+    contact_email: Optional[EmailStr]
     start_date: date
     end_date: Optional[date]
     auto_renew: bool
@@ -973,6 +976,9 @@ class ViolationMessageRead(BaseModel):
     author_name: Optional[str]
     author_email: Optional[str]
 
+    class Config:
+        orm_mode = True
+
 
 class ViolationRead(BaseModel):
     id: int
@@ -1135,6 +1141,26 @@ class ReconciliationRead(BaseModel):
     unmatched_amount: Decimal
     created_at: datetime
     transactions: List[BankTransactionRead] = []
+
+    class Config:
+        orm_mode = True
+
+
+class BankBalanceSnapshotCreate(BaseModel):
+    recorded_date: date
+    balance: Decimal
+    snapshot_type: Literal["CURRENT", "YEAR_END"] = "CURRENT"
+    note: Optional[str]
+
+
+class BankBalanceSnapshotRead(BaseModel):
+    id: int
+    recorded_date: date
+    balance: Decimal
+    snapshot_type: str
+    note: Optional[str]
+    created_by_user_id: Optional[int]
+    created_at: datetime
 
     class Config:
         orm_mode = True
@@ -1317,6 +1343,18 @@ class GovernanceDocumentRead(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class LegalMessageCreate(BaseModel):
+    contract_id: int
+    subject: str
+    body: str
+
+
+class LegalMessageDispatch(BaseModel):
+    contract_id: int
+    recipient: EmailStr
+    sent_to: List[EmailStr]
 
 
 class DocumentFolderRead(BaseModel):

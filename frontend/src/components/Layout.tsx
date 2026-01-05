@@ -27,14 +27,28 @@ const Layout: React.FC = () => {
     </NavLink>
   );
 
+  const renderExternalLink = (href: string, label: string, index: number) => (
+    <a
+      key={`${href}-${index}`}
+      href={href}
+      className="block rounded px-3 py-2 text-sm font-medium text-slate-600 transition-colors duration-150 hover:bg-primary-50"
+      target="_blank"
+      rel="noreferrer"
+      onClick={closeNav}
+    >
+      {label}
+    </a>
+  );
+
   const homeownerLinks = [
+    { label: 'ARC Requests', to: '/arc' },
     { label: 'Account', to: '/owner-profile' },
     { label: 'Billing', to: '/billing' },
     { label: 'Documents', to: '/documents' },
+    { label: 'Facebook', href: 'https://www.facebook.com/groups/456044389610375' },
     { label: 'Meetings', to: '/meetings' },
     { label: 'Violations', to: '/violations' },
     { label: 'Elections', to: '/elections' },
-    { label: 'ARC Requests', to: '/arc' },
   ];
 
   const boardLinks = [
@@ -44,8 +58,7 @@ const Layout: React.FC = () => {
     { label: 'Budget', to: '/budget' },
     { label: 'Reconciliation', to: '/reconciliation' },
     { label: 'Reports', to: '/reports' },
-    { label: 'Paperwork', to: '/board/paperwork' },
-    { label: 'Templates', to: '/templates' },
+    { label: 'USPS', to: '/board/paperwork' },
   ];
 
   const canViewBoard = useMemo(
@@ -61,6 +74,8 @@ const Layout: React.FC = () => {
     () => userHasAnyRole(user, ['SYSADMIN', 'AUDITOR']),
     [user],
   );
+  const canViewTemplates = useMemo(() => userHasAnyRole(user, ['SYSADMIN']), [user]);
+  const canViewLegal = useMemo(() => userHasAnyRole(user, ['LEGAL', 'SYSADMIN']), [user]);
 
   return (
     <div className="min-h-screen bg-slate-100">
@@ -103,7 +118,11 @@ const Layout: React.FC = () => {
             <div>
               <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Homeowner</p>
               <div className="mt-1 space-y-1">
-                {homeownerLinks.map((item, index) => renderLink(item.to, item.label, index))}
+                {homeownerLinks.map((item, index) =>
+                  'href' in item
+                    ? renderExternalLink(item.href, item.label, index)
+                    : renderLink(item.to, item.label, index),
+                )}
               </div>
             </div>
 
@@ -112,6 +131,17 @@ const Layout: React.FC = () => {
                 <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Board</p>
                 <div className="mt-1 space-y-1">
                   {boardLinks.map((item, index) => renderLink(item.to, item.label, index))}
+                  {canViewTemplates && renderLink('/templates', 'Templates', 901)}
+                  {canViewLegal && renderLink('/legal', 'Legal', 902)}
+                </div>
+              </div>
+            )}
+
+            {canViewLegal && !canViewBoard && (
+              <div>
+                <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Legal</p>
+                <div className="mt-1 space-y-1">
+                  {renderLink('/legal', 'Legal', 903)}
                 </div>
               </div>
             )}

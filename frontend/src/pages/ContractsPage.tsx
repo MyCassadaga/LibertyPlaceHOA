@@ -40,6 +40,7 @@ const ContractsPage: React.FC = () => {
   const [contractForm, setContractForm] = useState({
     vendorName: '',
     serviceType: '',
+    contactEmail: '',
     startDate: '',
     endDate: '',
     autoRenew: false,
@@ -74,6 +75,7 @@ const ContractsPage: React.FC = () => {
     setContractForm({
       vendorName: '',
       serviceType: '',
+      contactEmail: '',
       startDate: '',
       endDate: '',
       autoRenew: false,
@@ -118,6 +120,7 @@ const ContractsPage: React.FC = () => {
     setContractForm({
       vendorName: contract.vendor_name,
       serviceType: contract.service_type ?? '',
+      contactEmail: contract.contact_email ?? '',
       startDate: contract.start_date ?? '',
       endDate: contract.end_date ?? '',
       autoRenew: contract.auto_renew,
@@ -140,6 +143,7 @@ const ContractsPage: React.FC = () => {
       const payload = {
         vendor_name: contractForm.vendorName.trim(),
         service_type: contractForm.serviceType.trim() || null,
+        contact_email: contractForm.contactEmail.trim() || null,
         start_date: contractForm.startDate,
         end_date: contractForm.endDate || null,
         auto_renew: contractForm.autoRenew,
@@ -358,6 +362,16 @@ const ContractsPage: React.FC = () => {
                 value={contractForm.serviceType}
                 onChange={(event) => handleContractFormChange('serviceType', event.target.value)}
                 placeholder="Landscaping"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="text-xs uppercase text-slate-500">Contact email</span>
+              <input
+                type="email"
+                className="mt-1 w-full rounded border border-slate-300 px-3 py-2"
+                value={contractForm.contactEmail}
+                onChange={(event) => handleContractFormChange('contactEmail', event.target.value)}
+                placeholder="vendor@example.com"
               />
             </label>
             <label className="text-sm">

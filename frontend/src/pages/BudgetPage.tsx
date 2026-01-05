@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { useAuth } from '../hooks/useAuth';
-import { BudgetAttachment, BudgetSummary, ReservePlanItem } from '../types';
+import { BudgetAttachment, BudgetSummary, Contract, ReservePlanItem } from '../types';
 import { userHasAnyRole, userHasRole } from '../utils/roles';
 import {
   useBudgetAttachmentMutation,
@@ -13,6 +13,7 @@ import {
   useCreateBudgetMutation,
   useUpdateBudgetMutation,
 } from '../features/budgets/hooks';
+import { useContractsQuery } from '../features/billing/hooks';
 
 const editorRoles = ['BOARD', 'TREASURER', 'SYSADMIN'];
 
@@ -32,7 +33,6 @@ const emptyLineForm = {
   label: '',
   category: '',
   amount: '',
-  is_reserve: false,
   sort_order: 0,
 };
 
@@ -50,11 +50,15 @@ const BudgetPage: React.FC = () => {
   const canEdit = useMemo(() => userHasAnyRole(user, editorRoles), [user]);
   const isBoardMember = useMemo(() => !!user && userHasRole(user, 'BOARD'), [user]);
   const isSysAdmin = useMemo(() => !!user && userHasRole(user, 'SYSADMIN'), [user]);
+  const isTreasurer = useMemo(() => !!user && userHasRole(user, 'TREASURER'), [user]);
+  const canForceLock = useMemo(() => isSysAdmin || isTreasurer, [isSysAdmin, isTreasurer]);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const budgetsQuery = useBudgetsQuery();
+  const contractsQuery = useContractsQuery(canEdit);
+  const contracts = useMemo<Contract[]>(() => contractsQuery.data ?? [], [contractsQuery.data]);
   const budgets = useMemo<BudgetSummary[]>(() => budgetsQuery.data ?? [], [budgetsQuery.data]);
   const detailQuery = useBudgetDetailQuery(selectedId);
   const detail = detailQuery.data ?? null;
@@ -68,6 +72,8 @@ const BudgetPage: React.FC = () => {
 
   const [lineForm, setLineForm] = useState<typeof emptyLineForm>(emptyLineForm);
   const [editingLineId, setEditingLineId] = useState<number | null>(null);
+  const [contractSelection, setContractSelection] = useState('');
+  const [contractAmount, setContractAmount] = useState('');
 
   const [reserveForm, setReserveForm] = useState<typeof emptyReserveForm>(emptyReserveForm);
   const [editingReserveId, setEditingReserveId] = useState<number | null>(null);
@@ -221,13 +227,12 @@ const BudgetPage: React.FC = () => {
             label: lineForm.label,
             category: lineForm.category,
             amount: lineForm.amount,
-            is_reserve: lineForm.is_reserve,
             sort_order: lineForm.sort_order,
           },
         });
         setStatusMessage('Line item updated.');
       } else {
-        await lineAddMutation.mutateAsync({ budgetId: detail.id, payload: lineForm });
+        await lineAddMutation.mutateAsync({ budgetId: detail.id, payload: { ...lineForm, is_reserve: false } });
         setStatusMessage('Line item added.');
       }
       setLineForm(emptyLineForm);
@@ -236,6 +241,40 @@ const BudgetPage: React.FC = () => {
     } catch (err) {
       console.error('Unable to save line item.', err);
       setError('Unable to save line item.');
+    }
+  };
+
+  const selectedContract = useMemo(
+    () => contracts.find((contract) => contract.id === Number(contractSelection)) ?? null,
+    [contracts, contractSelection],
+  );
+
+  const handleAddContractLine = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!detail || !canEdit || !selectedContract) return;
+    const amountValue = contractAmount || selectedContract.value || '';
+    if (!amountValue) {
+      setError('Enter a contract value before adding it to the budget.');
+      return;
+    }
+    try {
+      await lineAddMutation.mutateAsync({
+        budgetId: detail.id,
+        payload: {
+          label: selectedContract.vendor_name,
+          category: 'Contracts',
+          amount: amountValue,
+          sort_order: 0,
+          is_reserve: false,
+        },
+      });
+      setStatusMessage('Contract added to line items.');
+      setContractSelection('');
+      setContractAmount('');
+      await detailQuery.refetch();
+    } catch (err) {
+      console.error('Unable to add contract line item.', err);
+      setError('Unable to add contract line item.');
     }
   };
 
@@ -328,6 +367,14 @@ const BudgetPage: React.FC = () => {
     const rate = item.inflation_rate || 0;
     const projected = base * Math.pow(1 + rate, years);
     return projected;
+  };
+
+  const reserveAnnualContribution = (item: ReservePlanItem) => {
+    if (!detail) return 0;
+    const yearsRemaining = Math.max(item.target_year - detail.year, 1);
+    const projected = reserveFutureCost(item);
+    const remaining = Math.max(projected - Number(item.current_funding), 0);
+    return remaining / yearsRemaining;
   };
 
   return (
@@ -429,7 +476,7 @@ const BudgetPage: React.FC = () => {
                           </button>
                         )
                       )}
-                      {isSysAdmin && detail.status !== 'APPROVED' && (
+                      {canForceLock && detail.status !== 'APPROVED' && (
                         <button
                           type="button"
                           className="rounded border border-slate-300 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 hover:bg-slate-50"
@@ -438,7 +485,7 @@ const BudgetPage: React.FC = () => {
                           Force lock
                         </button>
                       )}
-                      {isSysAdmin && detail.status === 'APPROVED' && (
+                      {canForceLock && detail.status === 'APPROVED' && (
                         <button
                           type="button"
                           className="rounded border border-rose-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-rose-600 hover:bg-rose-50"
@@ -540,7 +587,6 @@ const BudgetPage: React.FC = () => {
                         <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Label</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Category</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Amount</th>
-                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Reserve?</th>
                         {canEdit && <th className="px-3 py-2" />}
                       </tr>
                     </thead>
@@ -550,7 +596,6 @@ const BudgetPage: React.FC = () => {
                           <td className="px-3 py-2">{item.label}</td>
                           <td className="px-3 py-2">{item.category ?? '—'}</td>
                           <td className="px-3 py-2">{formatCurrency(item.amount)}</td>
-                          <td className="px-3 py-2">{item.is_reserve ? 'Yes' : 'No'}</td>
                           {canEdit && (
                             <td className="px-3 py-2 space-x-2 text-right text-xs">
                               <button
@@ -562,7 +607,6 @@ const BudgetPage: React.FC = () => {
                                     label: item.label,
                                     category: item.category ?? '',
                                     amount: item.amount,
-                                    is_reserve: item.is_reserve,
                                     sort_order: item.sort_order,
                                   });
                                 }}
@@ -580,9 +624,66 @@ const BudgetPage: React.FC = () => {
                           )}
                         </tr>
                       ))}
+                      {detail.reserve_items.map((item) => (
+                        <tr key={`reserve-${item.id}`} className="bg-primary-50/40">
+                          <td className="px-3 py-2 font-semibold text-primary-700">
+                            Reserve: {item.name}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-primary-600">Reserve contribution</td>
+                          <td className="px-3 py-2 font-semibold text-primary-700">
+                            {formatCurrency(reserveAnnualContribution(item))}
+                          </td>
+                          {canEdit && <td className="px-3 py-2" />}
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
+
+                {canEdit && detail.status !== 'APPROVED' && contracts.length > 0 && (
+                  <form className="mt-4 grid gap-3 rounded border border-dashed border-slate-200 p-3 md:grid-cols-3" onSubmit={handleAddContractLine}>
+                    <div className="md:col-span-2">
+                      <label className="text-xs text-slate-500">Add contract to line items</label>
+                      <select
+                        className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                        value={contractSelection}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setContractSelection(value);
+                          const chosen = contracts.find((contract) => contract.id === Number(value));
+                          setContractAmount(chosen?.value ? String(chosen.value) : '');
+                        }}
+                      >
+                        <option value="">Select contract…</option>
+                        {contracts.map((contract) => (
+                          <option key={contract.id} value={contract.id}>
+                            {contract.vendor_name} {contract.service_type ? `• ${contract.service_type}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-slate-500">Annual value</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="mt-1 w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                        value={contractAmount}
+                        onChange={(event) => setContractAmount(event.target.value)}
+                        placeholder="0.00"
+                      />
+                    </div>
+                    <div className="md:col-span-3 flex justify-end">
+                      <button
+                        type="submit"
+                        className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
+                        disabled={!contractSelection}
+                      >
+                        Add contract line
+                      </button>
+                    </div>
+                  </form>
+                )}
 
                 {canEdit && detail.status !== 'APPROVED' && (
                   <form className="mt-4 grid gap-3 md:grid-cols-2" onSubmit={handleLineSubmit}>
@@ -621,14 +722,6 @@ const BudgetPage: React.FC = () => {
                         required
                       />
                     </label>
-                    <label className="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={lineForm.is_reserve}
-                        onChange={(event) => setLineForm((prev) => ({ ...prev, is_reserve: event.target.checked }))}
-                      />
-                      <span className="text-xs text-slate-600">Reserve allocation</span>
-                    </label>
                     <div className="md:col-span-2 flex gap-2">
                       <button
                         type="submit"
@@ -666,6 +759,7 @@ const BudgetPage: React.FC = () => {
                         <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Est. Cost</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Inflation %</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Projected Cost</th>
+                        <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Annual Contribution</th>
                         <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Current Funding</th>
                         {canEdit && <th className="px-3 py-2" />}
                       </tr>
@@ -681,6 +775,7 @@ const BudgetPage: React.FC = () => {
                           <td className="px-3 py-2">{formatCurrency(item.estimated_cost)}</td>
                           <td className="px-3 py-2">{(item.inflation_rate * 100).toFixed(1)}%</td>
                           <td className="px-3 py-2">{formatCurrency(reserveFutureCost(item))}</td>
+                          <td className="px-3 py-2">{formatCurrency(reserveAnnualContribution(item))}</td>
                           <td className="px-3 py-2">{formatCurrency(item.current_funding)}</td>
                           {canEdit && (
                             <td className="px-3 py-2 space-x-2 text-right text-xs">

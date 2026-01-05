@@ -62,6 +62,7 @@ const ViolationsPage: React.FC = () => {
   const manageRoles = ['BOARD', 'SYSADMIN', 'SECRETARY', 'TREASURER', 'ATTORNEY'];
   const canManage = userHasAnyRole(user, manageRoles);
   const isHomeownerOnly = isHomeowner && !canManage;
+  const canUseTemplates = userHasRole(user, 'SYSADMIN');
 
   const [selectedViolationId, setSelectedViolationId] = useState<number | null>(null);
   const [appealText, setAppealText] = useState('');
@@ -72,8 +73,8 @@ const ViolationsPage: React.FC = () => {
     description: '',
     location: '',
     fine_schedule_id: '',
-    due_date: '',
   });
+  const [reportDate, setReportDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [creating, setCreating] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState<boolean>(canManage);
   const [transitionStatus, setTransitionStatus] = useState<string>('');
@@ -115,10 +116,12 @@ const ViolationsPage: React.FC = () => {
   const templatesQuery = useQuery<Template[]>({
     queryKey: [queryKeys.templates, 'violations'],
     queryFn: () => fetchTemplates({ type: 'VIOLATION_NOTICE' }),
+    enabled: canUseTemplates,
   });
   const mergeTagsQuery = useQuery({
     queryKey: queryKeys.templateMergeTags,
     queryFn: fetchTemplateMergeTags,
+    enabled: canUseTemplates,
   });
   const violationTemplates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
   const mergeTags = mergeTagsQuery.data ?? [];
@@ -269,7 +272,7 @@ const ViolationsPage: React.FC = () => {
     };
 
     push(selectedViolation.opened_at, 'Violation created', selectedViolation.description ?? undefined);
-    push(selectedViolation.due_date, 'Due date set');
+    push(selectedViolation.due_date, 'Reported on');
     push(selectedViolation.hearing_date, 'Hearing scheduled', undefined, selectedViolation.location ?? undefined);
 
     notices.forEach((notice) => {
@@ -331,7 +334,7 @@ const ViolationsPage: React.FC = () => {
         category: createForm.category,
         description: createForm.description,
         location: createForm.location || undefined,
-        due_date: createForm.due_date || undefined,
+        due_date: reportDate || undefined,
         fine_schedule_id: createForm.fine_schedule_id ? Number(createForm.fine_schedule_id) : undefined,
       });
       setCreateForm({
@@ -340,8 +343,8 @@ const ViolationsPage: React.FC = () => {
         description: '',
         location: '',
         fine_schedule_id: fineSchedules.length > 0 ? String(fineSchedules[0].id) : '',
-        due_date: '',
       });
+      setReportDate(new Date().toISOString().slice(0, 10));
       setSuccess('Violation created.');
     } catch (err) {
       logError('Unable to create violation.', err);
@@ -593,17 +596,18 @@ const ViolationsPage: React.FC = () => {
                     />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="due_date">
-                      Due Date
-                    </label>
-                    <input
-                      id="due_date"
-                      type="date"
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                      value={createForm.due_date}
-                      onChange={(event) => setCreateForm((prev) => ({ ...prev, due_date: event.target.value }))}
-                    />
-                  </div>
+                <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="report-date">
+                  Date reported
+                </label>
+                <input
+                  id="report-date"
+                  type="date"
+                  className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                  value={reportDate}
+                  required
+                  readOnly
+                />
+              </div>
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-semibold text-slate-600" htmlFor="fine_schedule_id">
@@ -661,7 +665,9 @@ const ViolationsPage: React.FC = () => {
                 <p className="mt-2 text-xs text-slate-500">Location: {selectedViolation.location}</p>
               )}
               {selectedViolation.due_date && (
-                <p className="mt-1 text-xs text-amber-600">Due by: {new Date(selectedViolation.due_date).toLocaleDateString()}</p>
+                <p className="mt-1 text-xs text-amber-600">
+                  Reported on: {new Date(selectedViolation.due_date).toLocaleDateString()}
+                </p>
               )}
               {selectedViolation.hearing_date && (
                 <p className="mt-1 text-xs text-indigo-600">

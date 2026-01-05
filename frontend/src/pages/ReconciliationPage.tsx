@@ -6,9 +6,12 @@ import {
   fetchReconciliationById,
   fetchBankTransactions,
   uploadBankStatement,
+  fetchBankBalanceSnapshots,
+  createBankBalanceSnapshot,
 } from '../services/api';
-import { BankTransaction, Reconciliation } from '../types';
+import { BankBalanceSnapshot, BankTransaction, Reconciliation } from '../types';
 import { userHasAnyRole } from '../utils/roles';
+import { useBudgetsQuery } from '../features/budgets/hooks';
 
 const statusBadge: Record<string, string> = {
   MATCHED: 'bg-green-100 text-green-700',
@@ -29,6 +32,14 @@ const ReconciliationPage: React.FC = () => {
   const [statementDate, setStatementDate] = useState('');
   const [note, setNote] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [balanceSnapshots, setBalanceSnapshots] = useState<BankBalanceSnapshot[]>([]);
+  const [balanceDate, setBalanceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [balanceAmount, setBalanceAmount] = useState('');
+  const [balanceNote, setBalanceNote] = useState('');
+  const [snapshotType, setSnapshotType] = useState<'CURRENT' | 'YEAR_END'>('CURRENT');
+  const [balanceBusy, setBalanceBusy] = useState(false);
+
+  const budgetsQuery = useBudgetsQuery();
 
   const isAuthorized = !!user && userHasAnyRole(user, ['BOARD', 'TREASURER', 'SYSADMIN']);
   const logError = useCallback((message: string, err: unknown) => {
@@ -74,6 +85,21 @@ const ReconciliationPage: React.FC = () => {
     void loadTransactions(statusFilter !== 'ALL' ? statusFilter : undefined);
   }, [statusFilter, isAuthorized, loadTransactions]);
 
+  const loadBalanceSnapshots = useCallback(async () => {
+    try {
+      const data = await fetchBankBalanceSnapshots();
+      setBalanceSnapshots(data);
+    } catch (err) {
+      logError('Unable to load balance snapshots.', err);
+      setError('Unable to load balance snapshots.');
+    }
+  }, [logError]);
+
+  useEffect(() => {
+    if (!isAuthorized) return;
+    void loadBalanceSnapshots();
+  }, [isAuthorized, loadBalanceSnapshots]);
+
   const handleSelect = async (reconciliation: Reconciliation) => {
     try {
       const detail = await fetchReconciliationById(reconciliation.id);
@@ -116,6 +142,47 @@ const ReconciliationPage: React.FC = () => {
     }
   };
 
+  const handleBalanceSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!balanceAmount) {
+      setError('Enter the current balance before saving.');
+      return;
+    }
+    setBalanceBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      await createBankBalanceSnapshot({
+        recorded_date: balanceDate,
+        balance: balanceAmount,
+        snapshot_type: snapshotType,
+        note: balanceNote || undefined,
+      });
+      setSuccess('Balance snapshot saved.');
+      setBalanceAmount('');
+      setBalanceNote('');
+      setSnapshotType('CURRENT');
+      setBalanceDate(new Date().toISOString().slice(0, 10));
+      await loadBalanceSnapshots();
+    } catch (err) {
+      logError('Unable to save balance snapshot.', err);
+      setError('Unable to save balance snapshot.');
+    } finally {
+      setBalanceBusy(false);
+    }
+  };
+
+  const latestBudget = useMemo(() => {
+    const list = budgetsQuery.data ?? [];
+    if (!list.length) return null;
+    return [...list].sort((a, b) => b.year - a.year)[0];
+  }, [budgetsQuery.data]);
+  const latestBalance = balanceSnapshots[0] ?? null;
+  const variance = latestBudget && latestBalance
+    ? Number(latestBalance.balance) - Number(latestBudget.total_annual)
+    : null;
+  const onTrack = variance !== null ? variance >= 0 : null;
+
   if (!isAuthorized) {
     return <p className="text-sm text-red-600">You do not have access to bank reconciliation reports.</p>;
   }
@@ -150,6 +217,11 @@ const ReconciliationPage: React.FC = () => {
 
       <section className="rounded border border-slate-200 p-4">
         <h3 className="text-sm font-semibold text-slate-600">Import Statement</h3>
+        <p className="mt-2 text-xs text-slate-500">
+          Upload a CSV export from the bank with <span className="font-semibold">date</span>,{' '}
+          <span className="font-semibold">description</span>, and <span className="font-semibold">amount</span> columns.
+          Amounts should be negative for withdrawals and positive for deposits.
+        </p>
         <form className="mt-3 grid gap-3 md:grid-cols-4" onSubmit={handleUpload}>
           <div className="md:col-span-2">
             <label className="mb-1 block text-xs text-slate-500" htmlFor="bank-file">CSV File</label>
@@ -192,6 +264,120 @@ const ReconciliationPage: React.FC = () => {
             </button>
           </div>
         </form>
+      </section>
+
+      <section className="rounded border border-slate-200 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-600">Balance Snapshots</h3>
+            <p className="text-xs text-slate-500">
+              Record current balances or year-end closing balances to track on/off-track status.
+            </p>
+          </div>
+          {latestBudget && (
+            <div className="text-xs text-slate-500">
+              Budget reference: {latestBudget.year} annual total {Number(latestBudget.total_annual).toFixed(2)}
+            </div>
+          )}
+        </div>
+
+        <form className="mt-3 grid gap-3 md:grid-cols-4" onSubmit={handleBalanceSubmit}>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500" htmlFor="balance-date">Date</label>
+            <input
+              id="balance-date"
+              type="date"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              value={balanceDate}
+              onChange={(event) => setBalanceDate(event.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500" htmlFor="balance-amount">Balance</label>
+            <input
+              id="balance-amount"
+              type="number"
+              step="0.01"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              value={balanceAmount}
+              onChange={(event) => setBalanceAmount(event.target.value)}
+              required
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500" htmlFor="balance-type">Snapshot type</label>
+            <select
+              id="balance-type"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              value={snapshotType}
+              onChange={(event) => setSnapshotType(event.target.value as 'CURRENT' | 'YEAR_END')}
+            >
+              <option value="CURRENT">Current balance</option>
+              <option value="YEAR_END">Year-end closing</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500" htmlFor="balance-note">Note</label>
+            <input
+              id="balance-note"
+              className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+              value={balanceNote}
+              onChange={(event) => setBalanceNote(event.target.value)}
+              placeholder="Optional"
+            />
+          </div>
+          <div className="md:col-span-4 flex flex-wrap items-center justify-between gap-3">
+            {latestBalance && (
+              <div className="text-xs text-slate-600">
+                Latest snapshot: {new Date(latestBalance.recorded_date).toLocaleDateString()} • $
+                {Number(latestBalance.balance).toFixed(2)}
+                {variance !== null && (
+                  <span className={onTrack ? 'text-emerald-600' : 'text-rose-600'}>
+                    {' '}
+                    • {onTrack ? 'On track' : 'Off track'} by ${Math.abs(variance).toFixed(2)}
+                  </span>
+                )}
+              </div>
+            )}
+            <button
+              type="submit"
+              className="rounded bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
+              disabled={balanceBusy}
+            >
+              {balanceBusy ? 'Saving…' : 'Save snapshot'}
+            </button>
+          </div>
+        </form>
+
+        {balanceSnapshots.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Type</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Balance</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-slate-500">Note</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {balanceSnapshots.map((snapshot) => (
+                  <tr key={snapshot.id}>
+                    <td className="px-3 py-2 text-xs text-slate-500">
+                      {new Date(snapshot.recorded_date).toLocaleDateString()}
+                    </td>
+                    <td className="px-3 py-2">{snapshot.snapshot_type === 'YEAR_END' ? 'Year-end' : 'Current'}</td>
+                    <td className="px-3 py-2 font-semibold text-slate-700">
+                      ${Number(snapshot.balance).toFixed(2)}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-500">{snapshot.note ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <div className="grid gap-6 lg:grid-cols-2">
