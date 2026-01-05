@@ -8,9 +8,9 @@ from decimal import Decimal
 from typing import Iterable, List
 
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from ..models.models import ARCRequest, Invoice, LedgerEntry, Owner, Violation
+from ..models.models import ARCRequest, Invoice, Owner, Reconciliation, Violation
 
 
 @dataclass
@@ -32,6 +32,7 @@ def generate_ar_aging_report(session: Session, as_of: date | None = None) -> Csv
     today = as_of or date.today()
     invoices = (
         session.query(Invoice)
+        .options(joinedload(Invoice.owner))
         .join(Owner, Owner.id == Invoice.owner_id)
         .filter(Invoice.status == "OPEN")
         .filter(Owner.is_archived.is_(False))
@@ -52,7 +53,7 @@ def generate_ar_aging_report(session: Session, as_of: date | None = None) -> Csv
     rows: List[List[str]] = []
 
     for invoice in invoices:
-        owner = session.get(Owner, invoice.owner_id)
+        owner = invoice.owner
         days_past_due = (today - invoice.due_date).days
         if days_past_due < 0:
             bucket = "Current"
@@ -84,28 +85,140 @@ def generate_ar_aging_report(session: Session, as_of: date | None = None) -> Csv
 
 
 def generate_cash_flow_report(session: Session, months: int = 12) -> CsvReport:
-    entries = (
-        session.query(LedgerEntry)
-        .join(Owner, Owner.id == LedgerEntry.owner_id)
-        .filter(Owner.is_archived.is_(False))
-        .order_by(LedgerEntry.timestamp.asc())
+    reconciliations = (
+        session.query(Reconciliation)
+        .order_by(Reconciliation.statement_date.desc(), Reconciliation.created_at.desc())
         .all()
     )
 
-    monthly_totals: dict[str, Decimal] = {}
-    for entry in entries:
-        timestamp = entry.timestamp or datetime.now(timezone.utc)
-        month_key = timestamp.strftime("%Y-%m")
-        monthly_totals.setdefault(month_key, Decimal("0.00"))
-        monthly_totals[month_key] += Decimal(entry.amount or 0)
+    headers = [
+        "Statement Date",
+        "Total Transactions",
+        "Matched Transactions",
+        "Unmatched Transactions",
+        "Matched Amount",
+        "Unmatched Amount",
+    ]
+    rows: List[List[str]] = []
 
-    sorted_months = sorted(monthly_totals.keys())[-months:]
-    headers = ["Month", "Net Cash Flow"]
-    rows = [[month, f"{monthly_totals[month]:.2f}"] for month in sorted_months]
+    for reconciliation in reconciliations[:months]:
+        statement_date = reconciliation.statement_date.isoformat() if reconciliation.statement_date else ""
+        rows.append(
+            [
+                statement_date,
+                str(reconciliation.total_transactions),
+                str(reconciliation.matched_transactions),
+                str(reconciliation.unmatched_transactions),
+                f"{Decimal(reconciliation.matched_amount or 0):.2f}",
+                f"{Decimal(reconciliation.unmatched_amount or 0):.2f}",
+            ]
+        )
 
     csv_content = _render_csv(headers, rows)
     filename = f"cash-flow-{datetime.now(timezone.utc).date().isoformat()}.csv"
     return CsvReport(filename=filename, content=csv_content)
+
+
+def get_ar_aging_data(session: Session, as_of: date | None = None) -> List[dict]:
+    today = as_of or date.today()
+    invoices = (
+        session.query(Invoice)
+        .options(joinedload(Invoice.owner))
+        .join(Owner, Owner.id == Invoice.owner_id)
+        .filter(Invoice.status == "OPEN")
+        .filter(Owner.is_archived.is_(False))
+        .order_by(Invoice.due_date.asc())
+        .all()
+    )
+
+    rows: List[dict] = []
+    for invoice in invoices:
+        owner = invoice.owner
+        due_date = invoice.due_date
+        days_past_due = (today - due_date).days if due_date else None
+        rows.append(
+            {
+                "invoice_id": invoice.id,
+                "owner_id": invoice.owner_id,
+                "owner_name": owner.primary_name if owner else None,
+                "lot": owner.lot if owner else None,
+                "amount": str(Decimal(invoice.amount or 0)),
+                "due_date": due_date,
+                "status": invoice.status,
+                "days_past_due": days_past_due,
+            }
+        )
+    return rows
+
+
+def get_cash_flow_data(session: Session, limit: int = 12) -> List[dict]:
+    reconciliations = (
+        session.query(Reconciliation)
+        .order_by(Reconciliation.statement_date.desc(), Reconciliation.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "reconciliation_id": reconciliation.id,
+            "statement_date": reconciliation.statement_date,
+            "matched_amount": reconciliation.matched_amount,
+            "unmatched_amount": reconciliation.unmatched_amount,
+            "matched_transactions": reconciliation.matched_transactions,
+            "unmatched_transactions": reconciliation.unmatched_transactions,
+            "total_transactions": reconciliation.total_transactions,
+        }
+        for reconciliation in reconciliations
+    ]
+
+
+def get_violations_summary_data(session: Session) -> List[dict]:
+    summary = (
+        session.query(Violation.status, Violation.category, func.count(Violation.id))
+        .group_by(Violation.status, Violation.category)
+        .all()
+    )
+    rows: List[dict] = []
+    for status, category, count in summary:
+        rows.append(
+            {
+                "status": status,
+                "category": category or "General",
+                "count": count,
+            }
+        )
+    return rows
+
+
+def get_arc_sla_data(session: Session) -> List[dict]:
+    requests = session.query(ARCRequest).all()
+    rows: List[dict] = []
+
+    def difference_in_days(start: datetime | None, end: datetime | None) -> int | None:
+        if not start or not end:
+            return None
+        delta = end - start
+        return max(0, delta.days)
+
+    for arc_request in requests:
+        rows.append(
+            {
+                "id": arc_request.id,
+                "title": arc_request.title,
+                "status": arc_request.status,
+                "created_at": arc_request.created_at,
+                "submitted_at": arc_request.submitted_at,
+                "final_decision_at": arc_request.final_decision_at,
+                "completed_at": arc_request.completed_at,
+                "days_to_decision": difference_in_days(
+                    arc_request.submitted_at, arc_request.final_decision_at
+                ),
+                "days_to_completion": difference_in_days(
+                    arc_request.submitted_at or arc_request.created_at, arc_request.completed_at
+                ),
+            }
+        )
+    return rows
 
 
 def generate_violations_summary_report(session: Session) -> CsvReport:

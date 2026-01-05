@@ -6,6 +6,8 @@ import {
   ARCInspection,
   ARCRequest,
   ARCAttachment,
+  ARAgingReportRow,
+  ArcSlaReportRow,
   BankImportSummary,
   BankTransaction,
   BankBalanceSnapshot,
@@ -40,6 +42,7 @@ import {
   BudgetLineItem,
   ReservePlanItem,
   BudgetAttachment,
+  CashFlowReportRow,
   DocumentFolder,
   DocumentTreeResponse,
   GovernanceDocument,
@@ -63,6 +66,7 @@ import {
   TwoFactorSetupResponse,
   AuditLogResponse,
   VendorPayment,
+  ViolationsSummaryReportRow,
 } from '../types';
 import { api, publicApi, API_BASE_URL, setAuthToken } from '../lib/api/client';
 
@@ -1019,6 +1023,26 @@ export const downloadViolationsSummaryReport = async (): Promise<Blob> =>
   downloadCsv('/reports/violations-summary');
 
 export const downloadArcSlaReport = async (): Promise<Blob> => downloadCsv('/reports/arc-sla');
+
+export const fetchARAgingReportData = async (): Promise<ARAgingReportRow[]> => {
+  const { data } = await api.get<ARAgingReportRow[]>('/reports/ar-aging/data');
+  return data;
+};
+
+export const fetchCashFlowReportData = async (): Promise<CashFlowReportRow[]> => {
+  const { data } = await api.get<CashFlowReportRow[]>('/reports/cash-flow/data');
+  return data;
+};
+
+export const fetchViolationsSummaryReportData = async (): Promise<ViolationsSummaryReportRow[]> => {
+  const { data } = await api.get<ViolationsSummaryReportRow[]>('/reports/violations-summary/data');
+  return data;
+};
+
+export const fetchArcSlaReportData = async (): Promise<ArcSlaReportRow[]> => {
+  const { data } = await api.get<ArcSlaReportRow[]>('/reports/arc-sla/data');
+  return data;
+};
 
 export const fetchElections = async (options: { includeArchived?: boolean } = {}): Promise<ElectionListItem[]> => {
   const params = new URLSearchParams();

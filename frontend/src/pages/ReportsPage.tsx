@@ -11,10 +11,10 @@ import SortableTable, { SortableColumn } from '../components/SortableTable';
 import { downloadCsvFromData, CsvColumn } from '../utils/csv';
 import type { ARCStatus, ViolationStatus } from '../types';
 import {
-  useArcRequestsQuery,
-  useInvoicesQuery,
-  useReconciliationsQuery,
-  useViolationsQuery,
+  useArAgingReportQuery,
+  useArcSlaReportQuery,
+  useCashFlowReportQuery,
+  useViolationsSummaryReportQuery,
 } from '../features/reports/hooks';
 
 const downloadFile = async (fetcher: () => Promise<Blob>, filename: string, setStatus: (value: string | null) => void, setError: (value: string | null) => void) => {
@@ -97,37 +97,32 @@ const ReportsPage: React.FC = () => {
   const { user } = useAuth();
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const invoicesQuery = useInvoicesQuery();
-  const reconciliationsQuery = useReconciliationsQuery();
-  const violationsQuery = useViolationsQuery();
-  const arcRequestsQuery = useArcRequestsQuery();
-
-  const invoicesSnapshot = invoicesQuery.dataUpdatedAt || null;
+  const agingQuery = useArAgingReportQuery();
+  const cashFlowQuery = useCashFlowReportQuery();
+  const violationsQuery = useViolationsSummaryReportQuery();
+  const arcRequestsQuery = useArcSlaReportQuery();
 
   const agingRows = useMemo<AgingRow[]>(() => {
-    const msPerDay = 1000 * 60 * 60 * 24;
-    return (invoicesQuery.data ?? []).map((invoice) => {
-      const dueDateValue = invoice.due_date ? new Date(invoice.due_date).getTime() : null;
-      const diff =
-        dueDateValue && invoicesSnapshot
-          ? Math.floor((invoicesSnapshot - dueDateValue) / msPerDay)
-          : null;
-      const ownerLabel = invoice.lot ?? `Owner #${String(invoice.owner_id).padStart(3, '0')}`;
+    return (agingQuery.data ?? []).map((invoice) => {
+      const ownerLabel =
+        invoice.owner_name?.trim() ||
+        invoice.lot ||
+        `Owner #${String(invoice.owner_id).padStart(3, '0')}`;
       return {
-        invoiceId: invoice.id,
+        invoiceId: invoice.invoice_id,
         ownerId: invoice.owner_id,
         ownerLabel,
         lot: invoice.lot ?? null,
         amount: Number.parseFloat(invoice.amount) || 0,
         dueDate: invoice.due_date ?? null,
         status: invoice.status,
-        daysPastDue: diff,
+        daysPastDue: invoice.days_past_due ?? null,
       };
     });
-  }, [invoicesQuery.data, invoicesSnapshot]);
+  }, [agingQuery.data]);
 
   const cashFlowRows = useMemo<CashFlowRow[]>(() => {
-    return (reconciliationsQuery.data ?? []).map((recon) => ({
+    return (cashFlowQuery.data ?? []).map((recon) => ({
       statementDate: recon.statement_date ?? null,
       matchedAmount: Number.parseFloat(recon.matched_amount) || 0,
       unmatchedAmount: Number.parseFloat(recon.unmatched_amount) || 0,
@@ -135,33 +130,17 @@ const ReportsPage: React.FC = () => {
       unmatchedTransactions: recon.unmatched_transactions,
       totalTransactions: recon.total_transactions,
     }));
-  }, [reconciliationsQuery.data]);
+  }, [cashFlowQuery.data]);
 
   const violationSummaryRows = useMemo<ViolationSummaryRow[]>(() => {
-    const map = new Map<string, ViolationSummaryRow>();
-    (violationsQuery.data ?? []).forEach((violation) => {
-      const key = `${violation.status}|${violation.category ?? 'General'}`;
-      if (!map.has(key)) {
-        map.set(key, {
-          status: violation.status,
-          category: violation.category ?? 'General',
-          count: 0,
-        });
-      }
-      const entry = map.get(key)!;
-      entry.count += 1;
-    });
-    return Array.from(map.values());
+    return (violationsQuery.data ?? []).map((summary) => ({
+      status: summary.status,
+      category: summary.category,
+      count: summary.count,
+    }));
   }, [violationsQuery.data]);
 
   const arcRows = useMemo<ArcRow[]>(() => {
-    const differenceInDays = (start?: string | null, end?: string | null): number | null => {
-      if (!start || !end) return null;
-      const startDate = new Date(start).getTime();
-      const endDate = new Date(end).getTime();
-      if (Number.isNaN(startDate) || Number.isNaN(endDate)) return null;
-      return Math.max(0, Math.round((endDate - startDate) / (1000 * 60 * 60 * 24)));
-    };
     return (arcRequestsQuery.data ?? []).map((request) => ({
       title: request.title,
       status: request.status,
@@ -169,8 +148,8 @@ const ReportsPage: React.FC = () => {
       submittedAt: request.submitted_at ?? null,
       finalDecisionAt: request.final_decision_at ?? null,
       completedAt: request.completed_at ?? null,
-      daysToDecision: differenceInDays(request.submitted_at, request.final_decision_at),
-      daysToCompletion: differenceInDays(request.submitted_at ?? request.created_at, request.completed_at),
+      daysToDecision: request.days_to_decision ?? null,
+      daysToCompletion: request.days_to_completion ?? null,
     }));
   }, [arcRequestsQuery.data]);
 
@@ -354,9 +333,9 @@ const ReportsPage: React.FC = () => {
   };
 
   const loading =
-    invoicesQuery.isLoading || reconciliationsQuery.isLoading || violationsQuery.isLoading || arcRequestsQuery.isLoading;
+    agingQuery.isLoading || cashFlowQuery.isLoading || violationsQuery.isLoading || arcRequestsQuery.isLoading;
   const baseError =
-    invoicesQuery.isError || reconciliationsQuery.isError || violationsQuery.isError || arcRequestsQuery.isError
+    agingQuery.isError || cashFlowQuery.isError || violationsQuery.isError || arcRequestsQuery.isError
       ? 'Unable to load report data.'
       : null;
   const effectiveError = error ?? baseError;
