@@ -144,7 +144,7 @@ const ARCPage: React.FC = () => {
     try {
       await transitionMutation.mutateAsync({
         requestId: selected.id,
-        target_status: transitionStatus,
+        payload: { target_status: transitionStatus },
       });
       setSuccess('Status updated.');
       setTransitionStatus('');
@@ -159,11 +159,25 @@ const ARCPage: React.FC = () => {
     try {
       await transitionMutation.mutateAsync({
         requestId: selected.id,
-        target_status: 'SUBMITTED',
+        payload: { target_status: 'SUBMITTED' },
       });
       setSuccess('Request submitted.');
     } catch (err) {
       reportError('Unable to submit request.', err);
+    }
+  };
+
+  const handleReviewRequest = async () => {
+    if (!selected) return;
+    setError(null);
+    try {
+      await transitionMutation.mutateAsync({
+        requestId: selected.id,
+        payload: { target_status: 'IN_REVIEW' },
+      });
+      setSuccess('Request marked as in review.');
+    } catch (err) {
+      reportError('Unable to start review.', err);
     }
   };
 
@@ -245,6 +259,7 @@ const ARCPage: React.FC = () => {
     if (!selected) return [];
     if (selected.status === 'DRAFT') return [];
     if (!canReview) return [];
+    if (selected.status === 'SUBMITTED') return [];
     return TRANSITIONS[selected.status] || [];
   }, [selected, canReview]);
   const conditions = useMemo(() => selected?.conditions ?? [], [selected]);
@@ -257,6 +272,10 @@ const ARCPage: React.FC = () => {
   const canSubmitDraft = useMemo(
     () => !!selected && selected.status === 'DRAFT' && (isHomeowner || canReview || canViewStaff),
     [selected, isHomeowner, canReview, canViewStaff],
+  );
+  const canReviewRequest = useMemo(
+    () => !!selected && selected.status === 'SUBMITTED' && canReview,
+    [selected, canReview],
   );
   const canComment = useMemo(() => isHomeowner || canReview, [isHomeowner, canReview]);
 
@@ -535,6 +554,19 @@ const ARCPage: React.FC = () => {
                     Apply Transition
                   </button>
                 </form>
+              )}
+
+              {canReviewRequest && (
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
+                    onClick={handleReviewRequest}
+                    disabled={transitionMutation.isLoading}
+                  >
+                    {transitionMutation.isLoading ? 'Starting review…' : 'Review'}
+                  </button>
+                </div>
               )}
 
               {canSubmitDraft && (
