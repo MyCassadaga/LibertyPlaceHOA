@@ -6,7 +6,6 @@ import {
   createARCRequest,
   fetchARCRequests,
   reopenARCRequest,
-  resolveARCCondition,
   transitionARCRequest,
   uploadARCAttachment,
 } from '../../services/api';
@@ -76,22 +75,6 @@ export const useAddArcConditionMutation = () => {
       requestId: number;
       payload: Parameters<typeof addARCCondition>[1];
     }) => addARCCondition(requestId, payload),
-    onSuccess: invalidate,
-  });
-};
-
-export const useResolveArcConditionMutation = () => {
-  const invalidate = useInvalidateArcRequests();
-  return useMutation({
-    mutationFn: ({
-      requestId,
-      conditionId,
-      status,
-    }: {
-      requestId: number;
-      conditionId: number;
-      status: 'OPEN' | 'RESOLVED';
-    }) => resolveARCCondition(requestId, conditionId, status),
     onSuccess: invalidate,
   });
 };

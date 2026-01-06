@@ -22,7 +22,6 @@ vi.mock('../../features/arc/hooks', () => ({
   useReopenArcRequestMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
   useUploadArcAttachmentMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
   useAddArcConditionMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
-  useResolveArcConditionMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
   useCreateArcInspectionMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
 }));
 
@@ -110,5 +109,84 @@ describe('ARCPage', () => {
 
     fireEvent.click(screen.getByText('Older Request'));
     expect(screen.getByText('Project Type: Fence')).toBeInTheDocument();
+  });
+
+  it('shows reviewer notes only when a request is in review', () => {
+    mockUser = { primary_role: { name: 'BOARD' }, roles: [{ name: 'BOARD' }] };
+    mockRequests = [
+      { ...buildRequest(1, 'Review Request', 'Fence', '2024-05-01T12:00:00Z'), status: 'IN_REVIEW' },
+    ];
+
+    render(<ARCPage />);
+
+    expect(screen.getByText('Reviewer Notes')).toBeInTheDocument();
+  });
+
+  it('hides reviewer notes when a request is not in review', () => {
+    mockUser = { primary_role: { name: 'BOARD' }, roles: [{ name: 'BOARD' }] };
+    mockRequests = [
+      { ...buildRequest(1, 'Submitted Request', 'Fence', '2024-05-01T12:00:00Z'), status: 'SUBMITTED' },
+    ];
+
+    render(<ARCPage />);
+
+    expect(screen.queryByText('Reviewer Notes')).not.toBeInTheDocument();
+  });
+
+  it('uses the save label for reviewer notes', () => {
+    mockUser = { primary_role: { name: 'BOARD' }, roles: [{ name: 'BOARD' }] };
+    mockRequests = [
+      { ...buildRequest(1, 'Review Request', 'Fence', '2024-05-01T12:00:00Z'), status: 'IN_REVIEW' },
+    ];
+
+    render(<ARCPage />);
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
+    expect(screen.queryByText('Record Inspection')).not.toBeInTheDocument();
+  });
+
+  it('renders comments without resolved controls', () => {
+    mockUser = { primary_role: { name: 'BOARD' }, roles: [{ name: 'BOARD' }] };
+    mockRequests = [
+      {
+        ...buildRequest(1, 'Review Request', 'Fence', '2024-05-01T12:00:00Z'),
+        status: 'IN_REVIEW',
+        conditions: [
+          {
+            id: 1,
+            arc_request_id: 1,
+            condition_type: 'COMMENT',
+            text: 'Looks good.',
+            status: 'RESOLVED',
+            created_at: '2024-05-02T12:00:00Z',
+            resolved_at: '2024-05-03T12:00:00Z',
+            created_by_user_id: 1,
+          },
+        ],
+      },
+    ];
+
+    render(<ARCPage />);
+
+    expect(screen.getByText('Looks good.')).toBeInTheDocument();
+    expect(screen.queryByText('Resolved')).not.toBeInTheDocument();
+    expect(screen.queryByText('Mark Resolved')).not.toBeInTheDocument();
+    expect(screen.queryByText('Reopen')).not.toBeInTheDocument();
+  });
+
+  it('renders the review button after attachments and comments', () => {
+    mockUser = { primary_role: { name: 'BOARD' }, roles: [{ name: 'BOARD' }] };
+    mockRequests = [
+      { ...buildRequest(1, 'Submitted Request', 'Fence', '2024-05-01T12:00:00Z'), status: 'SUBMITTED' },
+    ];
+
+    render(<ARCPage />);
+
+    const attachmentsHeading = screen.getByText('Attachments');
+    const commentsHeading = screen.getByText('Comments & Conditions');
+    const reviewButton = screen.getByRole('button', { name: 'Review' });
+
+    expect(attachmentsHeading.compareDocumentPosition(reviewButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(commentsHeading.compareDocumentPosition(reviewButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
