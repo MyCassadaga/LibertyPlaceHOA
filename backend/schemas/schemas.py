@@ -160,6 +160,21 @@ class OwnerRead(OwnerBase):
         orm_mode = True
 
 
+class OwnerSummaryRead(OwnerBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    is_archived: bool
+    archived_at: Optional[datetime]
+    archived_reason: Optional[str]
+    archived_by_user_id: Optional[int]
+    former_lot: Optional[str]
+    delivery_preference_global: str = "AUTO"
+
+    class Config:
+        orm_mode = True
+
+
 class OwnerUpdateRequestCreate(BaseModel):
     proposed_changes: Dict[str, Any]
 
@@ -1134,7 +1149,7 @@ class ARCRequestRead(BaseModel):
     archived_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
-    owner: OwnerRead
+    owner: OwnerSummaryRead
     attachments: List[ARCAttachmentRead]
     conditions: List[ARCConditionRead]
     inspections: List[ARCInspectionRead]
