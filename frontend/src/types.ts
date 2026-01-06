@@ -682,6 +682,8 @@ export type ARCStatus =
   | 'DRAFT'
   | 'SUBMITTED'
   | 'IN_REVIEW'
+  | 'PASSED'
+  | 'FAILED'
   | 'REVIEW_COMPLETE'
   | 'ARCHIVED';
 
@@ -740,6 +742,24 @@ export interface ARCRequest {
   attachments: ARCAttachment[];
   conditions: ARCCondition[];
   inspections: ARCInspection[];
+  reviews: ARCReview[];
+}
+
+export interface ARCReview {
+  id: number;
+  arc_request_id: number;
+  reviewer_user_id: number;
+  reviewer_name?: string | null;
+  decision: 'PASS' | 'FAIL';
+  notes?: string | null;
+  submitted_at: string;
+  updated_at: string;
+}
+
+export interface ARCReviewer {
+  id: number;
+  full_name?: string | null;
+  email: string;
 }
 
 export interface BankTransaction {

@@ -586,6 +586,8 @@ class ARCRequest(Base):
     decision_notes = Column(Text, nullable=True)
     final_decision_at = Column(DateTime, nullable=True)
     final_decision_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decision_notified_at = Column(DateTime, nullable=True)
+    decision_notified_status = Column(String, nullable=True)
     revision_requested_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     archived_at = Column(DateTime, nullable=True)
@@ -599,6 +601,7 @@ class ARCRequest(Base):
     attachments = orm_relationship("ARCAttachment", back_populates="request", cascade="all, delete-orphan")
     conditions = orm_relationship("ARCCondition", back_populates="request", cascade="all, delete-orphan")
     inspections = orm_relationship("ARCInspection", back_populates="request", cascade="all, delete-orphan")
+    reviews = orm_relationship("ARCReview", back_populates="request", cascade="all, delete-orphan")
 
     @property
     def reviewer_name(self) -> Optional[str]:
@@ -621,6 +624,30 @@ class ARCAttachment(Base):
 
     request = orm_relationship("ARCRequest", back_populates="attachments")
     uploader = orm_relationship("User")
+
+
+class ARCReview(Base):
+    __tablename__ = "arc_reviews"
+    __table_args__ = (
+        UniqueConstraint("arc_request_id", "reviewer_user_id", name="uq_arc_reviews_request_reviewer"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    arc_request_id = Column(Integer, ForeignKey("arc_requests.id", ondelete="CASCADE"), nullable=False)
+    reviewer_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    decision = Column(String, nullable=False)  # PASS | FAIL
+    notes = Column(Text, nullable=True)
+    submitted_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    request = orm_relationship("ARCRequest", back_populates="reviews")
+    reviewer = orm_relationship("User")
+
+    @property
+    def reviewer_name(self) -> Optional[str]:
+        if not self.reviewer:
+            return None
+        return self.reviewer.full_name or self.reviewer.email
 
 
 class ARCCondition(Base):

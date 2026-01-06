@@ -42,6 +42,8 @@ const ARC_STATUS_LABELS: Record<ARCStatus, string> = {
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
   IN_REVIEW: 'In Review',
+  PASSED: 'Passed',
+  FAILED: 'Failed',
   REVIEW_COMPLETE: 'Review Complete',
   ARCHIVED: 'Archived',
 };

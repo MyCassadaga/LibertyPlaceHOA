@@ -5,6 +5,8 @@ import {
   ARCCondition,
   ARCInspection,
   ARCRequest,
+  ARCReviewer,
+  ARCReview,
   ARCAttachment,
   ARAgingReportRow,
   ArcSlaReportRow,
@@ -1012,6 +1014,22 @@ export const createARCInspection = async (
   payload: { scheduled_date?: string | null; result?: string | null; notes?: string | null },
 ): Promise<ARCInspection> => {
   const { data } = await api.post<ARCInspection>(`/arc/requests/${requestId}/inspections`, payload);
+  return data;
+};
+
+export const submitARCReview = async (
+  requestId: number,
+  payload: {
+    decision: ARCReview['decision'];
+    notes?: string;
+  },
+): Promise<ARCRequest> => {
+  const { data } = await api.post<ARCRequest>(`/arc/requests/${requestId}/reviews`, payload);
+  return data;
+};
+
+export const fetchARCReviewers = async (): Promise<ARCReviewer[]> => {
+  const { data } = await api.get<ARCReviewer[]>('/arc/reviewers');
   return data;
 };
 

@@ -11,6 +11,7 @@ const TEMPLATE_TYPES = [
   { value: 'BROADCAST', label: 'Broadcast' },
   { value: 'NOTICE', label: 'Notice' },
   { value: 'VIOLATION_NOTICE', label: 'Violation Notice' },
+  { value: 'ARC_REQUEST', label: 'ARC Request' },
 ];
 
 const TemplatesPage: React.FC = () => {

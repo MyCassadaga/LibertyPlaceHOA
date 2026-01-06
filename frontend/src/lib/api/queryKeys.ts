@@ -12,6 +12,7 @@ export const queryKeys = {
   adminUsers: ['admin', 'users'] as const,
   loginBackground: ['admin', 'login-background'] as const,
   arcRequests: ['arc', 'requests'] as const,
+  arcReviewers: ['arc', 'reviewers'] as const,
   elections: ['elections'] as const,
   electionDetail: ['elections', 'detail'] as const,
   electionBallots: ['elections', 'ballots'] as const,

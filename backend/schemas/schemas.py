@@ -1081,8 +1081,38 @@ class ARCRequestStatusUpdate(BaseModel):
         "SUBMITTED",
         "IN_REVIEW",
         "REVIEW_COMPLETE",
+        "PASSED",
+        "FAILED",
         "ARCHIVED",
     ]
+
+
+class ARCReviewCreate(BaseModel):
+    decision: Literal["PASS", "FAIL"]
+    notes: Optional[str]
+
+
+class ARCReviewRead(BaseModel):
+    id: int
+    arc_request_id: int
+    reviewer_user_id: int
+    reviewer_name: Optional[str]
+    decision: str
+    notes: Optional[str]
+    submitted_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class ARCReviewerRead(BaseModel):
+    id: int
+    full_name: Optional[str]
+    email: EmailStr
+
+    class Config:
+        orm_mode = True
 
 
 class ARCRequestRead(BaseModel):
@@ -1108,6 +1138,7 @@ class ARCRequestRead(BaseModel):
     attachments: List[ARCAttachmentRead]
     conditions: List[ARCConditionRead]
     inspections: List[ARCInspectionRead]
+    reviews: List[ARCReviewRead] = []
 
     class Config:
         orm_mode = True

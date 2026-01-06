@@ -22,7 +22,8 @@ vi.mock('../../features/arc/hooks', () => ({
   useReopenArcRequestMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
   useUploadArcAttachmentMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
   useAddArcConditionMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
-  useCreateArcInspectionMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
+  useSubmitArcReviewMutation: () => ({ mutateAsync: vi.fn(), isLoading: false }),
+  useArcReviewersQuery: () => ({ data: [], isLoading: false, isError: false }),
 }));
 
 vi.mock('../../features/billing/hooks', () => ({
@@ -67,6 +68,7 @@ const buildRequest = (id: number, title: string, projectType: string, createdAt:
   attachments: [],
   conditions: [],
   inspections: [],
+  reviews: [],
 });
 
 describe('ARCPage', () => {
@@ -111,7 +113,7 @@ describe('ARCPage', () => {
     expect(screen.getByText('Project Type: Fence')).toBeInTheDocument();
   });
 
-  it('shows reviewer notes only when a request is in review', () => {
+  it('shows reviewer notes after a board member clicks review', () => {
     mockUser = { primary_role: { name: 'BOARD' }, roles: [{ name: 'BOARD' }] };
     mockRequests = [
       { ...buildRequest(1, 'Review Request', 'Fence', '2024-05-01T12:00:00Z'), status: 'IN_REVIEW' },
@@ -119,6 +121,8 @@ describe('ARCPage', () => {
 
     render(<ARCPage />);
 
+    expect(screen.queryByText('Reviewer Notes')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
     expect(screen.getByText('Reviewer Notes')).toBeInTheDocument();
   });
 
@@ -133,7 +137,7 @@ describe('ARCPage', () => {
     expect(screen.queryByText('Reviewer Notes')).not.toBeInTheDocument();
   });
 
-  it('uses the save label for reviewer notes', () => {
+  it('uses the submit label for reviewer notes', () => {
     mockUser = { primary_role: { name: 'BOARD' }, roles: [{ name: 'BOARD' }] };
     mockRequests = [
       { ...buildRequest(1, 'Review Request', 'Fence', '2024-05-01T12:00:00Z'), status: 'IN_REVIEW' },
@@ -141,8 +145,8 @@ describe('ARCPage', () => {
 
     render(<ARCPage />);
 
-    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
-    expect(screen.queryByText('Record Inspection')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+    expect(screen.getByRole('button', { name: 'Submit' })).toBeInTheDocument();
   });
 
   it('renders comments without resolved controls', () => {
