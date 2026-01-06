@@ -51,6 +51,7 @@ from .services.backup import perform_sqlite_backup
 from .services.storage import StorageBackend, storage_service
 from .core.logging import configure_logging
 from .core.request_context import REQUEST_ID_HEADER, assign_request_id
+from .core.version import get_version_info
 from .core.errors import register_exception_handlers
 from .core.security import SecurityHeadersMiddleware, log_security_warnings
 
@@ -365,6 +366,17 @@ def health_check():
         status = "degraded"
         db_status = "error"
     return {"status": status, "database": db_status}
+
+
+@app.get("/healthz", include_in_schema=False)
+def healthz_check():
+    version_info = get_version_info()
+    return {
+        "status": "ok",
+        "gitSha": version_info["gitSha"],
+        "buildTime": version_info["buildTime"],
+        "env": version_info["env"],
+    }
 
 
 @app.middleware("http")
