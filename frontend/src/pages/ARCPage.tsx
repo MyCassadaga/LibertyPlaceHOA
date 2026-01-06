@@ -10,7 +10,6 @@ import {
   useCreateArcInspectionMutation,
   useCreateArcRequestMutation,
   useAddArcConditionMutation,
-  useResolveArcConditionMutation,
   useReopenArcRequestMutation,
   useTransitionArcRequestMutation,
   useUploadArcAttachmentMutation,
@@ -67,7 +66,6 @@ const ARCPage: React.FC = () => {
   const reopenMutation = useReopenArcRequestMutation();
   const uploadAttachmentMutation = useUploadArcAttachmentMutation();
   const addConditionMutation = useAddArcConditionMutation();
-  const resolveConditionMutation = useResolveArcConditionMutation();
   const createInspectionMutation = useCreateArcInspectionMutation();
   const ownersQuery = useOwnersQuery(canViewStaff);
   const linkedOwnersQuery = useMyLinkedOwnersQuery(isHomeowner && !canViewStaff);
@@ -235,20 +233,6 @@ const ARCPage: React.FC = () => {
     }
   };
 
-  const handleConditionToggle = async (condition: ARCCondition) => {
-    if (!selected) return;
-    try {
-      await resolveConditionMutation.mutateAsync({
-        requestId: selected.id,
-        conditionId: condition.id,
-        status: condition.status === 'OPEN' ? 'RESOLVED' : 'OPEN',
-      });
-      setSuccess('Condition updated.');
-    } catch (err) {
-      reportError('Unable to update condition.', err);
-    }
-  };
-
   const handleInspectionCreate = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!selected) return;
@@ -264,9 +248,9 @@ const ARCPage: React.FC = () => {
       });
       setInspectionNotes('');
       setInspectionResult('');
-      setSuccess('Inspection recorded.');
+      setSuccess('Reviewer note saved.');
     } catch (err) {
-      reportError('Unable to add inspection.', err);
+      reportError('Unable to save reviewer notes.', err);
     }
   };
 
@@ -293,6 +277,7 @@ const ARCPage: React.FC = () => {
     [selected, canReview],
   );
   const canComment = useMemo(() => isHomeowner || canReview, [isHomeowner, canReview]);
+  const showReviewerNotes = useMemo(() => !!selected && selected.status === 'IN_REVIEW', [selected]);
 
   const timelineEvents = useMemo<TimelineEvent[]>(() => {
     if (!selected) return [];
@@ -312,11 +297,7 @@ const ARCPage: React.FC = () => {
         condition.created_at,
         condition.condition_type === 'REQUIREMENT' ? 'Requirement added' : 'Comment added',
         condition.text,
-        `Status: ${condition.status}`,
       );
-      if (condition.resolved_at) {
-        push(condition.resolved_at, 'Condition resolved', condition.text);
-      }
     });
 
     inspections.forEach((inspection) => {
@@ -573,19 +554,6 @@ const ARCPage: React.FC = () => {
                 </form>
               )}
 
-              {canReviewRequest && (
-                <div className="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
-                    onClick={handleReviewRequest}
-                    disabled={transitionMutation.isLoading}
-                  >
-                    {transitionMutation.isLoading ? 'Starting review…' : 'Review'}
-                  </button>
-                </div>
-              )}
-
               {canSubmitDraft && (
                 <div className="mt-4 flex justify-end">
                   <button
@@ -641,30 +609,10 @@ const ARCPage: React.FC = () => {
                           </span>
                         </div>
                         <p className="mt-1 whitespace-pre-wrap text-slate-600">{condition.text}</p>
-                        <div className="mt-1 flex items-center justify-between text-[10px] uppercase tracking-wide">
-                          <span
-                            className={
-                              condition.status === 'RESOLVED'
-                                ? 'text-green-600'
-                                : 'text-amber-600'
-                            }
-                          >
-                            {condition.status}
-                          </span>
-                          {canReview && (
-                            <button
-                              type="button"
-                              className="rounded border border-slate-300 px-2 py-1"
-                              onClick={() => handleConditionToggle(condition)}
-                            >
-                              {condition.status === 'OPEN' ? 'Mark Resolved' : 'Reopen'}
-                            </button>
-                          )}
-                        </div>
                       </li>
-                  ))}
-                </ul>
-              )}
+                    ))}
+                  </ul>
+                )}
                 {canComment && (
                   <form className="mt-3 flex gap-2" onSubmit={handleCommentSubmit}>
                     <input
@@ -684,76 +632,91 @@ const ARCPage: React.FC = () => {
                 )}
               </section>
 
-            {canReview && (
-              <section className="mt-4 rounded border border-slate-200 p-3">
-                <h4 className="text-xs font-semibold uppercase text-slate-500">Inspections</h4>
-                {inspections.length === 0 ? (
-                  <p className="mt-2 text-xs text-slate-500">No inspections recorded.</p>
-                ) : (
-                  <ul className="mt-2 space-y-2 text-xs">
-                    {inspections.map((inspection: ARCInspection) => (
-                      <li key={inspection.id} className="rounded border border-slate-200 p-2">
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-slate-600">
-                            {inspection.result ?? 'Scheduled'}
-                          </span>
-                          <span className="text-slate-500">
-                            {inspection.scheduled_date
-                              ? new Date(inspection.scheduled_date).toLocaleDateString()
-                              : 'Pending'}
-                          </span>
-                        </div>
-                        {inspection.notes && (
-                          <p className="mt-1 whitespace-pre-wrap text-slate-600">{inspection.notes}</p>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                <form className="mt-3 grid gap-2 sm:grid-cols-2" onSubmit={handleInspectionCreate}>
-                  <div className="sm:col-span-1">
-                    <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-result">
-                      Result
-                    </label>
-                    <select
-                      id="inspection-result"
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                      value={inspectionResult}
-                      onChange={(event) => setInspectionResult(event.target.value)}
-                    >
-                      <option value="">Select result…</option>
-                      <option value="Pass">Pass</option>
-                      <option value="Fail">Fail</option>
-                    </select>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-notes">
-                      Notes
-                    </label>
-                    <textarea
-                      id="inspection-notes"
-                      className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                      rows={2}
-                      value={inspectionNotes}
-                      onChange={(event) => setInspectionNotes(event.target.value)}
-                      placeholder="Notes were recorded..."
-                    />
-                  </div>
-                  <div className="sm:col-span-2 flex justify-end">
-                    <button
-                      type="submit"
-                      className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-500"
-                    >
-                      Record Inspection
-                    </button>
-                  </div>
-                </form>
-              </section>
-            )}
+              {showReviewerNotes && (
+                <section className="mt-4 rounded border border-slate-200 p-3">
+                  <h4 className="text-xs font-semibold uppercase text-slate-500">Reviewer Notes</h4>
+                  {inspections.length === 0 ? (
+                    <p className="mt-2 text-xs text-slate-500">No reviewer notes recorded.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-2 text-xs">
+                      {inspections.map((inspection: ARCInspection) => (
+                        <li key={inspection.id} className="rounded border border-slate-200 p-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-600">
+                              {inspection.result ?? 'Scheduled'}
+                            </span>
+                            <span className="text-slate-500">
+                              {inspection.scheduled_date
+                                ? new Date(inspection.scheduled_date).toLocaleDateString()
+                                : 'Pending'}
+                            </span>
+                          </div>
+                          {inspection.notes && (
+                            <p className="mt-1 whitespace-pre-wrap text-slate-600">{inspection.notes}</p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {canReview && (
+                    <form className="mt-3 grid gap-2 sm:grid-cols-2" onSubmit={handleInspectionCreate}>
+                      <div className="sm:col-span-1">
+                        <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-result">
+                          Result
+                        </label>
+                        <select
+                          id="inspection-result"
+                          className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                          value={inspectionResult}
+                          onChange={(event) => setInspectionResult(event.target.value)}
+                        >
+                          <option value="">Select result…</option>
+                          <option value="Pass">Pass</option>
+                          <option value="Fail">Fail</option>
+                        </select>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-notes">
+                          Notes
+                        </label>
+                        <textarea
+                          id="inspection-notes"
+                          className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
+                          rows={2}
+                          value={inspectionNotes}
+                          onChange={(event) => setInspectionNotes(event.target.value)}
+                          placeholder="Notes were recorded..."
+                        />
+                      </div>
+                      <div className="sm:col-span-2 flex justify-end">
+                        <button
+                          type="submit"
+                          className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-500"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </section>
+              )}
+
+              {canReviewRequest && (
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
+                    onClick={handleReviewRequest}
+                    disabled={transitionMutation.isLoading}
+                  >
+                    {transitionMutation.isLoading ? 'Starting review…' : 'Review'}
+                  </button>
+                </div>
+              )}
           </section>
         ) : (
           <section className="rounded border border-dashed border-slate-200 p-4 text-sm text-slate-500">
-            Select an ARC request to view details, attachments, comments, and inspections.
+            Select an ARC request to view details, attachments, comments, and reviewer notes.
           </section>
         )}
       </div>
