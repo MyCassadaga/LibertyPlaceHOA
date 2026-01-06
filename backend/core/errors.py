@@ -1,3 +1,4 @@
+import logging
 import re
 from typing import Any, Dict
 
@@ -6,6 +7,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from ..config import settings
+from ..core.request_context import get_request_id
+
+logger = logging.getLogger(__name__)
 
 
 def _cors_headers_for_request(request: Request) -> Dict[str, str]:
@@ -30,30 +34,43 @@ def _cors_headers_for_request(request: Request) -> Dict[str, str]:
 def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:  # type: ignore[override]
+        request_id = get_request_id(request)
         return JSONResponse(
             status_code=422,
             content={
                 "detail": "Validation failed.",
                 "errors": exc.errors(),
                 "path": str(request.url),
+                "request_id": request_id,
             },
             headers=_cors_headers_for_request(request),
         )
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:  # type: ignore[override]
+        request_id = get_request_id(request)
+        logger.exception(
+            "Unhandled exception for request.",
+            extra={"request_id": request_id, "path": str(request.url)},
+        )
         return JSONResponse(
             status_code=500,
             content={
                 "detail": "Internal server error.",
                 "path": str(request.url),
+                "request_id": request_id,
             },
             headers=_cors_headers_for_request(request),
         )
 
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:  # type: ignore[override]
-        payload: Dict[str, Any] = {"detail": exc.detail or "HTTP error.", "path": str(request.url)}
+        request_id = get_request_id(request)
+        payload: Dict[str, Any] = {
+            "detail": exc.detail or "HTTP error.",
+            "path": str(request.url),
+            "request_id": request_id,
+        }
         if exc.headers:
             payload["headers"] = exc.headers
         headers = _cors_headers_for_request(request)

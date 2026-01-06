@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
+import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, joinedload
 
 from ..api.dependencies import get_db, get_owner_for_user, get_owners_for_user
@@ -24,8 +26,20 @@ from ..schemas.schemas import (
 from ..services import arc as arc_service
 from ..services import arc_reviews as arc_review_service
 from ..services.audit import audit_log
+from ..core.request_context import get_request_id
 
 router = APIRouter(prefix="/arc", tags=["arc"])
+logger = logging.getLogger(__name__)
+
+
+def _request_log_context(request: Request, user: User, **extra) -> dict:
+    return {
+        "route": request.url.path,
+        "request_id": get_request_id(request),
+        "user_id": user.id,
+        "roles": user.role_names,
+        **extra,
+    }
 
 
 def _get_request_with_relations(db: Session, arc_request_id: int) -> Optional[ARCRequest]:
@@ -46,6 +60,7 @@ def _get_request_with_relations(db: Session, arc_request_id: int) -> Optional[AR
 
 @router.get("/requests", response_model=List[ARCRequestRead])
 def list_arc_requests(
+    request: Request,
     status_filter: Optional[str] = Query(default=None, alias="status"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -64,79 +79,119 @@ def list_arc_requests(
         .order_by(ARCRequest.created_at.desc(), ARCRequest.id.desc())
     )
 
-    if user.has_role("HOMEOWNER") and not is_manager:
-        owner = get_owner_for_user(db, user)
-        if not owner:
-            return []
-        query = query.filter(ARCRequest.owner_id == owner.id)
-    else:
-        if not is_manager:
-            raise HTTPException(status_code=403, detail="Insufficient privileges for ARC requests.")
+    log_context = _request_log_context(
+        request=request,
+        user=user,
+        status_filter=status_filter,
+        is_manager=is_manager,
+    )
+    try:
+        if user.has_role("HOMEOWNER") and not is_manager:
+            linked_owners = get_owners_for_user(db, user)
+            if not linked_owners:
+                logger.info("ARC list skipped: no linked owners.", extra=log_context)
+                return []
+            owner_ids = [owner.id for owner in linked_owners]
+            log_context["owner_ids"] = owner_ids
+            query = query.filter(ARCRequest.owner_id.in_(owner_ids))
+        else:
+            if not is_manager:
+                raise HTTPException(status_code=403, detail="Insufficient privileges for ARC requests.")
 
-    if status_filter:
-        query = query.filter(ARCRequest.status == status_filter.upper())
+        if status_filter is not None:
+            normalized_status = status_filter.strip().upper()
+            if not normalized_status or normalized_status not in arc_service.ARC_STATES:
+                raise HTTPException(status_code=400, detail="Invalid ARC status filter.")
+            log_context["status_filter"] = normalized_status
+            query = query.filter(ARCRequest.status == normalized_status)
 
-    requests = query.all()
-    return [request for request in requests if request.owner]
+        logger.info("Listing ARC requests.", extra=log_context)
+        requests = query.all()
+        return [request for request in requests if request.owner]
+    except HTTPException:
+        logger.warning("ARC list request rejected.", extra=log_context)
+        raise
+    except SQLAlchemyError as exc:
+        logger.exception("Failed to list ARC requests.", extra=log_context)
+        raise HTTPException(status_code=500, detail="Unable to fetch ARC requests.") from exc
 
 
 @router.post("/requests", response_model=ARCRequestRead, status_code=status.HTTP_201_CREATED)
 def create_arc_request(
     payload: ARCRequestCreate,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_roles("HOMEOWNER", "ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
 ) -> ARCRequest:
     manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
     is_manager = user.has_any_role(*manager_roles)
 
-    owner = get_owner_for_user(db, user) if user.has_role("HOMEOWNER") else None
-    if user.has_role("HOMEOWNER") and not is_manager:
-        linked_owners = get_owners_for_user(db, user)
-        if not linked_owners:
-            raise HTTPException(status_code=400, detail="Owner record not linked to user.")
-        if payload.owner_id is None:
-            if len(linked_owners) > 1:
-                raise HTTPException(status_code=400, detail="owner_id is required for homeowners with multiple addresses.")
-            owner_id = linked_owners[0].id
-            owner = linked_owners[0]
+    log_context = _request_log_context(
+        request=request,
+        user=user,
+        is_manager=is_manager,
+        payload_owner_id=payload.owner_id,
+    )
+    try:
+        owner = get_owner_for_user(db, user) if user.has_role("HOMEOWNER") else None
+        if user.has_role("HOMEOWNER") and not is_manager:
+            linked_owners = get_owners_for_user(db, user)
+            if not linked_owners:
+                raise HTTPException(status_code=400, detail="Owner record not linked to user.")
+            if payload.owner_id is None:
+                if len(linked_owners) > 1:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="owner_id is required for homeowners with multiple addresses.",
+                    )
+                owner_id = linked_owners[0].id
+                owner = linked_owners[0]
+            else:
+                owner = next((item for item in linked_owners if item.id == payload.owner_id), None)
+                if not owner:
+                    raise HTTPException(status_code=403, detail="Not permitted to submit for this address.")
+                owner_id = owner.id
         else:
-            owner = next((item for item in linked_owners if item.id == payload.owner_id), None)
+            if not payload.owner_id:
+                raise HTTPException(status_code=400, detail="owner_id is required for staff submissions.")
+            owner = db.get(Owner, payload.owner_id)
             if not owner:
-                raise HTTPException(status_code=403, detail="Not permitted to submit for this address.")
+                raise HTTPException(status_code=404, detail="Owner not found.")
+            if owner.is_archived:
+                raise HTTPException(status_code=400, detail="Cannot create ARC requests for an archived owner.")
             owner_id = owner.id
-    else:
-        if not payload.owner_id:
-            raise HTTPException(status_code=400, detail="owner_id is required for staff submissions.")
-        owner = db.get(Owner, payload.owner_id)
-        if not owner:
-            raise HTTPException(status_code=404, detail="Owner not found.")
-        if owner.is_archived:
-            raise HTTPException(status_code=400, detail="Cannot create ARC requests for an archived owner.")
-        owner_id = owner.id
 
-    arc_request = ARCRequest(
-        owner_id=owner_id,
-        submitted_by_user_id=user.id,
-        title=payload.title,
-        project_type=payload.project_type,
-        description=payload.description,
-        status="DRAFT",
-    )
-    db.add(arc_request)
-    db.commit()
-    db.refresh(arc_request)
+        logger.info("Creating ARC request.", extra=log_context)
+        arc_request = ARCRequest(
+            owner_id=owner_id,
+            submitted_by_user_id=user.id,
+            title=payload.title,
+            project_type=payload.project_type,
+            description=payload.description,
+            status="DRAFT",
+        )
+        db.add(arc_request)
+        db.commit()
+        db.refresh(arc_request)
 
-    audit_log(
-        db_session=db,
-        actor_user_id=user.id,
-        action="arc.request.create",
-        target_entity_type="ARCRequest",
-        target_entity_id=str(arc_request.id),
-        after=payload.dict(),
-    )
+        audit_log(
+            db_session=db,
+            actor_user_id=user.id,
+            action="arc.request.create",
+            target_entity_type="ARCRequest",
+            target_entity_id=str(arc_request.id),
+            after=payload.dict(),
+        )
 
-    arc_request = _get_request_with_relations(db, arc_request.id)
-    return arc_request
+        arc_request = _get_request_with_relations(db, arc_request.id)
+        return arc_request
+    except HTTPException:
+        logger.warning("ARC create request rejected.", extra=log_context)
+        raise
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Failed to create ARC request.", extra=log_context)
+        raise HTTPException(status_code=500, detail="Unable to create ARC request.") from exc
 
 
 @router.get("/requests/{arc_request_id}", response_model=ARCRequestRead)
