@@ -76,7 +76,8 @@ def list_arc_requests(
     if status_filter:
         query = query.filter(ARCRequest.status == status_filter.upper())
 
-    return query.all()
+    requests = query.all()
+    return [request for request in requests if request.owner]
 
 
 @router.post("/requests", response_model=ARCRequestRead, status_code=status.HTTP_201_CREATED)
