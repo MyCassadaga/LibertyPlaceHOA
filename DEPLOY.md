@@ -15,10 +15,18 @@ Trigger a deployment via the configured webhook:
 curl -X POST "$RENDER_DEPLOY_HOOK_URL"
 ```
 
-For the backend service, ensure the Render start command runs migrations and
-binds to Render’s provided port (for example, `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`).
-If Render reports Alembic “multiple head revisions”, resolve it by merging
-the heads into a single revision before deploying.
+For the backend service, run the migration bootstrap script before starting
+Uvicorn. This will stamp the base migration (`0001_initial`) if the
+`alembic_version` table is missing, then upgrade to head:
+
+```bash
+python scripts/bootstrap_migrations.py
+uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+```
+
+The Render start command should chain the bootstrap script and Uvicorn in one
+command. If Render reports Alembic “multiple head revisions”, resolve it by
+merging the heads into a single revision before deploying.
 
 ### Stripe environment variables
 Configure Stripe keys in the hosting dashboards:
