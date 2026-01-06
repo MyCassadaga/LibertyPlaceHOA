@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
-from ..api.dependencies import get_db, get_owner_for_user
+from ..api.dependencies import get_db, get_owner_for_user, get_owners_for_user
 from ..auth.jwt import get_current_user, require_roles
 from ..models.models import LedgerEntry, Owner, OwnerUpdateRequest, OwnerUserLink, User, Invoice, Payment
 from ..schemas.schemas import (
@@ -146,6 +146,14 @@ def get_my_owner_record(
     if not owner:
         raise HTTPException(status_code=404, detail="Owner record not linked to current user")
     return owner
+
+
+@router.get("/linked", response_model=List[OwnerRead])
+def list_linked_owners(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> List[Owner]:
+    return get_owners_for_user(db, user)
 
 
 @router.put("/me", response_model=OwnerRead)

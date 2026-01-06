@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session, joinedload
 
-from ..api.dependencies import get_db, get_owner_for_user
+from ..api.dependencies import get_db, get_owner_for_user, get_owners_for_user
 from ..auth.jwt import get_current_user, require_roles
 from ..models.models import ARCCondition, ARCInspection, ARCAttachment, ARCRequest, Owner, User
 from ..schemas.schemas import (
@@ -84,9 +84,19 @@ def create_arc_request(
 
     owner = get_owner_for_user(db, user) if user.has_role("HOMEOWNER") else None
     if user.has_role("HOMEOWNER") and not is_manager:
-        if not owner:
+        linked_owners = get_owners_for_user(db, user)
+        if not linked_owners:
             raise HTTPException(status_code=400, detail="Owner record not linked to user.")
-        owner_id = owner.id
+        if payload.owner_id is None:
+            if len(linked_owners) > 1:
+                raise HTTPException(status_code=400, detail="owner_id is required for homeowners with multiple addresses.")
+            owner_id = linked_owners[0].id
+            owner = linked_owners[0]
+        else:
+            owner = next((item for item in linked_owners if item.id == payload.owner_id), None)
+            if not owner:
+                raise HTTPException(status_code=403, detail="Not permitted to submit for this address.")
+            owner_id = owner.id
     else:
         if not payload.owner_id:
             raise HTTPException(status_code=400, detail="owner_id is required for staff submissions.")

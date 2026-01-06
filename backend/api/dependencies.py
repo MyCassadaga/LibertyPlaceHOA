@@ -1,4 +1,4 @@
-from typing import Generator, Optional
+from typing import Generator, List, Optional
 
 from fastapi import Depends, HTTPException
 from sqlalchemy import func, or_
@@ -17,19 +17,19 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def get_owner_for_user(db: Session, user: User) -> Optional[Owner]:
-    link = (
+def get_owners_for_user(db: Session, user: User) -> List[Owner]:
+    linked_owners = (
         db.query(Owner)
         .join(OwnerUserLink, OwnerUserLink.owner_id == Owner.id)
         .filter(OwnerUserLink.user_id == user.id)
         .filter(Owner.is_archived.is_(False))
         .order_by(OwnerUserLink.created_at.asc())
-        .first()
+        .all()
     )
-    if link:
-        return link
+    if linked_owners:
+        return linked_owners
     if not user.email:
-        return None
+        return []
     email = user.email.lower()
     return (
         db.query(Owner)
@@ -40,8 +40,16 @@ def get_owner_for_user(db: Session, user: User) -> Optional[Owner]:
             )
         )
         .filter(Owner.is_archived.is_(False))
-        .first()
+        .order_by(Owner.property_address.asc())
+        .all()
     )
+
+
+def get_owner_for_user(db: Session, user: User) -> Optional[Owner]:
+    owners = get_owners_for_user(db, user)
+    if owners:
+        return owners[0]
+    return None
 
 
 def require_owner_record(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> Owner:
