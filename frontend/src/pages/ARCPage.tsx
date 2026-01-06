@@ -59,6 +59,18 @@ const ARCPage: React.FC = () => {
   );
   const arcRequestsQuery = useArcRequestsQuery(statusFilter !== 'ALL' ? statusFilter : undefined);
   const requests = useMemo(() => arcRequestsQuery.data ?? [], [arcRequestsQuery.data]);
+  const sortedRequests = useMemo(() => {
+    const items = [...requests];
+    items.sort((a, b) => {
+      const aTime = new Date(a.created_at).getTime();
+      const bTime = new Date(b.created_at).getTime();
+      if (aTime !== bTime) {
+        return bTime - aTime;
+      }
+      return b.id - a.id;
+    });
+    return items;
+  }, [requests]);
   const loading = arcRequestsQuery.isLoading;
   const requestsError = arcRequestsQuery.isError ? 'Unable to load ARC requests.' : null;
   const createRequestMutation = useCreateArcRequestMutation();
@@ -90,8 +102,8 @@ const ARCPage: React.FC = () => {
 
   const selected = useMemo(() => {
     if (selectedId == null) return null;
-    return requests.find((req) => req.id === selectedId) ?? null;
-  }, [requests, selectedId]);
+    return sortedRequests.find((req) => req.id === selectedId) ?? null;
+  }, [sortedRequests, selectedId]);
 
   const handleSelect = useCallback(
     (request: ARCRequest) => {
@@ -105,18 +117,18 @@ const ARCPage: React.FC = () => {
   );
 
   useEffect(() => {
-    if (!requests.length) {
+    if (!sortedRequests.length) {
       setSelectedId(null);
       return;
     }
     if (selectedId == null) {
-      handleSelect(requests[0]);
+      handleSelect(sortedRequests[0]);
       return;
     }
-    if (!requests.some((request) => request.id === selectedId)) {
-      handleSelect(requests[0]);
+    if (!sortedRequests.some((request) => request.id === selectedId)) {
+      handleSelect(sortedRequests[0]);
     }
-  }, [requests, selectedId, handleSelect]);
+  }, [sortedRequests, selectedId, handleSelect]);
 
   useEffect(() => {
     if (!isHomeowner || canViewStaff || linkedOwners.length === 0) return;
@@ -125,16 +137,16 @@ const ARCPage: React.FC = () => {
   }, [isHomeowner, canViewStaff, linkedOwners, form.owner_id]);
 
   const filteredRequests = useMemo(() => {
-    if (statusFilter === 'ALL') return requests;
-    return requests.filter((req) => req.status === statusFilter);
-  }, [requests, statusFilter]);
+    if (statusFilter === 'ALL') return sortedRequests;
+    return sortedRequests.filter((req) => req.status === statusFilter);
+  }, [sortedRequests, statusFilter]);
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault();
     setCreating(true);
     setError(null);
     try {
-      await createRequestMutation.mutateAsync({
+      const created = await createRequestMutation.mutateAsync({
         title: form.title,
         project_type: form.project_type || undefined,
         description: form.description || undefined,
@@ -142,6 +154,7 @@ const ARCPage: React.FC = () => {
           (canViewStaff || (isHomeowner && !canViewStaff)) && form.owner_id ? Number(form.owner_id) : undefined,
       });
       setSuccess('ARC request created.');
+      setSelectedId(created.id);
       setForm({ title: '', project_type: '', description: '', owner_id: '' });
     } catch (err) {
       reportError('Unable to create request.', err);
