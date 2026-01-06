@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, confloat, condecimal, conint, root_validator
+from pydantic import BaseModel, EmailStr, Field, confloat, condecimal, conint, constr, root_validator
 
 
 class PermissionRead(BaseModel):
@@ -1078,10 +1078,10 @@ class ARCInspectionRead(BaseModel):
 
 
 class ARCRequestCreate(BaseModel):
-    title: str
-    project_type: Optional[str]
-    description: Optional[str]
-    owner_id: Optional[int]
+    title: constr(strip_whitespace=True, min_length=1)
+    project_type: Optional[constr(strip_whitespace=True, min_length=1)] = None
+    description: Optional[constr(strip_whitespace=True, min_length=1)] = None
+    owner_id: Optional[conint(gt=0)] = None
 
 
 class ARCRequestUpdate(BaseModel):

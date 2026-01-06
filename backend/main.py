@@ -50,6 +50,7 @@ from .services.notifications import notification_center
 from .services.backup import perform_sqlite_backup
 from .services.storage import StorageBackend, storage_service
 from .core.logging import configure_logging
+from .core.request_context import REQUEST_ID_HEADER, assign_request_id
 from .core.errors import register_exception_handlers
 from .core.security import SecurityHeadersMiddleware, log_security_warnings
 
@@ -342,6 +343,14 @@ app.include_router(meetings.router)
 app.include_router(audit_logs.router)
 app.include_router(system.router, prefix="/system", tags=["system"])
 app.include_router(payments.router, prefix="/payments", tags=["payments"])
+
+
+@app.middleware("http")
+async def request_context(request: Request, call_next):
+    request_id = assign_request_id(request)
+    response = await call_next(request)
+    response.headers[REQUEST_ID_HEADER] = request_id
+    return response
 
 
 @app.get("/health", include_in_schema=False)

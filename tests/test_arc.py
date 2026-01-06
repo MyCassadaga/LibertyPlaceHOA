@@ -169,3 +169,118 @@ def test_list_linked_owners_returns_only_associated_addresses(db_session, create
     finally:
         client.close()
         app.dependency_overrides.clear()
+
+
+def test_homeowner_get_returns_only_their_requests(db_session, create_user, create_owner):
+    homeowner = create_user(email="ownerlist@example.com", role_name="HOMEOWNER")
+    owner_one = create_owner(name="Linked One", email="ownerlist@example.com")
+    owner_two = create_owner(name="Linked Two", email="ownerlist@example.com")
+    other_owner = create_owner(name="Other", email="other@example.com")
+    db_session.add_all(
+        [
+            OwnerUserLink(owner_id=owner_one.id, user_id=homeowner.id, link_type="PRIMARY"),
+            OwnerUserLink(owner_id=owner_two.id, user_id=homeowner.id, link_type="SECONDARY"),
+        ]
+    )
+    db_session.commit()
+
+    _create_arc_request(db_session, owner_one, homeowner)
+    _create_arc_request(db_session, owner_two, homeowner)
+    _create_arc_request(db_session, other_owner, homeowner)
+
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(homeowner)
+    client = TestClient(app)
+    try:
+        response = client.get("/arc/requests")
+        assert response.status_code == 200
+        payload = response.json()
+        owner_ids = {item["owner_id"] for item in payload}
+        assert owner_one.id in owner_ids
+        assert owner_two.id in owner_ids
+        assert other_owner.id not in owner_ids
+    finally:
+        client.close()
+        app.dependency_overrides.clear()
+
+
+def test_board_get_returns_all_requests(db_session, create_user, create_owner):
+    board_member = create_user(email="board@example.com", role_name="BOARD")
+    owner_one = create_owner(name="Owner One", email="board1@example.com")
+    owner_two = create_owner(name="Owner Two", email="board2@example.com")
+    owner_three = create_owner(name="Owner Three", email="board3@example.com")
+
+    _create_arc_request(db_session, owner_one, board_member)
+    _create_arc_request(db_session, owner_two, board_member)
+    _create_arc_request(db_session, owner_three, board_member)
+
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(board_member)
+    client = TestClient(app)
+    try:
+        response = client.get("/arc/requests")
+        assert response.status_code == 200
+        payload = response.json()
+        assert len(payload) == 3
+    finally:
+        client.close()
+        app.dependency_overrides.clear()
+
+
+def test_homeowner_post_with_linked_address_succeeds(db_session, create_user, create_owner):
+    homeowner = create_user(email="allowpost@example.com", role_name="HOMEOWNER")
+    owner = create_owner(name="Linked", email="allowpost@example.com")
+    db_session.add(OwnerUserLink(owner_id=owner.id, user_id=homeowner.id, link_type="PRIMARY"))
+    db_session.commit()
+
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(homeowner)
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/arc/requests",
+            json={
+                "title": "Driveway update",
+                "project_type": "Exterior",
+                "description": "Expand driveway",
+                "owner_id": owner.id,
+            },
+        )
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["owner_id"] == owner.id
+    finally:
+        client.close()
+        app.dependency_overrides.clear()
+
+
+def test_arc_requests_missing_auth_returns_401():
+    client = TestClient(app)
+    try:
+        response = client.get("/arc/requests")
+        assert response.status_code == 401
+    finally:
+        client.close()
+
+
+def test_arc_request_bad_payload_returns_422(db_session, create_user, create_owner):
+    board_member = create_user(email="badpayload@example.com", role_name="BOARD")
+    owner = create_owner(name="Owner", email="badpayload@example.com")
+
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(board_member)
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/arc/requests",
+            json={
+                "title": " ",
+                "project_type": "Exterior",
+                "description": "Paint update",
+                "owner_id": owner.id,
+            },
+        )
+        assert response.status_code == 422
+    finally:
+        client.close()
+        app.dependency_overrides.clear()
