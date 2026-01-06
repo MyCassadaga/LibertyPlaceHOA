@@ -810,6 +810,9 @@ class Budget(Base):
 
 class BudgetLineItem(Base):
     __tablename__ = "budget_line_items"
+    __table_args__ = (
+        UniqueConstraint("budget_id", "source_type", "source_id", name="uq_budget_line_items_source"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     budget_id = Column(Integer, ForeignKey("budgets.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -818,6 +821,8 @@ class BudgetLineItem(Base):
     amount = Column(Numeric(12, 2), nullable=False)
     is_reserve = Column(Boolean, default=False, nullable=False)
     sort_order = Column(Integer, default=0, nullable=False)
+    source_type = Column(String, nullable=True)
+    source_id = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
 

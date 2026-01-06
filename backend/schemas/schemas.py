@@ -344,6 +344,8 @@ class BudgetLineItemRead(BudgetLineItemBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    source_type: Optional[str]
+    source_id: Optional[int]
 
     class Config:
         orm_mode = True

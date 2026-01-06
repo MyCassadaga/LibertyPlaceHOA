@@ -312,6 +312,8 @@ def update_line_item(
     if not item:
         raise HTTPException(status_code=404, detail="Budget line not found")
     _ensure_editable(item.budget, user)
+    if item.source_type == budget_service.RESERVE_LINE_ITEM_SOURCE:
+        raise HTTPException(status_code=400, detail="Reserve-derived line items cannot be edited directly")
     data = payload.dict(exclude_unset=True)
     for key, value in data.items():
         setattr(item, key, value)
@@ -339,6 +341,8 @@ def delete_line_item(
     if not item:
         raise HTTPException(status_code=404, detail="Budget line not found")
     _ensure_editable(item.budget, user)
+    if item.source_type == budget_service.RESERVE_LINE_ITEM_SOURCE:
+        raise HTTPException(status_code=400, detail="Reserve-derived line items cannot be deleted directly")
     db.delete(item)
     db.commit()
     audit_log(
@@ -361,6 +365,8 @@ def add_reserve_item(
     if not budget:
         raise HTTPException(status_code=404, detail="Budget not found")
     _ensure_editable(budget, user)
+    if payload.target_year <= budget.year:
+        raise HTTPException(status_code=400, detail="Target year must be after the budget year")
     item = ReservePlanItem(
         budget_id=budget.id,
         name=payload.name,
@@ -371,6 +377,9 @@ def add_reserve_item(
         notes=payload.notes,
     )
     db.add(item)
+    db.flush()
+    line_item = budget_service.upsert_reserve_line_item(budget, item)
+    db.add(line_item)
     db.commit()
     db.refresh(item)
     audit_log(
@@ -396,9 +405,15 @@ def update_reserve_item(
         raise HTTPException(status_code=404, detail="Reserve plan item not found")
     _ensure_editable(item.budget, user)
     data = payload.dict(exclude_unset=True)
+    target_year = data.get("target_year", item.target_year)
+    if target_year <= item.budget.year:
+        raise HTTPException(status_code=400, detail="Target year must be after the budget year")
     for key, value in data.items():
         setattr(item, key, value)
     db.add(item)
+    db.flush()
+    line_item = budget_service.upsert_reserve_line_item(item.budget, item)
+    db.add(line_item)
     db.commit()
     db.refresh(item)
     audit_log(
@@ -422,6 +437,9 @@ def delete_reserve_item(
     if not item:
         raise HTTPException(status_code=404, detail="Reserve plan item not found")
     _ensure_editable(item.budget, user)
+    line_item = budget_service.delete_reserve_line_item(item.budget, item)
+    if line_item:
+        db.delete(line_item)
     db.delete(item)
     db.commit()
     audit_log(

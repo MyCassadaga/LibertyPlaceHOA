@@ -7,10 +7,14 @@ from typing import List, Tuple
 
 from sqlalchemy.orm import Session
 
-from ..models.models import Budget, Role, User, user_roles, ReservePlanItem
+from ..models.models import Budget, BudgetLineItem, Role, User, user_roles, ReservePlanItem
+from .reserve_contribution import calculate_reserve_contribution
 
 
 DecimalT = Decimal
+
+
+RESERVE_LINE_ITEM_SOURCE = "RESERVE_PLAN"
 
 
 def _as_decimal(value) -> DecimalT:
@@ -28,7 +32,6 @@ def compute_totals(budget: Budget) -> Tuple[DecimalT, DecimalT, DecimalT]:
             reserves_total += amount
         else:
             operations_total += amount
-    reserves_total += _calculate_reserve_contributions(budget)
     total = operations_total + reserves_total
     return (
         operations_total.quantize(Decimal("0.01")),
@@ -37,22 +40,54 @@ def compute_totals(budget: Budget) -> Tuple[DecimalT, DecimalT, DecimalT]:
     )
 
 
-def _calculate_reserve_contributions(budget: Budget) -> DecimalT:
-    total = Decimal("0")
-    for item in budget.reserve_items:
-        annual = _reserve_item_annual_contribution(budget.year, item)
-        total += annual
-    return total
+def upsert_reserve_line_item(budget: Budget, item: ReservePlanItem) -> BudgetLineItem:
+    calculation = calculate_reserve_contribution(
+        budget_year=budget.year,
+        target_year=item.target_year,
+        estimated_cost=item.estimated_cost,
+        inflation_rate=item.inflation_rate,
+        current_funding=item.current_funding,
+    )
+    line_item = next(
+        (
+            entry
+            for entry in budget.line_items
+            if entry.source_type == RESERVE_LINE_ITEM_SOURCE and entry.source_id == item.id
+        ),
+        None,
+    )
+    label = f"Reserve: {item.name}"
+    if line_item is None:
+        line_item = BudgetLineItem(
+            budget_id=budget.id,
+            label=label,
+            category="Reserve Contribution",
+            amount=calculation.annual_contribution_rounded,
+            is_reserve=True,
+            sort_order=0,
+            source_type=RESERVE_LINE_ITEM_SOURCE,
+            source_id=item.id,
+        )
+    else:
+        line_item.label = label
+        line_item.category = "Reserve Contribution"
+        line_item.amount = calculation.annual_contribution_rounded
+        line_item.is_reserve = True
+        line_item.sort_order = line_item.sort_order or 0
+        line_item.source_type = RESERVE_LINE_ITEM_SOURCE
+        line_item.source_id = item.id
+    return line_item
 
 
-def _reserve_item_annual_contribution(budget_year: int, item: ReservePlanItem) -> DecimalT:
-    years_remaining = max(item.target_year - budget_year, 1)
-    inflation_rate = Decimal(str(item.inflation_rate or 0))
-    projected_cost = _as_decimal(item.estimated_cost) * (Decimal("1") + inflation_rate) ** years_remaining
-    remaining = projected_cost - _as_decimal(item.current_funding)
-    if remaining <= 0:
-        return Decimal("0")
-    return (remaining / Decimal(years_remaining)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+def delete_reserve_line_item(budget: Budget, item: ReservePlanItem) -> BudgetLineItem | None:
+    return next(
+        (
+            entry
+            for entry in budget.line_items
+            if entry.source_type == RESERVE_LINE_ITEM_SOURCE and entry.source_id == item.id
+        ),
+        None,
+    )
 
 
 def calculate_assessment(total_annual: DecimalT, home_count: int) -> DecimalT:
