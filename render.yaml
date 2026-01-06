@@ -27,6 +27,8 @@ services:
         value: ""
       - key: FILE_STORAGE_BACKEND
         value: local
+      - key: APP_ENV
+        value: prod
   - type: cron
     name: hoa-autopay
     env: python
@@ -50,3 +52,5 @@ services:
         value: ""
       - key: FILE_STORAGE_BACKEND
         value: local
+      - key: APP_ENV
+        value: prod
