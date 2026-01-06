@@ -100,11 +100,24 @@ def ensure_homeowner_owner_records(session: Session) -> None:
             session.add(OwnerUserLink(owner_id=owner.id, user_id=user.id, link_type="PRIMARY"))
             session.commit()
 
+
+def log_alembic_revision(session: Session) -> None:
+    try:
+        revisions = session.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
+    except Exception as exc:
+        logger.warning("Unable to read alembic revision.", exc_info=exc)
+        return
+    if not revisions:
+        logger.warning("No alembic revisions found in alembic_version table.")
+        return
+    logger.info("Current alembic revision(s): %s", ", ".join(revisions))
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: ensure schema and seed data
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
+        log_alembic_revision(session)
         ensure_default_roles(session)
         ensure_user_role_links(session)
         ensure_billing_policy(session)
