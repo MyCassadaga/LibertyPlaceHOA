@@ -58,6 +58,10 @@ class Settings(BaseSettings):
 
     # --- CORS ---
     additional_cors_origins: Optional[str] = Field(None, env="ADDITIONAL_CORS_ORIGINS")
+    cors_allow_origin_regex: Optional[str] = Field(
+        r"^https?://(localhost(:\d+)?|([a-z0-9-]+\.)*libertyplacehoa\.com)$",
+        env="CORS_ALLOW_ORIGIN_REGEX",
+    )
 
     # --- HTTP Security ---
     enable_hsts: bool = Field(True, env="ENABLE_HSTS")
