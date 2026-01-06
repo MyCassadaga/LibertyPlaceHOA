@@ -1,9 +1,12 @@
+from decimal import Decimal
+
 from fastapi.testclient import TestClient
 
 from backend.api.dependencies import get_db
 from backend.auth.jwt import get_current_user
 from backend.main import app
 from backend.models.models import Budget
+from backend.services.reserve_contribution import calculate_reserve_contribution
 
 
 def _override_get_db(session):
@@ -77,7 +80,15 @@ def test_budget_lifecycle(db_session, create_user):
         resp = client.get(f"/budgets/{budget_id}")
         assert resp.status_code == 200
         data = resp.json()
-        assert float(data["total_annual"]) == 1200.0
+        reserve_calc = calculate_reserve_contribution(
+            budget_year=2026,
+            target_year=2040,
+            estimated_cost=Decimal("25000"),
+            inflation_rate=Decimal("0.03"),
+            current_funding=Decimal("5000"),
+        )
+        expected_total = Decimal("1200.00") + reserve_calc.annual_contribution_rounded
+        assert Decimal(str(data["total_annual"])) == expected_total
         assert data["reserve_items"][0]["name"] == "Fence replacement"
 
         app.dependency_overrides[get_current_user] = _override_user(sysadmin_user)

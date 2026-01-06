@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { BudgetAttachment, BudgetSummary, Contract, ReservePlanItem } from '../types';
 import { userHasAnyRole, userHasRole } from '../utils/roles';
+import TableContainer from '../components/TableContainer';
 import {
   useBudgetAttachmentMutation,
   useBudgetDetailQuery,
@@ -14,6 +15,7 @@ import {
   useUpdateBudgetMutation,
 } from '../features/budgets/hooks';
 import { useContractsQuery } from '../features/billing/hooks';
+import { calculateReserveContribution } from '../features/budgets/reserveContributionCalculator';
 
 const editorRoles = ['BOARD', 'TREASURER', 'SYSADMIN'];
 
@@ -281,6 +283,10 @@ const BudgetPage: React.FC = () => {
   const handleReserveSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!detail || !canEdit) return;
+    if (reserveFormInvalidTargetYear) {
+      setError('Target year must be after the budget year.');
+      return;
+    }
     try {
       if (editingReserveId) {
         await reserveUpdateMutation.mutateAsync({
@@ -360,22 +366,36 @@ const BudgetPage: React.FC = () => {
     }
   };
 
-  const reserveFutureCost = (item: ReservePlanItem) => {
-    if (!detail) return 0;
-    const years = Math.max(item.target_year - detail.year, 0);
-    const base = Number(item.estimated_cost);
-    const rate = item.inflation_rate || 0;
-    const projected = base * Math.pow(1 + rate, years);
-    return projected;
+  const reserveContributionForItem = (item: ReservePlanItem) => {
+    if (!detail) {
+      return calculateReserveContribution({
+        budgetYear: new Date().getFullYear(),
+        targetYear: item.target_year,
+        estimatedCost: Number(item.estimated_cost),
+        inflationRate: item.inflation_rate || 0,
+        currentFunding: Number(item.current_funding),
+      });
+    }
+    return calculateReserveContribution({
+      budgetYear: detail.year,
+      targetYear: item.target_year,
+      estimatedCost: Number(item.estimated_cost),
+      inflationRate: item.inflation_rate || 0,
+      currentFunding: Number(item.current_funding),
+    });
   };
 
-  const reserveAnnualContribution = (item: ReservePlanItem) => {
-    if (!detail) return 0;
-    const yearsRemaining = Math.max(item.target_year - detail.year, 1);
-    const projected = reserveFutureCost(item);
-    const remaining = Math.max(projected - Number(item.current_funding), 0);
-    return remaining / yearsRemaining;
-  };
+  const reserveFormCalculation = useMemo(() => {
+    if (!detail) return null;
+    return calculateReserveContribution({
+      budgetYear: detail.year,
+      targetYear: reserveForm.target_year,
+      estimatedCost: Number(reserveForm.estimated_cost || 0),
+      inflationRate: reserveForm.inflation_rate || 0,
+      currentFunding: Number(reserveForm.current_funding || 0),
+    });
+  }, [detail, reserveForm]);
+  const reserveFormInvalidTargetYear = reserveFormCalculation ? !reserveFormCalculation.isValidTargetYear : false;
 
   return (
     <div className="space-y-6">
@@ -580,7 +600,7 @@ const BudgetPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-slate-600">Line Items</h4>
                 </div>
-                <div className="mt-3 overflow-x-auto">
+                <TableContainer className="mt-3">
                   <table className="min-w-full divide-y divide-slate-200 text-sm">
                     <thead className="bg-slate-50">
                       <tr>
@@ -591,54 +611,51 @@ const BudgetPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {detail.line_items.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-3 py-2">{item.label}</td>
-                          <td className="px-3 py-2">{item.category ?? '—'}</td>
-                          <td className="px-3 py-2">{formatCurrency(item.amount)}</td>
-                          {canEdit && (
-                            <td className="px-3 py-2 space-x-2 text-right text-xs">
-                              <button
-                                type="button"
-                                className="text-primary-600"
-                                onClick={() => {
-                                  setEditingLineId(item.id);
-                                  setLineForm({
-                                    label: item.label,
-                                    category: item.category ?? '',
-                                    amount: item.amount,
-                                    sort_order: item.sort_order,
-                                  });
-                                }}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                className="text-rose-600"
-                                onClick={() => handleDeleteLine(item.id)}
-                              >
-                                Delete
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                      {detail.reserve_items.map((item) => (
-                        <tr key={`reserve-${item.id}`} className="bg-primary-50/40">
-                          <td className="px-3 py-2 font-semibold text-primary-700">
-                            Reserve: {item.name}
-                          </td>
-                          <td className="px-3 py-2 text-xs text-primary-600">Reserve contribution</td>
-                          <td className="px-3 py-2 font-semibold text-primary-700">
-                            {formatCurrency(reserveAnnualContribution(item))}
-                          </td>
-                          {canEdit && <td className="px-3 py-2" />}
-                        </tr>
-                      ))}
+                      {detail.line_items.map((item) => {
+                        const isDerived = item.source_type === 'RESERVE_PLAN';
+                        return (
+                          <tr key={item.id} className={isDerived ? 'bg-primary-50/40' : undefined}>
+                            <td className="px-3 py-2">{item.label}</td>
+                            <td className="px-3 py-2">{item.category ?? '—'}</td>
+                            <td className="px-3 py-2">{formatCurrency(item.amount)}</td>
+                            {canEdit && (
+                              <td className="px-3 py-2 space-x-2 text-right text-xs">
+                                {isDerived ? (
+                                  <span className="text-xs text-slate-400">Auto</span>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="text-primary-600"
+                                      onClick={() => {
+                                        setEditingLineId(item.id);
+                                        setLineForm({
+                                          label: item.label,
+                                          category: item.category ?? '',
+                                          amount: item.amount,
+                                          sort_order: item.sort_order,
+                                        });
+                                      }}
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="text-rose-600"
+                                      onClick={() => handleDeleteLine(item.id)}
+                                    >
+                                      Delete
+                                    </button>
+                                  </>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
-                </div>
+                </TableContainer>
 
                 {canEdit && detail.status !== 'APPROVED' && contracts.length > 0 && (
                   <form className="mt-4 grid gap-3 rounded border border-dashed border-slate-200 p-3 md:grid-cols-3" onSubmit={handleAddContractLine}>
@@ -750,7 +767,7 @@ const BudgetPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <h4 className="text-sm font-semibold text-slate-600">Reserve Plan</h4>
                 </div>
-                <div className="mt-3 overflow-x-auto">
+                <TableContainer className="mt-3">
                   <table className="min-w-full divide-y divide-slate-200 text-sm">
                     <thead className="bg-slate-50">
                       <tr>
@@ -765,51 +782,54 @@ const BudgetPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {detail.reserve_items.map((item) => (
-                        <tr key={item.id}>
-                          <td className="px-3 py-2">
-                            <p className="font-semibold text-slate-700">{item.name}</p>
-                            {item.notes && <p className="text-xs text-slate-500">{item.notes}</p>}
-                          </td>
-                          <td className="px-3 py-2">{item.target_year}</td>
-                          <td className="px-3 py-2">{formatCurrency(item.estimated_cost)}</td>
-                          <td className="px-3 py-2">{(item.inflation_rate * 100).toFixed(1)}%</td>
-                          <td className="px-3 py-2">{formatCurrency(reserveFutureCost(item))}</td>
-                          <td className="px-3 py-2">{formatCurrency(reserveAnnualContribution(item))}</td>
-                          <td className="px-3 py-2">{formatCurrency(item.current_funding)}</td>
-                          {canEdit && (
-                            <td className="px-3 py-2 space-x-2 text-right text-xs">
-                              <button
-                                type="button"
-                                className="text-primary-600"
-                                onClick={() => {
-                                  setEditingReserveId(item.id);
-                                  setReserveForm({
-                                    name: item.name,
-                                    target_year: item.target_year,
-                                    estimated_cost: item.estimated_cost,
-                                    inflation_rate: item.inflation_rate,
-                                    current_funding: item.current_funding,
-                                    notes: item.notes ?? '',
-                                  });
-                                }}
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                className="text-rose-600"
-                                onClick={() => handleDeleteReserve(item.id)}
-                              >
-                                Delete
-                              </button>
+                      {detail.reserve_items.map((item) => {
+                        const contribution = reserveContributionForItem(item);
+                        return (
+                          <tr key={item.id}>
+                            <td className="px-3 py-2">
+                              <p className="font-semibold text-slate-700">{item.name}</p>
+                              {item.notes && <p className="text-xs text-slate-500">{item.notes}</p>}
                             </td>
-                          )}
-                        </tr>
-                      ))}
+                            <td className="px-3 py-2">{item.target_year}</td>
+                            <td className="px-3 py-2">{formatCurrency(item.estimated_cost)}</td>
+                            <td className="px-3 py-2">{(item.inflation_rate * 100).toFixed(1)}%</td>
+                            <td className="px-3 py-2">{formatCurrency(contribution.futureCostRounded)}</td>
+                            <td className="px-3 py-2">{formatCurrency(contribution.annualContributionRounded)}</td>
+                            <td className="px-3 py-2">{formatCurrency(item.current_funding)}</td>
+                            {canEdit && (
+                              <td className="px-3 py-2 space-x-2 text-right text-xs">
+                                <button
+                                  type="button"
+                                  className="text-primary-600"
+                                  onClick={() => {
+                                    setEditingReserveId(item.id);
+                                    setReserveForm({
+                                      name: item.name,
+                                      target_year: item.target_year,
+                                      estimated_cost: item.estimated_cost,
+                                      inflation_rate: item.inflation_rate,
+                                      current_funding: item.current_funding,
+                                      notes: item.notes ?? '',
+                                    });
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="text-rose-600"
+                                  onClick={() => handleDeleteReserve(item.id)}
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
-                </div>
+                </TableContainer>
 
                 {canEdit && detail.status !== 'APPROVED' && (
                   <form className="mt-4 grid gap-3 md:grid-cols-2" onSubmit={handleReserveSubmit}>
@@ -831,6 +851,9 @@ const BudgetPage: React.FC = () => {
                         onChange={(event) => setReserveForm((prev) => ({ ...prev, target_year: Number(event.target.value) }))}
                         required
                       />
+                      {reserveFormInvalidTargetYear && (
+                        <p className="mt-1 text-xs text-rose-600">Target year must be after the budget year.</p>
+                      )}
                     </label>
                     <label className="text-sm">
                       <span className="text-xs text-slate-500">Estimated Cost</span>
@@ -875,7 +898,8 @@ const BudgetPage: React.FC = () => {
                     <div className="md:col-span-2 flex gap-2">
                       <button
                         type="submit"
-                        className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500"
+                        className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500 disabled:opacity-60"
+                        disabled={reserveFormInvalidTargetYear}
                       >
                         {editingReserveId ? 'Update reserve' : 'Add reserve'}
                       </button>

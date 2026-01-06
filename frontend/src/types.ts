@@ -317,6 +317,8 @@ export interface BudgetLineItem {
   amount: string;
   is_reserve: boolean;
   sort_order: number;
+  source_type?: string | null;
+  source_id?: number | null;
   created_at: string;
   updated_at: string;
 }
