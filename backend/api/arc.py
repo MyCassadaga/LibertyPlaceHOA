@@ -55,7 +55,7 @@ def list_arc_requests(
             joinedload(ARCRequest.conditions),
             joinedload(ARCRequest.inspections),
         )
-        .order_by(ARCRequest.created_at.desc())
+        .order_by(ARCRequest.created_at.desc(), ARCRequest.id.desc())
     )
 
     if user.has_role("HOMEOWNER") and not is_manager:
