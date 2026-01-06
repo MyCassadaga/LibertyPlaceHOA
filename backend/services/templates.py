@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import re
 
-from ..models.models import NoticeType, Owner, User, Violation
+from ..models.models import ARCRequest, NoticeType, Owner, User, Violation
+from ..config import settings
 
 MERGE_TAGS: List[Dict[str, str]] = [
     {
@@ -103,6 +104,96 @@ MERGE_TAGS: List[Dict[str, str]] = [
         "description": "Date/time of message generation.",
         "sample": "2025-11-08 12:00 UTC",
     },
+    {
+        "key": "arc_request_reference",
+        "label": "ARC request reference",
+        "description": "ARC request identifier (ARC-123).",
+        "sample": "ARC-123",
+    },
+    {
+        "key": "arc_request_id",
+        "label": "ARC request ID",
+        "description": "ARC request database identifier.",
+        "sample": "123",
+    },
+    {
+        "key": "arc_request_title",
+        "label": "ARC request title",
+        "description": "Project title for the ARC request.",
+        "sample": "Front yard fencing",
+    },
+    {
+        "key": "arc_request_project_type",
+        "label": "ARC request project type",
+        "description": "Project type/category.",
+        "sample": "Fence",
+    },
+    {
+        "key": "arc_request_description",
+        "label": "ARC request description",
+        "description": "Project description.",
+        "sample": "Replace fence with cedar slats.",
+    },
+    {
+        "key": "arc_request_submitted_at",
+        "label": "ARC request submitted date",
+        "description": "Date/time of submission.",
+        "sample": "2025-03-10 09:00 UTC",
+    },
+    {
+        "key": "arc_request_decision_at",
+        "label": "ARC request decision date",
+        "description": "Date/time of the decision.",
+        "sample": "2025-03-12 14:30 UTC",
+    },
+    {
+        "key": "arc_request_decision",
+        "label": "ARC request decision",
+        "description": "Decision result text.",
+        "sample": "APPROVED",
+    },
+    {
+        "key": "arc_request_requester_name",
+        "label": "ARC requester name",
+        "description": "Name of the requester.",
+        "sample": "Taylor Jordan",
+    },
+    {
+        "key": "arc_request_requester_email",
+        "label": "ARC requester email",
+        "description": "Email of the requester.",
+        "sample": "taylor@example.com",
+    },
+    {
+        "key": "arc_property_address",
+        "label": "ARC property address",
+        "description": "Property address associated with the request.",
+        "sample": "123 Liberty Place",
+    },
+    {
+        "key": "arc_property_lot",
+        "label": "ARC property lot",
+        "description": "Lot identifier for the request.",
+        "sample": "Lot 12",
+    },
+    {
+        "key": "arc_request_conditions",
+        "label": "ARC request conditions",
+        "description": "Conditions attached to the decision.",
+        "sample": "None",
+    },
+    {
+        "key": "arc_request_attachments",
+        "label": "ARC request attachments",
+        "description": "Attachment list for the request.",
+        "sample": "fence_plan.pdf",
+    },
+    {
+        "key": "arc_request_portal_url",
+        "label": "ARC request portal link",
+        "description": "Portal URL for the request.",
+        "sample": "https://portal.example.com/arc?requestId=123",
+    },
 ]
 
 TAG_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_]+)\s*}}")
@@ -164,6 +255,72 @@ def build_merge_context(
         context["notice_type"] = notice_type.code
     if actor:
         context["actor_name"] = actor.full_name or actor.email
+    return context
+
+
+def build_arc_merge_context(
+    *,
+    arc_request: ARCRequest,
+    owner: Optional[Owner] = None,
+    requester: Optional[User] = None,
+) -> Dict[str, str]:
+    now = datetime.now(timezone.utc)
+    context = sample_merge_context()
+    context.update(
+        {
+            "current_date": now.date().isoformat(),
+            "current_datetime": now.strftime("%Y-%m-%d %H:%M %Z"),
+        }
+    )
+
+    request_reference = f"ARC-{arc_request.id}"
+    decision_value = "APPROVED" if arc_request.status == "PASSED" else "NOT APPROVED"
+    submitted_at = arc_request.submitted_at
+    decision_at = arc_request.final_decision_at
+    requester_name = ""
+    requester_email = ""
+    if requester:
+        requester_name = requester.full_name or requester.email or ""
+        requester_email = requester.email or ""
+    if owner and not requester_name:
+        requester_name = owner.primary_name
+        requester_email = owner.primary_email or ""
+
+    conditions = arc_request.conditions or []
+    condition_lines = []
+    for condition in conditions:
+        label = "Requirement" if condition.condition_type == "REQUIREMENT" else "Comment"
+        condition_lines.append(f"{label}: {condition.text}")
+    condition_text = "\n".join(condition_lines) if condition_lines else "None"
+
+    attachments = arc_request.attachments or []
+    attachment_text = ", ".join(
+        [attachment.original_filename or attachment.stored_filename for attachment in attachments]
+    )
+    if not attachment_text:
+        attachment_text = "None"
+
+    portal_url = f"{settings.frontend_url}/arc?requestId={arc_request.id}"
+
+    context.update(
+        {
+            "arc_request_reference": request_reference,
+            "arc_request_id": str(arc_request.id),
+            "arc_request_title": arc_request.title,
+            "arc_request_project_type": arc_request.project_type or "",
+            "arc_request_description": arc_request.description or "",
+            "arc_request_submitted_at": submitted_at.strftime("%Y-%m-%d %H:%M %Z") if submitted_at else "",
+            "arc_request_decision_at": decision_at.strftime("%Y-%m-%d %H:%M %Z") if decision_at else "",
+            "arc_request_decision": decision_value,
+            "arc_request_requester_name": requester_name,
+            "arc_request_requester_email": requester_email,
+            "arc_property_address": owner.property_address if owner else "",
+            "arc_property_lot": owner.lot if owner else "",
+            "arc_request_conditions": condition_text,
+            "arc_request_attachments": attachment_text,
+            "arc_request_portal_url": portal_url,
+        }
+    )
     return context
 
 

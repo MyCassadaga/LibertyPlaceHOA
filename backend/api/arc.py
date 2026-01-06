@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..api.dependencies import get_db, get_owner_for_user, get_owners_for_user
 from ..auth.jwt import get_current_user, require_roles
-from ..models.models import ARCCondition, ARCInspection, ARCAttachment, ARCRequest, Owner, User
+from ..models.models import ARCCondition, ARCInspection, ARCAttachment, ARCRequest, ARCReview, Owner, User
 from ..schemas.schemas import (
     ARCConditionCreate,
     ARCConditionRead,
@@ -14,12 +14,15 @@ from ..schemas.schemas import (
     ARCInspectionCreate,
     ARCInspectionRead,
     ARCAttachmentRead,
+    ARCReviewCreate,
+    ARCReviewerRead,
     ARCRequestCreate,
     ARCRequestRead,
     ARCRequestStatusUpdate,
     ARCRequestUpdate,
 )
 from ..services import arc as arc_service
+from ..services import arc_reviews as arc_review_service
 from ..services.audit import audit_log
 
 router = APIRouter(prefix="/arc", tags=["arc"])
@@ -31,9 +34,11 @@ def _get_request_with_relations(db: Session, arc_request_id: int) -> Optional[AR
         .options(
             joinedload(ARCRequest.owner),
             joinedload(ARCRequest.reviewer),
+            joinedload(ARCRequest.applicant),
             joinedload(ARCRequest.attachments),
             joinedload(ARCRequest.conditions),
             joinedload(ARCRequest.inspections),
+            joinedload(ARCRequest.reviews).joinedload(ARCReview.reviewer),
         )
         .get(arc_request_id)
     )
@@ -54,6 +59,7 @@ def list_arc_requests(
             joinedload(ARCRequest.attachments),
             joinedload(ARCRequest.conditions),
             joinedload(ARCRequest.inspections),
+            joinedload(ARCRequest.reviews).joinedload(ARCReview.reviewer),
         )
         .order_by(ARCRequest.created_at.desc(), ARCRequest.id.desc())
     )
@@ -242,6 +248,47 @@ def transition_arc_request_status(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     arc_request = _get_request_with_relations(db, arc_request.id)
+    arc_review_service.maybe_send_decision_notification(db, arc_request)
+    arc_request = _get_request_with_relations(db, arc_request.id)
+    return arc_request
+
+
+@router.get("/reviewers", response_model=List[ARCReviewerRead])
+def list_arc_reviewers(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
+) -> List[User]:
+    return arc_review_service.get_eligible_reviewers(db)
+
+
+@router.post("/requests/{arc_request_id}/reviews", response_model=ARCRequestRead)
+def submit_arc_review(
+    arc_request_id: int,
+    payload: ARCReviewCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_roles("ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER")),
+) -> ARCRequest:
+    arc_request = _get_request_with_relations(db, arc_request_id)
+    if not arc_request:
+        raise HTTPException(status_code=404, detail="ARC request not found.")
+
+    try:
+        arc_review_service.submit_review(
+            session=db,
+            arc_request=arc_request,
+            reviewer=user,
+            decision=payload.decision,
+            notes=payload.notes,
+        )
+        db.commit()
+        db.refresh(arc_request)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    arc_request = _get_request_with_relations(db, arc_request.id)
+    arc_review_service.maybe_send_decision_notification(db, arc_request)
+    arc_request = _get_request_with_relations(db, arc_request.id)
     return arc_request
 
 
@@ -259,7 +306,15 @@ def reopen_arc_request(
     if not arc_request:
         raise HTTPException(status_code=404, detail="ARC request not found.")
 
-    if arc_request.status not in {"APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED", "COMPLETED", "ARCHIVED"}:
+    if arc_request.status not in {
+        "APPROVED",
+        "APPROVED_WITH_CONDITIONS",
+        "DENIED",
+        "COMPLETED",
+        "ARCHIVED",
+        "PASSED",
+        "FAILED",
+    }:
         raise HTTPException(status_code=400, detail="Only closed ARC requests can be reopened.")
 
     reopened = ARCRequest(

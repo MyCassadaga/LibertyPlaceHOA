@@ -4,13 +4,14 @@ import { useAuth } from '../hooks/useAuth';
 import Badge from '../components/Badge';
 import FilePreview from '../components/FilePreview';
 import Timeline, { TimelineEvent } from '../components/Timeline';
-import { ARCCondition, ARCInspection, ARCAttachment, ARCRequest, ARCStatus } from '../types';
+import { ARCCondition, ARCAttachment, ARCRequest, ARCStatus } from '../types';
 import {
   useArcRequestsQuery,
-  useCreateArcInspectionMutation,
   useCreateArcRequestMutation,
   useAddArcConditionMutation,
+  useArcReviewersQuery,
   useReopenArcRequestMutation,
+  useSubmitArcReviewMutation,
   useTransitionArcRequestMutation,
   useUploadArcAttachmentMutation,
 } from '../features/arc/hooks';
@@ -21,6 +22,8 @@ const STATUS_LABELS: Record<ARCStatus, string> = {
   DRAFT: 'Draft',
   SUBMITTED: 'Submitted',
   IN_REVIEW: 'In Review',
+  PASSED: 'Passed',
+  FAILED: 'Failed',
   REVIEW_COMPLETE: 'Review Complete',
   ARCHIVED: 'Archived',
 };
@@ -29,6 +32,8 @@ const STATUS_BADGE: Record<ARCStatus, string> = {
   DRAFT: 'bg-slate-200 text-slate-700',
   SUBMITTED: 'bg-blue-100 text-blue-700',
   IN_REVIEW: 'bg-indigo-100 text-indigo-700',
+  PASSED: 'bg-emerald-100 text-emerald-700',
+  FAILED: 'bg-rose-100 text-rose-700',
   REVIEW_COMPLETE: 'bg-teal-100 text-teal-700',
   ARCHIVED: 'bg-gray-200 text-gray-600',
 };
@@ -36,7 +41,9 @@ const STATUS_BADGE: Record<ARCStatus, string> = {
 const TRANSITIONS: Record<ARCStatus, ARCStatus[]> = {
   DRAFT: ['SUBMITTED'],
   SUBMITTED: ['IN_REVIEW'],
-  IN_REVIEW: ['REVIEW_COMPLETE'],
+  IN_REVIEW: [],
+  PASSED: ['ARCHIVED'],
+  FAILED: ['ARCHIVED'],
   REVIEW_COMPLETE: ['ARCHIVED'],
   ARCHIVED: [],
 };
@@ -78,7 +85,8 @@ const ARCPage: React.FC = () => {
   const reopenMutation = useReopenArcRequestMutation();
   const uploadAttachmentMutation = useUploadArcAttachmentMutation();
   const addConditionMutation = useAddArcConditionMutation();
-  const createInspectionMutation = useCreateArcInspectionMutation();
+  const submitReviewMutation = useSubmitArcReviewMutation();
+  const reviewersQuery = useArcReviewersQuery(canReview);
   const ownersQuery = useOwnersQuery(canViewStaff);
   const linkedOwnersQuery = useMyLinkedOwnersQuery(isHomeowner && !canViewStaff);
   const owners = useMemo(() => ownersQuery.data ?? [], [ownersQuery.data]);
@@ -89,8 +97,9 @@ const ARCPage: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ title: '', project_type: '', description: '', owner_id: '' });
   const [transitionStatus, setTransitionStatus] = useState('');
-  const [inspectionNotes, setInspectionNotes] = useState('');
-  const [inspectionResult, setInspectionResult] = useState('');
+  const [reviewNotes, setReviewNotes] = useState('');
+  const [reviewDecision, setReviewDecision] = useState('');
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [commentText, setCommentText] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const combinedError = error ?? requestsError ?? ownersError ?? linkedOwnersError;
@@ -109,8 +118,9 @@ const ARCPage: React.FC = () => {
     (request: ARCRequest) => {
       setSelectedId(request.id);
       setTransitionStatus('');
-      setInspectionNotes('');
-      setInspectionResult('');
+      setReviewNotes('');
+      setReviewDecision('');
+      setReviewOpen(false);
       setCommentText('');
     },
     [],
@@ -197,11 +207,14 @@ const ARCPage: React.FC = () => {
     if (!selected) return;
     setError(null);
     try {
-      await transitionMutation.mutateAsync({
-        requestId: selected.id,
-        payload: { target_status: 'IN_REVIEW' },
-      });
-      setSuccess('Request marked as in review.');
+      if (selected.status === 'SUBMITTED') {
+        await transitionMutation.mutateAsync({
+          requestId: selected.id,
+          payload: { target_status: 'IN_REVIEW' },
+        });
+        setSuccess('Request marked as in review.');
+      }
+      setReviewOpen(true);
     } catch (err) {
       reportError('Unable to start review.', err);
     }
@@ -246,24 +259,21 @@ const ARCPage: React.FC = () => {
     }
   };
 
-  const handleInspectionCreate = async (event: React.FormEvent) => {
+  const handleReviewSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!selected) return;
+    if (!selected || !reviewDecision) return;
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      await createInspectionMutation.mutateAsync({
+      await submitReviewMutation.mutateAsync({
         requestId: selected.id,
         payload: {
-          scheduled_date: today,
-          result: inspectionResult || undefined,
-          notes: inspectionNotes || undefined,
+          decision: reviewDecision,
+          notes: reviewNotes || undefined,
         },
       });
-      setInspectionNotes('');
-      setInspectionResult('');
-      setSuccess('Reviewer note saved.');
+      setSuccess('Review submitted.');
+      setReviewOpen(false);
     } catch (err) {
-      reportError('Unable to save reviewer notes.', err);
+      reportError('Unable to submit review.', err);
     }
   };
 
@@ -272,25 +282,54 @@ const ARCPage: React.FC = () => {
     if (selected.status === 'DRAFT') return [];
     if (!canReview) return [];
     if (selected.status === 'SUBMITTED') return [];
+    if (['IN_REVIEW', 'PASSED', 'FAILED'].includes(selected.status)) return [];
     return TRANSITIONS[selected.status] || [];
   }, [selected, canReview]);
   const conditions = useMemo(() => selected?.conditions ?? [], [selected]);
-  const inspections = useMemo(() => selected?.inspections ?? [], [selected]);
+  const reviews = useMemo(() => selected?.reviews ?? [], [selected]);
+  const reviewers = useMemo(() => reviewersQuery.data ?? [], [reviewersQuery.data]);
+  const currentReview = useMemo(() => {
+    if (!selected || !user) return null;
+    return reviews.find((review) => review.reviewer_user_id === user.id) ?? null;
+  }, [reviews, selected, user]);
 
   const canReopenRequest = useMemo(() => {
     if (!selected || !canReview) return false;
-    return ['APPROVED', 'APPROVED_WITH_CONDITIONS', 'DENIED', 'COMPLETED', 'ARCHIVED'].includes(selected.status);
+    return [
+      'APPROVED',
+      'APPROVED_WITH_CONDITIONS',
+      'DENIED',
+      'COMPLETED',
+      'ARCHIVED',
+      'PASSED',
+      'FAILED',
+    ].includes(selected.status);
   }, [selected, canReview]);
   const canSubmitDraft = useMemo(
     () => !!selected && selected.status === 'DRAFT' && (isHomeowner || canReview || canViewStaff),
     [selected, isHomeowner, canReview, canViewStaff],
   );
-  const canReviewRequest = useMemo(
-    () => !!selected && selected.status === 'SUBMITTED' && canReview,
-    [selected, canReview],
-  );
+  const canReviewRequest = useMemo(() => {
+    if (!selected || !canReview) return false;
+    if (['SUBMITTED', 'IN_REVIEW'].includes(selected.status)) {
+      return currentReview === null;
+    }
+    return false;
+  }, [selected, canReview, currentReview]);
   const canComment = useMemo(() => isHomeowner || canReview, [isHomeowner, canReview]);
-  const showReviewerNotes = useMemo(() => !!selected && selected.status === 'IN_REVIEW', [selected]);
+  const showReviewerNotes = useMemo(() => {
+    if (!selected) return false;
+    if (reviewOpen) return true;
+    if (currentReview) return true;
+    if (reviews.length > 0) return true;
+    return ['PASSED', 'FAILED'].includes(selected.status);
+  }, [selected, reviewOpen, currentReview, reviews.length]);
+
+  useEffect(() => {
+    if (!selected) return;
+    setReviewDecision(currentReview?.decision ?? '');
+    setReviewNotes(currentReview?.notes ?? '');
+  }, [selected, currentReview]);
 
   const timelineEvents = useMemo<TimelineEvent[]>(() => {
     if (!selected) return [];
@@ -302,7 +341,7 @@ const ARCPage: React.FC = () => {
 
     push(selected.created_at, 'Request created', selected.description ?? undefined);
     push(selected.submitted_at, 'Submitted for review');
-    push(selected.completed_at, 'Review complete', selected.decision_notes ?? undefined);
+    push(selected.final_decision_at, 'Decision finalized', selected.decision_notes ?? undefined);
     push(selected.archived_at, 'Request archived');
 
     conditions.forEach((condition) => {
@@ -313,19 +352,13 @@ const ARCPage: React.FC = () => {
       );
     });
 
-    inspections.forEach((inspection) => {
-      const metaParts: string[] = [];
-      if (inspection.scheduled_date) {
-        metaParts.push(`Scheduled: ${new Date(inspection.scheduled_date).toLocaleDateString()}`);
-      }
-      if (inspection.result) {
-        metaParts.push(`Result: ${inspection.result}`);
-      }
+    reviews.forEach((review) => {
+      const meta = review.reviewer_name ? `Reviewer: ${review.reviewer_name}` : undefined;
       push(
-        inspection.created_at,
-        inspection.result ? 'Inspection result recorded' : 'Inspection logged',
-        inspection.notes ?? undefined,
-        metaParts.join(' • ') || undefined,
+        review.submitted_at,
+        `Review submitted (${review.decision})`,
+        review.notes ?? undefined,
+        meta,
       );
     });
 
@@ -334,7 +367,7 @@ const ARCPage: React.FC = () => {
     }
 
     return events.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [conditions, inspections, selected]);
+  }, [conditions, reviews, selected]);
 
   return (
     <div className="space-y-6">
@@ -567,18 +600,6 @@ const ARCPage: React.FC = () => {
                 </form>
               )}
 
-              {canSubmitDraft && (
-                <div className="mt-4 flex justify-end">
-                  <button
-                    type="button"
-                    className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500"
-                    onClick={handleSubmitDraft}
-                  >
-                    Submit request
-                  </button>
-                </div>
-              )}
-
               <section className="mt-4">
                 <div className="flex items-center justify-between">
                   <h4 className="text-xs font-semibold uppercase text-slate-500">Attachments</h4>
@@ -643,70 +664,89 @@ const ARCPage: React.FC = () => {
                     </button>
                   </form>
                 )}
+                {canSubmitDraft && (
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      className="rounded bg-primary-600 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white hover:bg-primary-500"
+                      onClick={handleSubmitDraft}
+                    >
+                      Submit request
+                    </button>
+                  </div>
+                )}
               </section>
 
               {showReviewerNotes && (
                 <section className="mt-4 rounded border border-slate-200 p-3">
                   <h4 className="text-xs font-semibold uppercase text-slate-500">Reviewer Notes</h4>
-                  {inspections.length === 0 ? (
+                  {reviewers.length > 0 && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Eligible reviewers: {reviewers.map((reviewer) => reviewer.full_name || reviewer.email).join(', ')}
+                    </p>
+                  )}
+                  {reviews.length === 0 ? (
                     <p className="mt-2 text-xs text-slate-500">No reviewer notes recorded.</p>
                   ) : (
                     <ul className="mt-2 space-y-2 text-xs">
-                      {inspections.map((inspection: ARCInspection) => (
-                        <li key={inspection.id} className="rounded border border-slate-200 p-2">
+                      {reviews.map((review) => (
+                        <li key={review.id} className="rounded border border-slate-200 p-2">
                           <div className="flex items-center justify-between">
                             <span className="font-semibold text-slate-600">
-                              {inspection.result ?? 'Scheduled'}
+                              {review.decision === 'PASS' ? 'Pass' : 'Fail'}
                             </span>
                             <span className="text-slate-500">
-                              {inspection.scheduled_date
-                                ? new Date(inspection.scheduled_date).toLocaleDateString()
-                                : 'Pending'}
+                              {review.reviewer_name || 'Reviewer'} •{' '}
+                              {new Date(review.submitted_at).toLocaleDateString()}
                             </span>
                           </div>
-                          {inspection.notes && (
-                            <p className="mt-1 whitespace-pre-wrap text-slate-600">{inspection.notes}</p>
+                          {review.notes && (
+                            <p className="mt-1 whitespace-pre-wrap text-slate-600">{review.notes}</p>
                           )}
                         </li>
                       ))}
                     </ul>
                   )}
-                  {canReview && (
-                    <form className="mt-3 grid gap-2 sm:grid-cols-2" onSubmit={handleInspectionCreate}>
+                  {canReview &&
+                    ['IN_REVIEW', 'SUBMITTED'].includes(selected.status) &&
+                    (reviewOpen || currentReview) && (
+                    <form className="mt-3 grid gap-2 sm:grid-cols-2" onSubmit={handleReviewSubmit}>
                       <div className="sm:col-span-1">
-                        <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-result">
-                          Result
+                        <label className="mb-1 block text-xs text-slate-500" htmlFor="review-decision">
+                          Decision
                         </label>
                         <select
-                          id="inspection-result"
+                          id="review-decision"
                           className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
-                          value={inspectionResult}
-                          onChange={(event) => setInspectionResult(event.target.value)}
+                          value={reviewDecision}
+                          onChange={(event) => setReviewDecision(event.target.value)}
+                          required
                         >
-                          <option value="">Select result…</option>
-                          <option value="Pass">Pass</option>
-                          <option value="Fail">Fail</option>
+                          <option value="">Select decision…</option>
+                          <option value="PASS">Pass</option>
+                          <option value="FAIL">Fail</option>
                         </select>
                       </div>
                       <div className="sm:col-span-2">
-                        <label className="mb-1 block text-xs text-slate-500" htmlFor="inspection-notes">
+                        <label className="mb-1 block text-xs text-slate-500" htmlFor="review-notes">
                           Notes
                         </label>
                         <textarea
-                          id="inspection-notes"
+                          id="review-notes"
                           className="w-full rounded border border-slate-300 px-3 py-2 text-sm"
                           rows={2}
-                          value={inspectionNotes}
-                          onChange={(event) => setInspectionNotes(event.target.value)}
-                          placeholder="Notes were recorded..."
+                          value={reviewNotes}
+                          onChange={(event) => setReviewNotes(event.target.value)}
+                          placeholder="Provide reviewer notes..."
                         />
                       </div>
                       <div className="sm:col-span-2 flex justify-end">
                         <button
                           type="submit"
-                          className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-500"
+                          className="rounded bg-primary-600 px-3 py-2 text-xs font-semibold text-white hover:bg-primary-500 disabled:opacity-60"
+                          disabled={!reviewDecision}
                         >
-                          Save
+                          Submit
                         </button>
                       </div>
                     </form>

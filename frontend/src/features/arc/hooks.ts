@@ -2,10 +2,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import {
   addARCCondition,
-  createARCInspection,
   createARCRequest,
+  fetchARCReviewers,
   fetchARCRequests,
   reopenARCRequest,
+  submitARCReview,
   transitionARCRequest,
   uploadARCAttachment,
 } from '../../services/api';
@@ -19,6 +20,13 @@ export const useArcRequestsQuery = (status?: string) =>
   useQuery<ARCRequest[]>({
     queryKey: arcRequestsKey(status),
     queryFn: () => fetchARCRequests(status),
+  });
+
+export const useArcReviewersQuery = (enabled: boolean) =>
+  useQuery({
+    queryKey: queryKeys.arcReviewers,
+    queryFn: fetchARCReviewers,
+    enabled,
   });
 
 const useInvalidateArcRequests = () => {
@@ -79,7 +87,7 @@ export const useAddArcConditionMutation = () => {
   });
 };
 
-export const useCreateArcInspectionMutation = () => {
+export const useSubmitArcReviewMutation = () => {
   const invalidate = useInvalidateArcRequests();
   return useMutation({
     mutationFn: ({
@@ -87,8 +95,8 @@ export const useCreateArcInspectionMutation = () => {
       payload,
     }: {
       requestId: number;
-      payload: Parameters<typeof createARCInspection>[1];
-    }) => createARCInspection(requestId, payload),
+      payload: Parameters<typeof submitARCReview>[1];
+    }) => submitARCReview(requestId, payload),
     onSuccess: invalidate,
   });
 };

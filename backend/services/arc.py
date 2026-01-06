@@ -17,6 +17,8 @@ ARC_STATES: Iterable[str] = (
     "IN_REVIEW",
     "REVISION_REQUESTED",
     "REVIEW_COMPLETE",
+    "PASSED",
+    "FAILED",
     "APPROVED",
     "APPROVED_WITH_CONDITIONS",
     "DENIED",
@@ -30,12 +32,16 @@ ARC_TRANSITIONS: Dict[str, set[str]] = {
     "IN_REVIEW": {
         "REVISION_REQUESTED",
         "REVIEW_COMPLETE",
+        "PASSED",
+        "FAILED",
         "APPROVED",
         "APPROVED_WITH_CONDITIONS",
         "DENIED",
     },
     "REVISION_REQUESTED": {"IN_REVIEW"},
-    "REVIEW_COMPLETE": {"APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED", "ARCHIVED"},
+    "REVIEW_COMPLETE": {"PASSED", "FAILED", "APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED", "ARCHIVED"},
+    "PASSED": {"ARCHIVED"},
+    "FAILED": {"ARCHIVED"},
     "APPROVED": {"COMPLETED", "ARCHIVED"},
     "APPROVED_WITH_CONDITIONS": {"COMPLETED", "ARCHIVED"},
     "DENIED": {"ARCHIVED"},
@@ -185,7 +191,7 @@ def transition_arc_request(
         arc_request.submitted_at = datetime.now(timezone.utc)
     if normalized_target == "REVISION_REQUESTED":
         arc_request.revision_requested_at = datetime.now(timezone.utc)
-    if normalized_target in {"APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED"}:
+    if normalized_target in {"APPROVED", "APPROVED_WITH_CONDITIONS", "DENIED", "PASSED", "FAILED"}:
         arc_request.final_decision_at = datetime.now(timezone.utc)
         arc_request.final_decision_by_user_id = actor.id
         arc_request.decision_notes = notes
