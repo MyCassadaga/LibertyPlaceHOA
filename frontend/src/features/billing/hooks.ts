@@ -9,6 +9,7 @@ import {
   fetchContracts,
   fetchInvoices,
   fetchMyOwnerRecord,
+  fetchMyLinkedOwners,
   fetchOverdueAccounts,
   fetchOwners,
   fetchVendorPayments,
@@ -61,6 +62,13 @@ export const useMyOwnerQuery = (enabled: boolean) =>
   useQuery<Owner>({
     queryKey: queryKeys.myOwner,
     queryFn: fetchMyOwnerRecord,
+    enabled,
+  });
+
+export const useMyLinkedOwnersQuery = (enabled: boolean) =>
+  useQuery<Owner[]>({
+    queryKey: queryKeys.myLinkedOwners,
+    queryFn: fetchMyLinkedOwners,
     enabled,
   });
 

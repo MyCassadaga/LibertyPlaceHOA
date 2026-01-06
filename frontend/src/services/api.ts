@@ -557,6 +557,11 @@ export const fetchMyOwnerRecord = async (): Promise<Owner> => {
   return data;
 };
 
+export const fetchMyLinkedOwners = async (): Promise<Owner[]> => {
+  const { data } = await api.get<Owner[]>('/owners/linked');
+  return data;
+};
+
 export const updateMyOwnerRecord = async (payload: OwnerSelfUpdatePayload): Promise<Owner> => {
   const { data } = await api.put<Owner>('/owners/me', payload);
   return data;

@@ -25,6 +25,7 @@ export const queryKeys = {
   auditLogs: ['audit', 'logs'] as const,
   owners: ['owners', 'all'] as const,
   myOwner: ['owners', 'me'] as const,
+  myLinkedOwners: ['owners', 'linked'] as const,
   contracts: ['contracts', 'all'] as const,
   overdueAccounts: ['billing', 'overdue'] as const,
   vendorPayments: ['billing', 'vendor-payments'] as const,
