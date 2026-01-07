@@ -1,15 +1,20 @@
 """Baseline schema reset.
 
 Revision ID: 0001_baseline
-Revises: 
+Revises:
 Create Date: 2026-01-07 00:00:00.000000
 """
+
+import os
+import sys
 
 from alembic import op
 from sqlalchemy import inspect
 
-from backend.config import Base
-from backend import models  # noqa: F401
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+
+from backend.config import Base  # noqa: E402
+from backend import models  # noqa: F401,E402
 
 # revision identifiers, used by Alembic.
 revision = "0001_baseline"
