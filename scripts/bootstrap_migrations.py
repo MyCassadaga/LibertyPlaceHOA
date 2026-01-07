@@ -1,7 +1,9 @@
 import os
 import subprocess
 
-from sqlalchemy import create_engine, inspect
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine.url import URL, make_url
 
 ALEMBIC_CONFIG = "backend/alembic.ini"
@@ -11,6 +13,16 @@ def run_alembic(*args: str) -> None:
     cmd = ["alembic", "-c", ALEMBIC_CONFIG, *args]
     print("RUN:", " ".join(cmd), flush=True)
     subprocess.run(cmd, check=True)
+
+
+def get_script_directory() -> ScriptDirectory:
+    config = Config(ALEMBIC_CONFIG)
+    return ScriptDirectory.from_config(config)
+
+
+def get_known_revisions() -> set[str]:
+    script_directory = get_script_directory()
+    return {revision.revision for revision in script_directory.walk_revisions()}
 
 
 def sanitize_database_url(value: str) -> str:
@@ -75,9 +87,37 @@ def enforce_empty_or_tracked_schema(database_url: str) -> None:
         engine.dispose()
 
 
+def get_database_revision(database_url: str) -> str | None:
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            result = connection.execute(text("SELECT version_num FROM alembic_version"))
+            row = result.first()
+            if row is None:
+                return None
+            return row[0]
+    finally:
+        engine.dispose()
+
+
+def stamp_missing_revision(database_url: str) -> None:
+    revision = get_database_revision(database_url)
+    if not revision:
+        return
+    known_revisions = get_known_revisions()
+    if revision not in known_revisions:
+        print(
+            "BOOTSTRAP: alembic_version references missing revision; "
+            "stamping database to current head.",
+            flush=True,
+        )
+        run_alembic("stamp", "head")
+
+
 def main() -> None:
     database_url = get_database_url()
     enforce_empty_or_tracked_schema(database_url)
+    stamp_missing_revision(database_url)
     run_alembic("upgrade", "head")
 
 
