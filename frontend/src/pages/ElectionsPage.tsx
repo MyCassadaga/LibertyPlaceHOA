@@ -330,8 +330,8 @@ const ElectionsPage: React.FC = () => {
       {status && <p className="text-sm text-green-600">{status}</p>}
       {loading && <p className="text-sm text-slate-500">Loading elections…</p>}
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <div className="space-y-4">
+      <div className="space-y-6">
+        <section className="space-y-4">
           <div className="rounded border border-slate-200">
             <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
               Upcoming Elections
@@ -343,7 +343,9 @@ const ElectionsPage: React.FC = () => {
                 {upcomingElections.map((election) => (
                   <li
                     key={election.id}
-                    className={`cursor-pointer px-3 py-3 hover:bg-primary-50 ${selectedId === election.id ? 'bg-primary-50' : ''}`}
+                    className={`cursor-pointer px-3 py-3 hover:bg-primary-50 ${
+                      selectedId === election.id ? 'bg-primary-50' : ''
+                    }`}
                     onClick={() => handleSelectElection(election.id)}
                   >
                     <div className="flex items-center justify-between">
@@ -374,7 +376,9 @@ const ElectionsPage: React.FC = () => {
                 {closedElections.map((election) => (
                   <li
                     key={election.id}
-                    className={`cursor-pointer px-3 py-3 hover:bg-primary-50 ${selectedId === election.id ? 'bg-primary-50' : ''}`}
+                    className={`cursor-pointer px-3 py-3 hover:bg-primary-50 ${
+                      selectedId === election.id ? 'bg-primary-50' : ''
+                    }`}
                     onClick={() => handleSelectElection(election.id)}
                   >
                     <div className="flex items-center justify-between">
@@ -393,74 +397,73 @@ const ElectionsPage: React.FC = () => {
               </ul>
             )}
           </div>
-        </div>
+        </section>
 
-        <div className="space-y-4">
-          {isManager && (
-            <section className="rounded border border-slate-200 p-4">
-              <h3 className="mb-3 text-sm font-semibold text-slate-600">Create Election</h3>
-              <form className="grid gap-2" onSubmit={handleCreateElection}>
+        {isManager && (
+          <section className="rounded border border-slate-200 p-4">
+            <h3 className="mb-3 text-sm font-semibold text-slate-600">Create Election</h3>
+            <form className="grid gap-2" onSubmit={handleCreateElection}>
+              <label className="text-sm">
+                <span className="mb-1 block text-slate-600">Title</span>
+                <input
+                  className="w-full rounded border border-slate-300 px-3 py-2"
+                  value={createForm.title}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, title: event.target.value }))}
+                  required
+                />
+              </label>
+              <label className="text-sm">
+                <span className="mb-1 block text-slate-600">Description</span>
+                <textarea
+                  className="w-full rounded border border-slate-300 px-3 py-2"
+                  rows={2}
+                  value={createForm.description}
+                  onChange={(event) => setCreateForm((prev) => ({ ...prev, description: event.target.value }))}
+                />
+              </label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <label className="text-sm">
-                  <span className="mb-1 block text-slate-600">Title</span>
+                  <span className="mb-1 block text-slate-600">Opens</span>
                   <input
+                    type="datetime-local"
                     className="w-full rounded border border-slate-300 px-3 py-2"
-                    value={createForm.title}
-                    onChange={(event) => setCreateForm((prev) => ({ ...prev, title: event.target.value }))}
-                    required
+                    value={createForm.opens_at}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, opens_at: event.target.value }))}
                   />
                 </label>
                 <label className="text-sm">
-                  <span className="mb-1 block text-slate-600">Description</span>
-                  <textarea
+                  <span className="mb-1 block text-slate-600">Closes</span>
+                  <input
+                    type="datetime-local"
                     className="w-full rounded border border-slate-300 px-3 py-2"
-                    rows={2}
-                    value={createForm.description}
-                    onChange={(event) => setCreateForm((prev) => ({ ...prev, description: event.target.value }))}
+                    value={createForm.closes_at}
+                    onChange={(event) => setCreateForm((prev) => ({ ...prev, closes_at: event.target.value }))}
                   />
                 </label>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <label className="text-sm">
-                    <span className="mb-1 block text-slate-600">Opens</span>
-                    <input
-                      type="datetime-local"
-                      className="w-full rounded border border-slate-300 px-3 py-2"
-                      value={createForm.opens_at}
-                      onChange={(event) => setCreateForm((prev) => ({ ...prev, opens_at: event.target.value }))}
-                    />
-                  </label>
-                  <label className="text-sm">
-                    <span className="mb-1 block text-slate-600">Closes</span>
-                    <input
-                      type="datetime-local"
-                      className="w-full rounded border border-slate-300 px-3 py-2"
-                      value={createForm.closes_at}
-                      onChange={(event) => setCreateForm((prev) => ({ ...prev, closes_at: event.target.value }))}
-                    />
-                  </label>
-                </div>
-                <button
-                  type="submit"
-                  className="mt-2 w-full rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500"
-                >
-                  Create Election
-                </button>
-              </form>
-            </section>
-          )}
+              </div>
+              <button
+                type="submit"
+                className="mt-2 w-full rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500"
+              >
+                Create Election
+              </button>
+            </form>
+          </section>
+        )}
 
-          {detail ? (
-            <section className="rounded border border-slate-200 p-4">
-              <header className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-slate-600">{detail.title}</h3>
-                  <p className="text-xs text-slate-500">
-                    Status: {detail.status} • Votes: {detail.votes_cast} / {detail.ballot_count}
-                  </p>
-                </div>
-                <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadge[detail.status]}`}>
-                  {detail.status}
-                </span>
-              </header>
+        {detail ? (
+          <section className="rounded border border-slate-200 p-4">
+            <header className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-600">{detail.title}</h3>
+                <p className="text-xs text-slate-500">
+                  Status: {detail.status} • Votes: {detail.votes_cast} / {detail.ballot_count}
+                </p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadge[detail.status]}`}>
+                {detail.status}
+              </span>
+            </header>
 
               {showStatsPanel && (
                 <section className="mt-4 rounded border border-primary-100 bg-primary-50/60 p-3">
@@ -800,8 +803,7 @@ const ElectionsPage: React.FC = () => {
               Select an election to view details and results.
             </section>
           )}
-        </div>
-      </section>
+      </div>
     </div>
   );
 };
