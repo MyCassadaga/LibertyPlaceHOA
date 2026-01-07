@@ -1,60 +1,47 @@
-from scripts.bootstrap_migrations import (
-    REVISION_ARC_NOTIFICATION,
-    REVISION_BUDGETS,
-    REVISION_MULTI_ROLE,
-    detect_applied_revision,
-    sanitize_database_url,
-)
+import sqlalchemy as sa
 
-
-class FakeInspector:
-    def __init__(self, tables=None, columns=None):
-        self._tables = set(tables or [])
-        self._columns = columns or {}
-
-    def has_table(self, name: str) -> bool:
-        return name in self._tables
-
-    def get_columns(self, name: str):
-        return [{"name": col} for col in self._columns.get(name, [])]
-
-    def get_table_names(self):
-        return list(self._tables)
+from scripts import bootstrap_migrations
 
 
 def test_sanitize_database_url_strips_psql_wrapper_and_quotes():
     raw = "psql 'postgresql://user:pass@host:5432/hoa'"
-    assert sanitize_database_url(raw) == "postgresql://user:pass@host:5432/hoa"
-
-
-def test_detect_applied_revision_prefers_latest_sentinel():
-    inspector = FakeInspector(
-        tables={"user_roles", "budgets"},
-        columns={"arc_requests": ["decision_notified_at"]},
+    assert (
+        bootstrap_migrations.sanitize_database_url(raw)
+        == "postgresql://user:pass@host:5432/hoa"
     )
 
-    revision, reason = detect_applied_revision(inspector)
 
-    assert revision == REVISION_BUDGETS
-    assert reason == "budgets table"
+def test_bootstrap_resets_missing_revision_and_stamps_head(tmp_path, monkeypatch):
+    db_path = tmp_path / "bootstrap.db"
+    database_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
 
+    engine = sa.create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(sa.text("CREATE TABLE alembic_version (version_num VARCHAR(32))"))
+            connection.execute(
+                sa.text("INSERT INTO alembic_version (version_num) VALUES ('8b0c74c7f5ce')")
+            )
+    finally:
+        engine.dispose()
 
-def test_detect_applied_revision_handles_arc_notification_column():
-    inspector = FakeInspector(
-        tables={"arc_requests"},
-        columns={"arc_requests": ["decision_notified_at", "decision_notified_status"]},
-    )
+    calls = []
 
-    revision, reason = detect_applied_revision(inspector)
+    def fake_run_alembic(*args: str) -> None:
+        calls.append(args)
 
-    assert revision == REVISION_ARC_NOTIFICATION
-    assert reason == "arc_requests.decision_notified_at"
+    monkeypatch.setattr(bootstrap_migrations, "get_repo_head_revision", lambda: "0001_baseline")
+    monkeypatch.setattr(bootstrap_migrations, "get_known_revisions", lambda: {"0001_baseline"})
+    monkeypatch.setattr(bootstrap_migrations, "run_alembic", fake_run_alembic)
 
+    bootstrap_migrations.main()
 
-def test_detect_applied_revision_handles_user_roles_table():
-    inspector = FakeInspector(tables={"user_roles"})
+    engine = sa.create_engine(database_url)
+    try:
+        inspector = sa.inspect(engine)
+        assert "alembic_version" not in inspector.get_table_names()
+    finally:
+        engine.dispose()
 
-    revision, reason = detect_applied_revision(inspector)
-
-    assert revision == REVISION_MULTI_ROLE
-    assert reason == "user_roles table"
+    assert calls == [("stamp", "head"), ("upgrade", "head")]
