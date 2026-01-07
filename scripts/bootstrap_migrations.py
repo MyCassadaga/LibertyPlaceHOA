@@ -1,7 +1,7 @@
 import argparse
 import os
 import subprocess
-from typing import Tuple
+from typing import Iterable, Tuple
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
@@ -12,11 +12,13 @@ from sqlalchemy.engine.url import URL, make_url
 ALEMBIC_CONFIG = "backend/alembic.ini"
 REVISION_MULTI_ROLE = "0008_multi_role_accounts"
 REVISION_ARC_NOTIFICATION = "0016_arc_request_notification_columns"
-REVISION_BUDGETS = "7a73908faa2a_budget_and_reserve"
+REVISION_BUDGETS = "7a73908faa2a"
+REVISION_CLICK2MAIL = "8b0c74c7f5ce"
 
 SENTINEL_REVISIONS = (
     ("budgets", None, REVISION_BUDGETS, "budgets table"),
     ("arc_requests", "decision_notified_at", REVISION_ARC_NOTIFICATION, "arc_requests.decision_notified_at"),
+    ("paperwork_items", "delivery_provider", REVISION_CLICK2MAIL, "paperwork_items.delivery_provider"),
     ("user_roles", None, REVISION_MULTI_ROLE, "user_roles table"),
 )
 
@@ -75,16 +77,27 @@ def has_table(inspector, name: str) -> bool:
     return inspector.has_table(name)
 
 
-def detect_applied_revision(inspector) -> Tuple[str | None, str | None]:
+def has_column(inspector, table: str, column: str) -> bool:
+    return column in {col["name"] for col in inspector.get_columns(table)}
+
+
+def detect_applied_revisions(inspector) -> list[Tuple[str, str]]:
+    found: list[Tuple[str, str]] = []
     for table, column, revision, reason in SENTINEL_REVISIONS:
         if not has_table(inspector, table):
             continue
         if column:
-            column_names = {col["name"] for col in inspector.get_columns(table)}
-            if column not in column_names:
+            if not has_column(inspector, table, column):
                 continue
-        return revision, reason
-    return None, None
+        found.append((revision, reason))
+    return found
+
+
+def detect_applied_revision(inspector) -> Tuple[str | None, str | None]:
+    found = detect_applied_revisions(inspector)
+    if not found:
+        return None, None
+    return found[0]
 
 
 def has_any_tables(inspector) -> bool:
@@ -97,6 +110,54 @@ def get_current_revision(inspector, connection) -> str | None:
     result = connection.execute(text("SELECT version_num FROM alembic_version"))
     row = result.fetchone()
     return row[0] if row else None
+
+
+def build_revision_order(script: ScriptDirectory) -> dict[str, int]:
+    revisions = list(script.walk_revisions(base="base", head="heads"))
+    revisions.reverse()
+    return {rev.revision: idx for idx, rev in enumerate(revisions)}
+
+
+def select_highest_revision(
+    found: Iterable[Tuple[str, str]],
+    order_map: dict[str, int],
+) -> Tuple[str | None, str | None]:
+    best_revision = None
+    best_reason = None
+    best_index = -1
+    for revision, reason in found:
+        index = order_map.get(revision)
+        if index is None:
+            continue
+        if index > best_index:
+            best_revision = revision
+            best_reason = reason
+            best_index = index
+    return best_revision, best_reason
+
+
+def stamp_revision(revision: str) -> None:
+    print(f"BOOTSTRAP: stamping alembic_version to {revision}", flush=True)
+    run_alembic("stamp", revision)
+
+
+def upgrade_head_with_retry(run_drift: callable) -> None:
+    try:
+        run_alembic("upgrade", "head")
+        return
+    except subprocess.CalledProcessError as exc:
+        print(
+            f"BOOTSTRAP: upgrade head failed ({exc}); attempting drift reconciliation and retry",
+            flush=True,
+        )
+        run_drift()
+        try:
+            run_alembic("upgrade", "head")
+            return
+        except subprocess.CalledProcessError as retry_exc:
+            raise SystemExit(
+                "BOOTSTRAP: upgrade head failed after retry; manual intervention required"
+            ) from retry_exc
 
 
 def run_diagnostics(database_url: str) -> None:
@@ -155,51 +216,80 @@ def run_diagnostics(database_url: str) -> None:
 def reconcile(database_url: str) -> None:
     config = Config(ALEMBIC_CONFIG)
     script = ScriptDirectory.from_config(config)
+    order_map = build_revision_order(script)
 
     engine = create_engine(database_url)
     try:
-        inspector = inspect(engine)
-        with engine.connect() as connection:
-            current_revision = get_current_revision(inspector, connection)
+        def evaluate_drift(log: bool = False) -> tuple[str | None, str | None, bool]:
+            with engine.connect() as connection:
+                inspector = inspect(connection)
+                current_revision = get_current_revision(inspector, connection)
+                if current_revision:
+                    try:
+                        script.get_revision(current_revision)
+                    except ResolutionError:
+                        print(
+                            f"BOOTSTRAP: alembic_version {current_revision} not found in migration history",
+                            flush=True,
+                        )
+                        raise SystemExit(
+                            "BOOTSTRAP: alembic_version exists but does not match known revisions; "
+                            "manual intervention required"
+                        )
+                found = detect_applied_revisions(inspector)
+                implied_revision, reason = select_highest_revision(found, order_map)
+                has_tables = has_any_tables(inspector)
 
-        if current_revision:
-            try:
-                script.get_revision(current_revision)
-                print(
-                    f"BOOTSTRAP: alembic_version present ({current_revision}); skipping stamp",
-                    flush=True,
-                )
-                run_alembic("upgrade", "head")
+            if log:
+                if current_revision:
+                    print(f"BOOTSTRAP: detected alembic_version {current_revision}", flush=True)
+                else:
+                    print("BOOTSTRAP: alembic_version table not found", flush=True)
+                if found:
+                    print("BOOTSTRAP: sentinel checks found:", flush=True)
+                    for revision, reason_item in found:
+                        print(f" - {reason_item} -> {revision}", flush=True)
+                else:
+                    print("BOOTSTRAP: sentinel checks found none", flush=True)
+                if implied_revision:
+                    print(
+                        f"BOOTSTRAP: highest implied revision {implied_revision} from {reason}",
+                        flush=True,
+                    )
+            return current_revision, implied_revision, has_tables
+
+        def run_drift_reconcile() -> None:
+            current_revision, implied_revision, _ = evaluate_drift(log=True)
+            if implied_revision is None:
                 return
-            except ResolutionError:
-                print(
-                    f"BOOTSTRAP: alembic_version {current_revision} not found in migration history",
-                    flush=True,
-                )
-                raise SystemExit(
-                    "BOOTSTRAP: alembic_version exists but does not match known revisions; "
-                    "manual intervention required"
-                )
+            current_index = order_map.get(current_revision) if current_revision else None
+            implied_index = order_map.get(implied_revision)
+            if implied_index is None:
+                return
+            if current_index is None or current_index < implied_index:
+                stamp_revision(implied_revision)
 
-        if has_any_tables(inspector):
-            target_revision, reason = detect_applied_revision(inspector)
-            if target_revision:
-                print(
-                    f"BOOTSTRAP: no alembic_version table; detected {reason} -> stamp {target_revision}",
-                    flush=True,
-                )
-                run_alembic("stamp", target_revision)
-            else:
-                print(
-                    "BOOTSTRAP: no alembic_version table and no known sentinel revisions detected; "
-                    "running full upgrade",
-                    flush=True,
-                )
-            run_alembic("upgrade", "head")
+        current_revision, implied_revision, has_tables = evaluate_drift(log=True)
+        if not current_revision:
+            target_revision = implied_revision or "base"
+            print(
+                f"BOOTSTRAP: alembic_version missing; stamping to {target_revision}",
+                flush=True,
+            )
+            stamp_revision(target_revision)
+        elif implied_revision:
+            current_index = order_map.get(current_revision)
+            implied_index = order_map.get(implied_revision)
+            if implied_index is not None and (current_index is None or current_index < implied_index):
+                stamp_revision(implied_revision)
+
+        if not has_tables and not current_revision:
+            print("BOOTSTRAP: fresh database detected; running upgrade", flush=True)
+            upgrade_head_with_retry(run_drift_reconcile)
             return
 
-        print("BOOTSTRAP: fresh database detected; running upgrade", flush=True)
-        run_alembic("upgrade", "head")
+        print("BOOTSTRAP: running alembic upgrade head", flush=True)
+        upgrade_head_with_retry(run_drift_reconcile)
     finally:
         engine.dispose()
 
