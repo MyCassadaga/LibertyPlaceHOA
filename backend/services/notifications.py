@@ -59,6 +59,9 @@ class NotificationCenter:
         if not self._loop:
             logger.debug("NotificationCenter loop not configured; skipping dispatch.")
             return None
+        if self._loop.is_closed():
+            logger.debug("NotificationCenter loop is closed; skipping dispatch.")
+            return None
         return self._loop
 
     def dispatch_created(self, notification: Notification) -> None:
