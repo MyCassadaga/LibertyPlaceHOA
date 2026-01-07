@@ -15,6 +15,25 @@ def run_alembic(*args: str) -> None:
     subprocess.run(cmd, check=True)
 
 
+def get_repo_head_revision() -> str:
+    cmd = ["alembic", "-c", ALEMBIC_CONFIG, "heads"]
+    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    heads = []
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        revision = stripped.split()[0]
+        heads.append(revision)
+    unique_heads = sorted(set(heads))
+    if len(unique_heads) != 1:
+        raise SystemExit(
+            "BOOTSTRAP: expected exactly one alembic head; "
+            f"found {', '.join(unique_heads) or 'none'}"
+        )
+    return unique_heads[0]
+
+
 def get_script_directory() -> ScriptDirectory:
     config = Config(ALEMBIC_CONFIG)
     return ScriptDirectory.from_config(config)
@@ -100,25 +119,82 @@ def get_database_revision(database_url: str) -> str | None:
         engine.dispose()
 
 
-def stamp_missing_revision(database_url: str) -> None:
-    revision = get_database_revision(database_url)
-    if not revision:
-        return
-    known_revisions = get_known_revisions()
-    if revision not in known_revisions:
+def get_tables(database_url: str) -> list[str]:
+    engine = create_engine(database_url)
+    try:
+        inspector = inspect(engine)
+        return inspector.get_table_names()
+    finally:
+        engine.dispose()
+
+
+def drop_alembic_version_table(database_url: str) -> bool:
+    engine = create_engine(database_url)
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("alembic_version"):
+            return False
+        with engine.begin() as connection:
+            connection.execute(text("DROP TABLE alembic_version"))
+        return True
+    finally:
+        engine.dispose()
+
+
+def reset_missing_revision(
+    database_url: str,
+    repo_head: str,
+    known_revisions: set[str],
+    tables: list[str],
+) -> bool:
+    has_version_table = "alembic_version" in tables
+    user_tables = [table for table in tables if table != "alembic_version"]
+    db_revision = get_database_revision(database_url) if has_version_table else None
+
+    print(
+        f"BOOTSTRAP: database revision = {db_revision or 'missing'}",
+        flush=True,
+    )
+    print(f"BOOTSTRAP: repo head revision = {repo_head}", flush=True)
+
+    invalid_revision = not has_version_table or not db_revision or db_revision not in known_revisions
+    if invalid_revision and user_tables:
         print(
-            "BOOTSTRAP: alembic_version references missing revision; "
-            "stamping database to current head.",
+            "BOOTSTRAP: detected existing tables with missing/invalid alembic_version; "
+            "manual confirmation required before resetting migrations.",
+            flush=True,
+        )
+        raise SystemExit(1)
+
+    if has_version_table and db_revision == repo_head:
+        return False
+
+    if db_revision and db_revision in known_revisions:
+        return False
+
+    if invalid_revision and not user_tables:
+        dropped = drop_alembic_version_table(database_url)
+        print(
+            "BOOTSTRAP: alembic_version reset; "
+            f"dropped={dropped}.",
             flush=True,
         )
         run_alembic("stamp", "head")
+        run_alembic("upgrade", "head")
+        return True
+
+    return False
 
 
 def main() -> None:
     database_url = get_database_url()
-    enforce_empty_or_tracked_schema(database_url)
-    stamp_missing_revision(database_url)
-    run_alembic("upgrade", "head")
+    tables = get_tables(database_url)
+    known_revisions = get_known_revisions()
+    repo_head = get_repo_head_revision()
+    reset_done = reset_missing_revision(database_url, repo_head, known_revisions, tables)
+    if not reset_done:
+        enforce_empty_or_tracked_schema(database_url)
+        run_alembic("upgrade", "head")
 
 
 if __name__ == "__main__":
