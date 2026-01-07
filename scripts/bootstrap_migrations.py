@@ -220,7 +220,8 @@ def reconcile(database_url: str) -> None:
 
     engine = create_engine(database_url)
     try:
-        def evaluate_drift(log: bool = False) -> tuple[str | None, str | None, bool]:
+        def evaluate_drift(log: bool = False) -> tuple[str | None, str | None, bool, str | None]:
+            unknown_revision = None
             with engine.connect() as connection:
                 inspector = inspect(connection)
                 current_revision = get_current_revision(inspector, connection)
@@ -232,16 +233,19 @@ def reconcile(database_url: str) -> None:
                             f"BOOTSTRAP: alembic_version {current_revision} not found in migration history",
                             flush=True,
                         )
-                        raise SystemExit(
-                            "BOOTSTRAP: alembic_version exists but does not match known revisions; "
-                            "manual intervention required"
-                        )
+                        unknown_revision = current_revision
+                        current_revision = None
                 found = detect_applied_revisions(inspector)
                 implied_revision, reason = select_highest_revision(found, order_map)
                 has_tables = has_any_tables(inspector)
 
             if log:
-                if current_revision:
+                if unknown_revision:
+                    print(
+                        f"BOOTSTRAP: alembic_version {unknown_revision} not found in migration history",
+                        flush=True,
+                    )
+                elif current_revision:
                     print(f"BOOTSTRAP: detected alembic_version {current_revision}", flush=True)
                 else:
                     print("BOOTSTRAP: alembic_version table not found", flush=True)
@@ -256,10 +260,10 @@ def reconcile(database_url: str) -> None:
                         f"BOOTSTRAP: highest implied revision {implied_revision} from {reason}",
                         flush=True,
                     )
-            return current_revision, implied_revision, has_tables
+            return current_revision, implied_revision, has_tables, unknown_revision
 
         def run_drift_reconcile() -> None:
-            current_revision, implied_revision, _ = evaluate_drift(log=True)
+            current_revision, implied_revision, _, unknown_revision = evaluate_drift(log=True)
             if implied_revision is None:
                 return
             current_index = order_map.get(current_revision) if current_revision else None
@@ -269,8 +273,15 @@ def reconcile(database_url: str) -> None:
             if current_index is None or current_index < implied_index:
                 stamp_revision(implied_revision)
 
-        current_revision, implied_revision, has_tables = evaluate_drift(log=True)
-        if not current_revision:
+        current_revision, implied_revision, has_tables, unknown_revision = evaluate_drift(log=True)
+        if unknown_revision:
+            target_revision = implied_revision or "head"
+            print(
+                f"BOOTSTRAP: unknown alembic_version {unknown_revision}; stamping to {target_revision}",
+                flush=True,
+            )
+            stamp_revision(target_revision)
+        elif not current_revision:
             target_revision = implied_revision or "base"
             print(
                 f"BOOTSTRAP: alembic_version missing; stamping to {target_revision}",
