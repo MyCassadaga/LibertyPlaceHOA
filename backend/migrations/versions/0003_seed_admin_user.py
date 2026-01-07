@@ -71,6 +71,7 @@ def upgrade() -> None:
         "user_roles",
         sa.column("user_id", sa.Integer),
         sa.column("role_id", sa.Integer),
+        sa.column("assigned_at", sa.DateTime),
     )
 
     role_id = _get_role_id(conn, roles_table)
@@ -116,7 +117,11 @@ def upgrade() -> None:
         )
     ).scalar()
     if existing_link is None:
-        conn.execute(user_roles_table.insert().values(user_id=user_id, role_id=role_id))
+        conn.execute(
+            user_roles_table.insert().values(
+                user_id=user_id, role_id=role_id, assigned_at=sa.func.now()
+            )
+        )
 
 
 def downgrade() -> None:
