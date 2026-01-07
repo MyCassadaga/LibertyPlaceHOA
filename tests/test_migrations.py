@@ -14,7 +14,7 @@ def test_arc_request_migration_adds_notification_columns(tmp_path, monkeypatch):
 
     config = Config(str(Path("backend/alembic.ini")))
     config.set_main_option("script_location", "backend/migrations")
-    command.upgrade(config, "0016_arc_request_notification_columns")
+    command.upgrade(config, "head")
 
     engine = sa.create_engine(db_url)
     try:

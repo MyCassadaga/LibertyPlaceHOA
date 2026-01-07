@@ -400,15 +400,25 @@ async def audit_trail(request: Request, call_next):
     if request.method not in {"POST", "PUT", "PATCH", "DELETE"}:
         return response
     actor_id = None
+    token_payload = None
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.lower().startswith("bearer "):
         token = auth_header.split(" ", 1)[1]
         try:
-            payload = decode_token(token)
-            actor_id = int(payload.get("sub"))
+            token_payload = decode_token(token)
         except Exception:  # pragma: no cover - defensive
-            actor_id = None
+            token_payload = None
     with SessionLocal() as session:
+        if token_payload:
+            token_type = token_payload.get("type")
+            user_id = token_payload.get("sub")
+            if token_type in (None, "access") and user_id is not None:
+                try:
+                    candidate_id = int(user_id)
+                except (TypeError, ValueError):
+                    candidate_id = None
+                if candidate_id is not None and session.get(User, candidate_id):
+                    actor_id = candidate_id
         audit_log(
             db_session=session,
             actor_user_id=actor_id,
