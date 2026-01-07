@@ -10,6 +10,7 @@ from datetime import datetime
 from alembic import op
 from passlib.context import CryptContext
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "0003_seed_admin_user"
@@ -29,13 +30,21 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 def _get_role_id(conn, roles_table):
     role_id = conn.execute(
         sa.select(roles_table.c.id).where(roles_table.c.name == ROLE_NAME)
-    ).scalar()
+    ).scalar_one_or_none()
     if role_id is not None:
         return role_id
-    result = conn.execute(
-        roles_table.insert().values(name=ROLE_NAME, description=ROLE_DESCRIPTION)
+    insert_stmt = (
+        postgresql.insert(roles_table)
+        .values(name=ROLE_NAME, description=ROLE_DESCRIPTION)
+        .returning(roles_table.c.id)
+        .on_conflict_do_nothing(index_elements=[roles_table.c.name])
     )
-    return result.inserted_primary_key[0]
+    role_id = conn.execute(insert_stmt).scalar_one_or_none()
+    if role_id is None:
+        role_id = conn.execute(
+            sa.select(roles_table.c.id).where(roles_table.c.name == ROLE_NAME)
+        ).scalar_one()
+    return role_id
 
 
 def upgrade() -> None:
@@ -65,30 +74,38 @@ def upgrade() -> None:
     )
 
     role_id = _get_role_id(conn, roles_table)
-    user_id = conn.execute(
-        sa.select(users_table.c.id).where(users_table.c.email == EMAIL)
-    ).scalar()
+    existing_user_id = conn.execute(
+        sa.select(users_table.c.id).where(
+            sa.func.lower(users_table.c.email) == EMAIL.lower()
+        )
+    ).scalar_one_or_none()
+    if existing_user_id is not None:
+        return
+
+    now = datetime.utcnow()
+    # Use RETURNING so Postgres reliably returns the new id even with ON CONFLICT.
+    insert_stmt = (
+        postgresql.insert(users_table)
+        .values(
+            email=EMAIL,
+            full_name=FULL_NAME,
+            hashed_password=pwd_context.hash("changeme"),
+            role_id=role_id,
+            created_at=now,
+            updated_at=now,
+            is_active=True,
+            two_factor_enabled=False,
+        )
+        .returning(users_table.c.id)
+        .on_conflict_do_nothing(index_elements=[users_table.c.email])
+    )
+    user_id = conn.execute(insert_stmt).scalar_one_or_none()
     if user_id is None:
-        now = datetime.utcnow()
-        result = conn.execute(
-            users_table.insert().values(
-                email=EMAIL,
-                full_name=FULL_NAME,
-                hashed_password=pwd_context.hash("changeme"),
-                role_id=role_id,
-                created_at=now,
-                updated_at=now,
-                is_active=True,
-                two_factor_enabled=False,
+        user_id = conn.execute(
+            sa.select(users_table.c.id).where(
+                sa.func.lower(users_table.c.email) == EMAIL.lower()
             )
-        )
-        user_id = result.inserted_primary_key[0]
-    else:
-        conn.execute(
-            users_table.update()
-            .where(users_table.c.id == user_id)
-            .values(role_id=role_id)
-        )
+        ).scalar_one()
 
     existing_link = conn.execute(
         sa.select(user_roles_table.c.user_id).where(
