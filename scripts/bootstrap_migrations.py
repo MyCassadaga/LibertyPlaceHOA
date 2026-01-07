@@ -2,6 +2,7 @@ import os
 import subprocess
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from alembic.script.revision import ResolutionError
 from sqlalchemy import create_engine, inspect, text
 
 ALEMBIC_CONFIG = "backend/alembic.ini"
@@ -38,13 +39,22 @@ def is_revision_at_least(script: ScriptDirectory, current: str | None, target: s
         return False
     if current == target:
         return True
-    for revision in script.iterate_revisions(current, target):
-        if revision.revision == target:
-            return True
+    try:
+        for revision in script.iterate_revisions(current, target):
+            if revision.revision == target:
+                return True
+    except ResolutionError:
+        print(
+            f"BOOTSTRAP: current revision {current} not found in migration history; treating as unknown",
+            flush=True,
+        )
+        return False
     return False
 
 def main() -> None:
     db = os.environ["DATABASE_URL"].strip().strip("'").strip('"')
+    if db.startswith("psql "):
+        db = db[5:].strip().strip("'").strip('"')
     config = Config(ALEMBIC_CONFIG)
     script = ScriptDirectory.from_config(config)
 
@@ -61,9 +71,25 @@ def main() -> None:
         target_reason = "alembic_version missing"
 
     current_revision = get_current_revision(db)
+    current_revision_valid = False
+    if current_revision:
+        try:
+            current_revision_valid = script.get_revision(current_revision) is not None
+        except ResolutionError:
+            current_revision_valid = False
 
-    if target_revision:
-        if is_revision_at_least(script, current_revision, target_revision):
+    if current_revision and current_revision_valid:
+        print(
+            f"BOOTSTRAP: alembic_version present ({current_revision}); skipping stamping",
+            flush=True,
+        )
+    elif target_revision:
+        if script.get_revision(target_revision) is None:
+            print(
+                f"BOOTSTRAP: target revision {target_revision} not found; skipping stamping",
+                flush=True,
+            )
+        elif is_revision_at_least(script, current_revision, target_revision):
             print(
                 f"BOOTSTRAP: current revision {current_revision} already at/after {target_revision}; skip stamping",
                 flush=True,
@@ -75,10 +101,16 @@ def main() -> None:
             )
             run_alembic("stamp", target_revision)
     else:
-        print(
-            "BOOTSTRAP: no stamping needed (alembic_version present and no target tables detected)",
-            flush=True,
-        )
+        if current_revision and not current_revision_valid:
+            print(
+                f"BOOTSTRAP: alembic_version {current_revision} not found and no target tables detected; skipping stamping",
+                flush=True,
+            )
+        else:
+            print(
+                "BOOTSTRAP: no stamping needed (alembic_version present and no target tables detected)",
+                flush=True,
+            )
 
     run_alembic("upgrade", "head")
 
