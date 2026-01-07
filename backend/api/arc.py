@@ -88,8 +88,17 @@ def list_arc_requests(
         if is_board:
             pass
         elif user.has_role("HOMEOWNER"):
+            linked_owners = get_owners_for_user(db, user)
+            if not linked_owners:
+                logger.info("ARC list skipped: no linked owners.", extra=log_context)
+                return []
+            owner_ids = [owner.id for owner in linked_owners]
             log_context["submitted_by_user_id"] = user.id
-            query = query.filter(ARCRequest.submitted_by_user_id == user.id)
+            log_context["owner_ids"] = owner_ids
+            query = query.filter(
+                ARCRequest.submitted_by_user_id == user.id,
+                ARCRequest.owner_id.in_(owner_ids),
+            )
         else:
             raise HTTPException(status_code=403, detail="Insufficient privileges for ARC requests.")
 
@@ -203,7 +212,9 @@ def get_arc_request(
     if is_board:
         return arc_request
     if arc_request.submitted_by_user_id == user.id:
-        return arc_request
+        owner = get_owner_for_user(db, user)
+        if owner and owner.id == arc_request.owner_id:
+            return arc_request
     raise HTTPException(status_code=403, detail="Not permitted to view this request.")
 
 
