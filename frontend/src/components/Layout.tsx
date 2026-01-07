@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
 import NavBar from './NavBar';
@@ -61,22 +61,19 @@ const Layout: React.FC = () => {
     { label: 'USPS', to: '/board/paperwork' },
   ];
 
-  const canViewBoard = useMemo(
-    () => userHasAnyRole(user, ['BOARD', 'TREASURER', 'SECRETARY', 'ATTORNEY', 'SYSADMIN']),
-    [user],
-  );
-  const canViewAdmin = useMemo(
-    () => userHasAnyRole(user, ['SYSADMIN', 'AUDITOR']),
-    [user],
-  );
-  const canViewAdminPortal = useMemo(() => userHasAnyRole(user, ['SYSADMIN']), [user]);
-  const canViewAuditLog = useMemo(
-    () => userHasAnyRole(user, ['SYSADMIN', 'AUDITOR']),
-    [user],
-  );
-  const canViewTemplates = useMemo(() => userHasAnyRole(user, ['SYSADMIN']), [user]);
-  const canViewLegal = useMemo(() => userHasAnyRole(user, ['LEGAL', 'SYSADMIN']), [user]);
-  const boardNavItems = useMemo(() => {
+  const canViewBoard = userHasAnyRole(user, [
+    'BOARD',
+    'TREASURER',
+    'SECRETARY',
+    'ATTORNEY',
+    'SYSADMIN',
+  ]);
+  const canViewAdmin = userHasAnyRole(user, ['SYSADMIN', 'AUDITOR']);
+  const canViewAdminPortal = userHasAnyRole(user, ['SYSADMIN']);
+  const canViewAuditLog = userHasAnyRole(user, ['SYSADMIN', 'AUDITOR']);
+  const canViewTemplates = userHasAnyRole(user, ['SYSADMIN']);
+  const canViewLegal = userHasAnyRole(user, ['LEGAL', 'SYSADMIN']);
+  const boardNavItems = (() => {
     const items = [...boardLinks];
 
     if (canViewLegal) {
@@ -88,7 +85,7 @@ const Layout: React.FC = () => {
     }
 
     return items.sort((a, b) => a.label.localeCompare(b.label));
-  }, [canViewLegal, canViewTemplates]);
+  })();
 
   return (
     <div className="min-h-screen bg-slate-100">

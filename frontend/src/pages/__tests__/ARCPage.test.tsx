@@ -1,11 +1,78 @@
+import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ARCPage from '../ARCPage';
 
-let mockUser: { primary_role?: { name: string }; roles?: { name: string }[] } | null = null;
-let mockRequests: any[] = [];
-let mockLinkedOwners: any[] = [];
+type MockUser = { primary_role?: { name: string }; roles?: { name: string }[] };
+type MockOwner = { id: number; property_address: string; primary_name: string };
+type MockRequest = {
+  id: number;
+  owner_id: number;
+  submitted_by_user_id: number;
+  reviewer_user_id: number | null;
+  reviewer_name: string | null;
+  title: string;
+  project_type: string;
+  description: string;
+  status: string;
+  submitted_at: string;
+  decision_notes: string | null;
+  final_decision_at: string | null;
+  final_decision_by_user_id: number | null;
+  revision_requested_at: string | null;
+  completed_at: string | null;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+  owner: {
+    id: number;
+    primary_name: string;
+    property_address: string;
+    is_archived: boolean;
+    is_rental: boolean;
+  };
+  attachments: Array<Record<string, unknown>>;
+  conditions: Array<Record<string, unknown>>;
+  inspections: Array<Record<string, unknown>>;
+  reviews: Array<Record<string, unknown>>;
+};
+
+const buildRequest = (id: number, title: string, projectType: string, createdAt: string): MockRequest => ({
+  id,
+  owner_id: 1,
+  submitted_by_user_id: 1,
+  reviewer_user_id: null,
+  reviewer_name: null,
+  title,
+  project_type: projectType,
+  description: `Description for ${title}`,
+  status: 'SUBMITTED',
+  submitted_at: createdAt,
+  decision_notes: null,
+  final_decision_at: null,
+  final_decision_by_user_id: null,
+  revision_requested_at: null,
+  completed_at: null,
+  archived_at: null,
+  created_at: createdAt,
+  updated_at: createdAt,
+  owner: {
+    id: 1,
+    primary_name: 'Owner Name',
+    property_address: '123 Main Street',
+    is_archived: false,
+    is_rental: false,
+  },
+  attachments: [],
+  conditions: [],
+  inspections: [],
+  reviews: [],
+});
+
+let mockUser: MockUser | null = null;
+let mockRequests: MockRequest[] = [];
+let mockLinkedOwners: MockOwner[] = [];
 
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({ user: mockUser }),
@@ -38,38 +105,6 @@ vi.mock('../../components/Timeline', () => ({
 vi.mock('../../components/FilePreview', () => ({
   default: () => <div data-testid="file-preview" />,
 }));
-
-const buildRequest = (id: number, title: string, projectType: string, createdAt: string) => ({
-  id,
-  owner_id: 1,
-  submitted_by_user_id: 1,
-  reviewer_user_id: null,
-  reviewer_name: null,
-  title,
-  project_type: projectType,
-  description: `Description for ${title}`,
-  status: 'SUBMITTED',
-  submitted_at: createdAt,
-  decision_notes: null,
-  final_decision_at: null,
-  final_decision_by_user_id: null,
-  revision_requested_at: null,
-  completed_at: null,
-  archived_at: null,
-  created_at: createdAt,
-  updated_at: createdAt,
-  owner: {
-    id: 1,
-    primary_name: 'Owner Name',
-    property_address: '123 Main Street',
-    is_archived: false,
-    is_rental: false,
-  },
-  attachments: [],
-  conditions: [],
-  inspections: [],
-  reviews: [],
-});
 
 describe('ARCPage', () => {
   beforeEach(() => {
