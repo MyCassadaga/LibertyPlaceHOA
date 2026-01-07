@@ -65,8 +65,7 @@ def list_arc_requests(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> List[ARCRequest]:
-    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
-    is_manager = user.has_any_role(*manager_roles)
+    is_board = user.has_role("BOARD")
     query = (
         db.query(ARCRequest)
         .options(
@@ -83,20 +82,25 @@ def list_arc_requests(
         request=request,
         user=user,
         status_filter=status_filter,
-        is_manager=is_manager,
+        is_board=is_board,
     )
     try:
-        if user.has_role("HOMEOWNER") and not is_manager:
+        if is_board:
+            pass
+        elif user.has_role("HOMEOWNER"):
             linked_owners = get_owners_for_user(db, user)
             if not linked_owners:
                 logger.info("ARC list skipped: no linked owners.", extra=log_context)
                 return []
             owner_ids = [owner.id for owner in linked_owners]
+            log_context["submitted_by_user_id"] = user.id
             log_context["owner_ids"] = owner_ids
-            query = query.filter(ARCRequest.owner_id.in_(owner_ids))
+            query = query.filter(
+                ARCRequest.submitted_by_user_id == user.id,
+                ARCRequest.owner_id.in_(owner_ids),
+            )
         else:
-            if not is_manager:
-                raise HTTPException(status_code=403, detail="Insufficient privileges for ARC requests.")
+            raise HTTPException(status_code=403, detail="Insufficient privileges for ARC requests.")
 
         if status_filter is not None:
             normalized_status = status_filter.strip().upper()
@@ -200,21 +204,18 @@ def get_arc_request(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ARCRequest:
-    manager_roles = {"ARC", "BOARD", "SYSADMIN", "SECRETARY", "TREASURER"}
-    is_manager = user.has_any_role(*manager_roles)
+    is_board = user.has_role("BOARD")
     arc_request = _get_request_with_relations(db, arc_request_id)
     if not arc_request:
         raise HTTPException(status_code=404, detail="ARC request not found.")
 
-    if user.has_role("HOMEOWNER") and not is_manager:
+    if is_board:
+        return arc_request
+    if arc_request.submitted_by_user_id == user.id:
         owner = get_owner_for_user(db, user)
-        if not owner or owner.id != arc_request.owner_id:
-            raise HTTPException(status_code=403, detail="Not permitted to view this request.")
-    else:
-        if not is_manager:
-            raise HTTPException(status_code=403, detail="Not permitted to view this request.")
-
-    return arc_request
+        if owner and owner.id == arc_request.owner_id:
+            return arc_request
+    raise HTTPException(status_code=403, detail="Not permitted to view this request.")
 
 
 @router.put("/requests/{arc_request_id}", response_model=ARCRequestRead)
