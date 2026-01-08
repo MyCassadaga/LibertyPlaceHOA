@@ -475,7 +475,7 @@ const ViolationsPage: React.FC = () => {
       {combinedError && <p className="text-sm text-red-600">{combinedError}</p>}
       {success && <p className="text-sm text-green-600">{success}</p>}
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="space-y-6">
         <section className="rounded border border-slate-200">
           <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
             <h3 className="text-sm font-semibold text-slate-600">Violations</h3>
