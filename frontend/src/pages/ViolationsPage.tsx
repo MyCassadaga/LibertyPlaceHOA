@@ -504,7 +504,7 @@ const ViolationsPage: React.FC = () => {
             Track compliance actions, notices, hearings, and appeals.
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-slate-200 bg-white p-3">
+        <div className="flex flex-wrap items-center gap-3 rounded border border-slate-200 bg-white p-3">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
               <label className="text-sm text-slate-600" htmlFor="status-filter">
@@ -525,62 +525,11 @@ const ViolationsPage: React.FC = () => {
               </select>
             </div>
           </div>
-          {canManage && (
-            <button
-              type="button"
-              className="rounded bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-500"
-              onClick={() => setShowCreateForm((prev) => !prev)}
-            >
-              {showCreateForm ? 'Hide Report Form' : 'Report Violation'}
-            </button>
-          )}
         </div>
       </header>
 
       {combinedError && <p className="text-sm text-red-600">{combinedError}</p>}
       {success && <p className="text-sm text-green-600">{success}</p>}
-
-      <section className="rounded border border-slate-200">
-        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-          <h3 className="text-sm font-semibold text-slate-600">Violations</h3>
-        </div>
-        <div className="max-h-[420px] overflow-y-auto">
-          {loading ? (
-            <p className="p-4 text-sm text-slate-500">Loading violations…</p>
-          ) : violations.length === 0 ? (
-            <p className="p-4 text-sm text-slate-500">No violations found for the selected filter.</p>
-          ) : (
-            <ul className="divide-y divide-slate-200">
-              {violations.map((violation) => (
-                <li
-                  key={violation.id}
-                  className={`cursor-pointer px-4 py-3 hover:bg-primary-50 ${
-                    selectedViolation?.id === violation.id ? 'bg-primary-50' : ''
-                  }`}
-                  onClick={() => handleSelectViolation(violation)}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-700">
-                        {violation.owner.property_address || `Owner #${violation.owner.id}`} • {violation.category}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        Opened {new Date(violation.opened_at).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_BADGE[violation.status]}`}>
-                      {STATUS_LABELS[violation.status]}
-                    </span>
-                  </div>
-                  {violation.description && (
-                    <p className="mt-2 line-clamp-2 text-sm text-slate-600">{violation.description}</p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </section>
 
       {canManage && (
         <section className="rounded border border-slate-200">
@@ -714,6 +663,48 @@ const ViolationsPage: React.FC = () => {
           )}
         </section>
       )}
+
+      <section className="rounded border border-slate-200">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+          <h3 className="text-sm font-semibold text-slate-600">Violations</h3>
+        </div>
+        <div className="max-h-[420px] overflow-y-auto">
+          {loading ? (
+            <p className="p-4 text-sm text-slate-500">Loading violations…</p>
+          ) : violations.length === 0 ? (
+            <p className="p-4 text-sm text-slate-500">No violations found for the selected filter.</p>
+          ) : (
+            <ul className="divide-y divide-slate-200">
+              {violations.map((violation) => (
+                <li
+                  key={violation.id}
+                  className={`cursor-pointer px-4 py-3 hover:bg-primary-50 ${
+                    selectedViolation?.id === violation.id ? 'bg-primary-50' : ''
+                  }`}
+                  onClick={() => handleSelectViolation(violation)}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-700">
+                        {violation.owner.property_address || `Owner #${violation.owner.id}`} • {violation.category}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Opened {new Date(violation.opened_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_BADGE[violation.status]}`}>
+                      {STATUS_LABELS[violation.status]}
+                    </span>
+                  </div>
+                  {violation.description && (
+                    <p className="mt-2 line-clamp-2 text-sm text-slate-600">{violation.description}</p>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
 
       <div className="space-y-6">
         {selectedViolation ? (
