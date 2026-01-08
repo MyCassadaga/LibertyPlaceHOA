@@ -410,31 +410,31 @@ const BudgetPage: React.FC = () => {
       {combinedError && <p className="text-sm text-red-600">{combinedError}</p>}
       {loading && <p className="text-sm text-slate-500">Loading budget data…</p>}
 
-      <section className="grid gap-6 md:grid-cols-[260px,1fr]">
-        <aside className="space-y-4">
-          <div className="rounded border border-slate-200">
-            <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
-              Budgets
-            </div>
-            <ul className="divide-y divide-slate-200">
-              {budgets.map((budget) => (
-                <li
-                  key={budget.id}
-                  className={`cursor-pointer px-3 py-2 text-sm hover:bg-primary-50 ${selectedId === budget.id ? 'bg-primary-50' : ''}`}
-                  onClick={() => setSelectedId(budget.id)}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-700">{budget.year}</span>
-                    <span className="text-xs uppercase text-slate-500">{budget.status}</span>
-                  </div>
-                  <p className="text-xs text-slate-500">{formatCurrency(budget.total_annual)}</p>
-                </li>
-              ))}
-            </ul>
+      <div className="space-y-6">
+        <section className="rounded border border-slate-200">
+          <div className="border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+            Budgets
           </div>
+          <ul className="divide-y divide-slate-200">
+            {budgets.map((budget) => (
+              <li
+                key={budget.id}
+                className={`cursor-pointer px-3 py-2 text-sm hover:bg-primary-50 ${selectedId === budget.id ? 'bg-primary-50' : ''}`}
+                onClick={() => setSelectedId(budget.id)}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-slate-700">{budget.year}</span>
+                  <span className="text-xs uppercase text-slate-500">{budget.status}</span>
+                </div>
+                <p className="text-xs text-slate-500">{formatCurrency(budget.total_annual)}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
 
-          {canEdit && (
-            <form className="rounded border border-slate-200 p-4 text-sm" onSubmit={handleCreateBudget}>
+        {canEdit && (
+          <section className="rounded border border-slate-200 p-4 text-sm">
+            <form onSubmit={handleCreateBudget}>
               <h3 className="mb-2 font-semibold text-slate-600">New Budget</h3>
               <label className="mb-2 block">
                 <span className="text-xs text-slate-500">Year</span>
@@ -462,8 +462,8 @@ const BudgetPage: React.FC = () => {
                 Create
               </button>
             </form>
-          )}
-        </aside>
+          </section>
+        )}
 
         <div className="space-y-4">
           {loading && <p className="text-sm text-slate-500">Loading budget…</p>}
@@ -970,7 +970,7 @@ const BudgetPage: React.FC = () => {
             </div>
           )}
         </div>
-      </section>
+      </div>
     </div>
   );
 };
