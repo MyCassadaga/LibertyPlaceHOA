@@ -80,10 +80,6 @@ const Layout: React.FC = () => {
       items.push({ label: 'Legal', to: '/legal' });
     }
 
-    if (canViewTemplates) {
-      items.push({ label: 'Templates', to: '/templates' });
-    }
-
     return items.sort((a, b) => a.label.localeCompare(b.label));
   })();
 
