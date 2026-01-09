@@ -208,11 +208,27 @@ const CommunicationsPage: React.FC = () => {
         ) : (
           <ul className="space-y-3 text-sm">
             {announcements.map((announcement) => {
-              const recipients = announcement.recipients ?? [];
+              const recipients =
+                announcement.recipients ??
+                (announcement as unknown as { recipient_snapshot?: CommunicationMessage['recipients'] })
+                  .recipient_snapshot ??
+                (announcement as unknown as { recipientSnapshot?: CommunicationMessage['recipients'] })
+                  .recipientSnapshot ??
+                [];
+              const recipientCount =
+                announcement.recipient_count ??
+                (announcement as unknown as { recipients_total?: number }).recipients_total ??
+                recipients.length;
               const hasRecipientDetails = recipients.some(
-                (recipient) => recipient.owner_name || recipient.property_address,
+                (recipient) =>
+                  recipient.owner_name ||
+                  (recipient as { name?: string | null }).name ||
+                  recipient.property_address,
               );
-              const hasRole = recipients.some((recipient) => recipient.contact_type);
+              const hasRole = recipients.some(
+                (recipient) =>
+                  recipient.contact_type || (recipient as { type?: string | null }).type,
+              );
               const isExpanded = !!expandedRecipients[announcement.id];
               const recipientPanelId = `recipient-snapshot-${announcement.id}`;
 
@@ -266,7 +282,7 @@ const CommunicationsPage: React.FC = () => {
                         aria-controls={recipientPanelId}
                         onClick={() => toggleRecipients(announcement.id)}
                       >
-                        Recipient snapshot ({announcement.recipient_count})
+                        Recipient snapshot ({recipientCount})
                       </button>
                       {isExpanded && (
                         <div
@@ -274,7 +290,7 @@ const CommunicationsPage: React.FC = () => {
                           className="mt-3 rounded border border-slate-200 bg-slate-50 p-3"
                         >
                           <p className="text-xs font-semibold text-slate-600">
-                            Recipients ({announcement.recipient_count})
+                            Recipients ({recipientCount})
                           </p>
                           {recipients.length === 0 ? (
                             <p className="mt-2 text-xs text-slate-500">No recipients available.</p>
@@ -286,12 +302,12 @@ const CommunicationsPage: React.FC = () => {
                                     {!hasRecipientDetails && !hasRole ? (
                                       <>
                                         <th className="py-2 pr-3">#</th>
-                                        <th className="py-2 pr-3">Email</th>
+                                        <th className="py-2 pr-3">Email/Address</th>
                                       </>
                                     ) : (
                                       <>
                                         <th className="py-2 pr-3">Recipient</th>
-                                        <th className="py-2 pr-3">Email</th>
+                                        <th className="py-2 pr-3">Email/Address</th>
                                         {hasRole && <th className="py-2 pr-3">Role/Type</th>}
                                       </>
                                     )}
@@ -308,23 +324,35 @@ const CommunicationsPage: React.FC = () => {
                                             {index + 1}
                                           </td>
                                           <td className="py-2 pr-3 font-medium text-slate-700">
-                                            {recipient.email}
+                                            {recipient.email ??
+                                              (recipient as { address?: string | null }).address ??
+                                              recipient.mailing_address ??
+                                              '—'}
                                           </td>
                                         </>
                                       ) : (
                                         <>
                                           <td className="py-2 pr-3 align-top font-medium text-slate-700">
-                                            {recipient.owner_name ?? '—'}
+                                            {recipient.owner_name ??
+                                              (recipient as { name?: string | null }).name ??
+                                              '—'}
                                             {recipient.property_address && (
                                               <p className="text-[11px] font-normal text-slate-500">
                                                 {recipient.property_address}
                                               </p>
                                             )}
                                           </td>
-                                          <td className="py-2 pr-3 align-top">{recipient.email}</td>
+                                          <td className="py-2 pr-3 align-top">
+                                            {recipient.email ??
+                                              (recipient as { address?: string | null }).address ??
+                                              recipient.mailing_address ??
+                                              '—'}
+                                          </td>
                                           {hasRole && (
                                             <td className="py-2 pr-3 align-top">
-                                              {recipient.contact_type ?? '—'}
+                                              {recipient.contact_type ??
+                                                (recipient as { type?: string | null }).type ??
+                                                '—'}
                                             </td>
                                           )}
                                         </>
