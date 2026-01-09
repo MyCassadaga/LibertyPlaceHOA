@@ -182,7 +182,7 @@ def list_broadcast_segments(
     return previews
 
 
-@router.get("/broadcasts", response_model=List[EmailBroadcastRead])
+@router.get("/broadcasts", response_model=List[EmailBroadcastRead], response_model_by_alias=False)
 def list_email_broadcasts(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
@@ -191,7 +191,12 @@ def list_email_broadcasts(
     return [EmailBroadcastRead.from_orm(broadcast) for broadcast in broadcasts]
 
 
-@router.post("/broadcasts", response_model=EmailBroadcastRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/broadcasts",
+    response_model=EmailBroadcastRead,
+    status_code=status.HTTP_201_CREATED,
+    response_model_by_alias=False,
+)
 def create_email_broadcast(
     payload: EmailBroadcastCreate,
     db: Session = Depends(get_db),
@@ -243,7 +248,7 @@ def create_email_broadcast(
     return EmailBroadcastRead.from_orm(broadcast)
 
 
-@router.get("/messages", response_model=List[CommunicationMessageRead])
+@router.get("/messages", response_model=List[CommunicationMessageRead], response_model_by_alias=False)
 def list_communication_messages(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
@@ -252,7 +257,12 @@ def list_communication_messages(
     return [CommunicationMessageRead.from_orm(message) for message in messages]
 
 
-@router.post("/messages", response_model=CommunicationMessageRead, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/messages",
+    response_model=CommunicationMessageRead,
+    status_code=status.HTTP_201_CREATED,
+    response_model_by_alias=False,
+)
 def create_communication_message(
     payload: CommunicationMessageCreate,
     background: BackgroundTasks,
@@ -293,8 +303,16 @@ def create_communication_message(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="Select at least one delivery method."
             )
-        recipient_emails = [owner.primary_email for owner in db.query(Owner).all() if owner.primary_email]
-        recipient_count = len(recipient_emails)
+        owners = db.query(Owner).order_by(Owner.primary_name.asc()).all()
+        recipient_snapshot = _dedupe_and_sort(
+            [
+                recipient
+                for recipient in _announcement_recipients(owners, delivery_methods)
+                if recipient.get("contact_type") != "secondary"
+            ]
+        )
+        recipient_emails = [recipient["email"] for recipient in recipient_snapshot if recipient.get("email")]
+        recipient_count = len(recipient_snapshot)
         if "print" in delivery_methods:
             pdf_path = generate_announcement_packet(subject, body)
         if "email" in delivery_methods:
@@ -332,7 +350,7 @@ def create_communication_message(
     return CommunicationMessageRead.from_orm(message)
 
 
-@router.get("/announcements", response_model=List[AnnouncementRead])
+@router.get("/announcements", response_model=List[AnnouncementRead], response_model_by_alias=False)
 def list_announcements(
     db: Session = Depends(get_db),
     _: User = Depends(require_roles("BOARD", "SECRETARY", "SYSADMIN")),
@@ -340,7 +358,7 @@ def list_announcements(
     return db.query(Announcement).order_by(Announcement.created_at.desc()).all()
 
 
-@router.post("/announcements", response_model=AnnouncementRead)
+@router.post("/announcements", response_model=AnnouncementRead, response_model_by_alias=False)
 def create_announcement(
     payload: AnnouncementCreate,
     background: BackgroundTasks,
