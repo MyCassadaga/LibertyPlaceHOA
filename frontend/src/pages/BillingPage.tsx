@@ -6,7 +6,6 @@ import {
   useAutopayCancelMutation,
   useAutopayQuery,
   useAutopayUpsertMutation,
-  useBillingSummaryQuery,
   useContactOverdueMutation,
   useForwardToAttorneyMutation,
   useInvoicesQuery,
@@ -61,7 +60,6 @@ const BillingPage: React.FC = () => {
   );
 
   const invoicesQuery = useInvoicesQuery(!!user);
-  const summaryQuery = useBillingSummaryQuery(isBoardBillingUser);
   const ownersQuery = useOwnersQuery(isBoardBillingUser);
   const myOwnerQuery = useMyOwnerQuery(!!user && isHomeownerUser);
   const overdueQuery = useOverdueAccountsQuery(isBoardBillingUser);
@@ -76,9 +74,33 @@ const BillingPage: React.FC = () => {
   const forwardToAttorneyMutation = useForwardToAttorneyMutation();
 
   const invoices = invoicesQuery.data ?? [];
-  const summary = summaryQuery.data ?? null;
   const overdueAccounts = overdueQuery.data ?? [];
   const autopay = autopayQuery.data ?? null;
+  const currentOwnerId = myOwnerQuery.data?.id ?? null;
+
+  const visibleInvoices = useMemo(() => {
+    if (!currentOwnerId) {
+      return [];
+    }
+    return invoices.filter((invoice) => invoice.owner_id === currentOwnerId);
+  }, [currentOwnerId, invoices]);
+
+  const summary = useMemo(() => {
+    if (!currentOwnerId) {
+      return {
+        total_balance: 0,
+        open_invoices: 0,
+        owner_count: 0,
+      };
+    }
+    const openInvoices = visibleInvoices.filter((invoice) => invoice.status === 'OPEN');
+    const totalBalance = openInvoices.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0);
+    return {
+      total_balance: totalBalance,
+      open_invoices: openInvoices.length,
+      owner_count: 1,
+    };
+  }, [currentOwnerId, visibleInvoices]);
 
   const ownerAddresses = useMemo(() => {
     const map: Record<number, string> = {};
@@ -95,7 +117,7 @@ const BillingPage: React.FC = () => {
 
   const pageLoading =
     invoicesQuery.isLoading ||
-    summaryQuery.isLoading || ownersQuery.isLoading || overdueQuery.isLoading || myOwnerQuery.isLoading || autopayQuery.isLoading;
+    ownersQuery.isLoading || overdueQuery.isLoading || myOwnerQuery.isLoading || autopayQuery.isLoading;
 
   const formatCurrency = useCallback((value: string | number) => {
     const parsedRaw = typeof value === 'string' ? Number(value) : value;
@@ -577,7 +599,7 @@ const BillingPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {invoices.map((invoice) => (
+              {visibleInvoices.map((invoice) => (
                 <tr key={invoice.id}>
                   <td className="px-3 py-2">#{invoice.id}</td>
                   <td className="px-3 py-2">{ownerAddresses[invoice.owner_id] ?? `Owner #${invoice.owner_id}`}</td>
@@ -603,7 +625,7 @@ const BillingPage: React.FC = () => {
             </tbody>
           </table>
         </div>
-        {invoices.length === 0 && !pageLoading && (
+        {visibleInvoices.length === 0 && !pageLoading && (
           <p className="px-3 py-4 text-sm text-slate-500">No invoices available.</p>
         )}
       </div>
