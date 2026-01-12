@@ -443,6 +443,17 @@ class Template(Base):
     updater = orm_relationship("User", foreign_keys=[updated_by_user_id])
 
 
+class TemplateType(Base):
+    __tablename__ = "template_types"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, unique=True, nullable=False, index=True)
+    label = Column(String, nullable=False)
+    definition = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class Reminder(Base):
     __tablename__ = "reminders"
 

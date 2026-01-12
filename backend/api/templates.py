@@ -6,12 +6,29 @@ from sqlalchemy.orm import Session
 
 from ..api.dependencies import get_db
 from ..auth.jwt import require_roles
-from ..models.models import Template, User
-from ..schemas.schemas import TemplateCreate, TemplateMergeTag, TemplateRead, TemplateUpdate
+from ..models.models import Template, TemplateType, User
+from ..schemas.schemas import (
+    TemplateCreate,
+    TemplateMergeTag,
+    TemplateRead,
+    TemplateTypeRead,
+    TemplateUpdate,
+)
 from ..services.audit import audit_log
 from ..services.templates import merge_tag_definitions
 
 router = APIRouter(prefix="/templates", tags=["templates"])
+
+
+def _normalize_template_type(db: Session, template_type: str) -> str:
+    normalized = template_type.strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Template type is required.")
+    template_code = normalized.upper()
+    exists = db.query(TemplateType).filter(TemplateType.code == template_code).first()
+    if not exists:
+        raise HTTPException(status_code=400, detail="Template type is invalid.")
+    return template_code
 
 
 @router.get("/merge-tags", response_model=List[TemplateMergeTag])
@@ -19,6 +36,18 @@ def list_merge_tags(
     _: User = Depends(require_roles("SYSADMIN")),
 ) -> List[TemplateMergeTag]:
     return [TemplateMergeTag(**tag) for tag in merge_tag_definitions()]
+
+
+@router.get("/types", response_model=List[TemplateTypeRead])
+def list_template_types(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles("SYSADMIN")),
+) -> List[TemplateTypeRead]:
+    types = db.query(TemplateType).order_by(TemplateType.label.asc()).all()
+    return [
+        TemplateTypeRead(key=template_type.code.lower(), label=template_type.label, definition=template_type.definition)
+        for template_type in types
+    ]
 
 
 @router.get("/", response_model=List[TemplateRead])
@@ -48,9 +77,10 @@ def create_template(
     db: Session = Depends(get_db),
     actor: User = Depends(require_roles("SYSADMIN")),
 ) -> Template:
+    template_type = _normalize_template_type(db, payload.type)
     template = Template(
         name=payload.name.strip(),
-        type=payload.type.strip(),
+        type=template_type,
         subject=payload.subject.strip(),
         body=payload.body.strip(),
         is_archived=payload.is_archived,
@@ -105,7 +135,7 @@ def update_template(
     if "name" in update_data and update_data["name"] is not None:
         update_data["name"] = update_data["name"].strip()
     if "type" in update_data and update_data["type"] is not None:
-        update_data["type"] = update_data["type"].strip()
+        update_data["type"] = _normalize_template_type(db, update_data["type"])
     if "subject" in update_data and update_data["subject"] is not None:
         update_data["subject"] = update_data["subject"].strip()
     if "body" in update_data and update_data["body"] is not None:
