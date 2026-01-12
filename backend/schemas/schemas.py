@@ -1545,3 +1545,74 @@ class AuditLogEntry(BaseModel):
 class AuditLogList(BaseModel):
     items: List[AuditLogEntry]
     total: int
+
+
+class WorkflowStatus(BaseModel):
+    key: str
+    label: str
+    category: Optional[str] = None
+
+
+class WorkflowStatusOverride(WorkflowStatus):
+    enabled: bool = True
+
+
+class WorkflowTransition(BaseModel):
+    from_: str = Field(..., alias="from")
+    to: str
+    label: Optional[str] = None
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class WorkflowTransitionOverride(WorkflowTransition):
+    enabled: bool = True
+
+
+class WorkflowNotificationTrigger(BaseModel):
+    from_: Optional[str] = Field(default=None, alias="from")
+    to: Optional[str] = None
+    status: Optional[str] = None
+
+    class Config:
+        allow_population_by_field_name = True
+
+
+class WorkflowNotificationRecipient(BaseModel):
+    type: Literal["role", "user", "email"]
+    value: str
+
+
+class WorkflowNotification(BaseModel):
+    event: Literal["transition", "status_entered"]
+    trigger: WorkflowNotificationTrigger
+    channels: List[str]
+    recipients: List[WorkflowNotificationRecipient]
+    template_key: Optional[str] = None
+    enabled: bool = True
+
+
+class WorkflowBaseDefinition(BaseModel):
+    statuses: List[WorkflowStatus] = []
+    transitions: List[WorkflowTransition] = []
+    notifications: List[WorkflowNotification] = []
+
+
+class WorkflowOverrides(BaseModel):
+    statuses: Optional[List[WorkflowStatusOverride]] = None
+    transitions: Optional[List[WorkflowTransitionOverride]] = None
+    notifications: Optional[List[WorkflowNotification]] = None
+
+
+class WorkflowOverrideUpdate(BaseModel):
+    overrides: WorkflowOverrides
+
+
+class WorkflowResponse(BaseModel):
+    workflow_key: str
+    page_key: Optional[str]
+    title: str
+    base: WorkflowBaseDefinition
+    overrides: Optional[Dict[str, Any]]
+    effective: Dict[str, Any]
