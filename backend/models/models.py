@@ -158,6 +158,20 @@ class AuditLog(Base):
     actor = orm_relationship("User", back_populates="audit_logs")
 
 
+class WorkflowConfig(Base):
+    __tablename__ = "workflow_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    workflow_key = Column(String, unique=True, index=True, nullable=False)
+    page_key = Column(String, nullable=True, index=True)
+    overrides_json = Column(JSON, nullable=True)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+    updated_by = orm_relationship("User", foreign_keys=[updated_by_user_id])
+
+
 class Owner(Base):
     __tablename__ = "owners"
 

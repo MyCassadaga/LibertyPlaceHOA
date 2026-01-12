@@ -13,6 +13,7 @@ from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session, joinedload
 
 from .api import (
+    admin_workflows,
     arc,
     auth,
     audit_logs,
@@ -359,6 +360,7 @@ app.include_router(meetings.router)
 app.include_router(audit_logs.router)
 app.include_router(system.router, prefix="/system", tags=["system"])
 app.include_router(payments.router, prefix="/payments", tags=["payments"])
+app.include_router(admin_workflows.router, prefix="/api/admin", tags=["admin-workflows"])
 
 
 @app.middleware("http")
