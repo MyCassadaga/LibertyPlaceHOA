@@ -546,6 +546,12 @@ export interface Template {
   updated_at: string;
 }
 
+export interface TemplateType {
+  key: string;
+  label: string;
+  definition: string;
+}
+
 export interface TemplateMergeTag {
   key: string;
   label: string;
