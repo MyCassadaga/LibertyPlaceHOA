@@ -49,6 +49,7 @@ from .services.audit import audit_log
 from .services.notifications import notification_center
 from .services.backup import perform_sqlite_backup
 from .services.storage import StorageBackend, storage_service
+from .seeds.template_types import ensure_template_types
 from .core.logging import configure_logging
 from .core.request_context import REQUEST_ID_HEADER, assign_request_id
 from .core.version import get_version_info
@@ -122,6 +123,7 @@ async def lifespan(app: FastAPI):
         ensure_user_role_links(session)
         ensure_billing_policy(session)
         ensure_notice_types(session)
+        ensure_template_types(session)
         try:
             created_reminders = generate_contract_renewal_reminders(session)
         except ProgrammingError as exc:

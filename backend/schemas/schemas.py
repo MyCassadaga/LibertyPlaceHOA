@@ -748,6 +748,12 @@ class TemplateRead(BaseModel):
         orm_mode = True
 
 
+class TemplateTypeRead(BaseModel):
+    key: str
+    label: str
+    definition: str
+
+
 class TemplateMergeTag(BaseModel):
     key: str
     label: str
