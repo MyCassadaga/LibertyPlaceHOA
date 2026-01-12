@@ -126,6 +126,10 @@ migrations/     Alembic migration scripts (inside backend/migrations)
 docs/           Phase scope and extended documentation
 ```
 
+## Documentation
+
+- **Admin workflows map**: See `docs/WORKFLOWS.md` for admin-facing workflow descriptions across all modules.
+
 ## Phase 3 Highlights
 
 - **Elections & secret ballots**: New `elections`, `election_candidates`, `election_ballots`, and `election_votes` tables with REST endpoints for board/sysadmin users to create elections, manage candidates, issue one-time ballot tokens, and tally results. Homeowners can view upcoming elections in-app and vote via secure token links (`/vote/:electionId?token=…`).
