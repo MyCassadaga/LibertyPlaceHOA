@@ -59,6 +59,7 @@ import {
   PasswordChangePayload,
   Template,
   TemplateMergeTag,
+  TemplateType,
   User,
   UserProfileUpdatePayload,
   Violation,
@@ -709,6 +710,11 @@ export const updateTemplate = async (templateId: number, payload: Partial<Templa
 
 export const fetchTemplateMergeTags = async (): Promise<TemplateMergeTag[]> => {
   const { data } = await api.get<TemplateMergeTag[]>('/templates/merge-tags');
+  return data;
+};
+
+export const fetchTemplateTypes = async (): Promise<TemplateType[]> => {
+  const { data } = await api.get<TemplateType[]>('/templates/types');
   return data;
 };
 

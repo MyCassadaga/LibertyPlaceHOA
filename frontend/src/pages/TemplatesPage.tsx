@@ -1,18 +1,17 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
-import { createTemplate, fetchTemplateMergeTags, fetchTemplates, updateTemplate } from '../services/api';
-import { Template } from '../types';
+import {
+  createTemplate,
+  fetchTemplateMergeTags,
+  fetchTemplates,
+  fetchTemplateTypes,
+  updateTemplate,
+} from '../services/api';
+import { Template, TemplateType } from '../types';
 import { queryKeys } from '../lib/api/queryKeys';
 import { renderMergeTags } from '../utils/mergeTags';
-
-const TEMPLATE_TYPES = [
-  { value: 'ANNOUNCEMENT', label: 'Announcement' },
-  { value: 'BROADCAST', label: 'Broadcast' },
-  { value: 'NOTICE', label: 'Notice' },
-  { value: 'VIOLATION_NOTICE', label: 'Violation Notice' },
-  { value: 'ARC_REQUEST', label: 'ARC Request' },
-];
+import TemplateDefinitionsTable from './Templates/TemplateDefinitionsTable';
 
 const TemplatesPage: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState('');
@@ -44,8 +43,35 @@ const TemplatesPage: React.FC = () => {
     queryFn: fetchTemplateMergeTags,
   });
 
+  const templateTypesQuery = useQuery<TemplateType[]>({
+    queryKey: queryKeys.templateTypes,
+    queryFn: fetchTemplateTypes,
+  });
+
   const templates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
   const mergeTags = mergeTagsQuery.data ?? [];
+  const templateTypes = useMemo(() => templateTypesQuery.data ?? [], [templateTypesQuery.data]);
+
+  const templateTypeOptions = useMemo(() => {
+    if (templateTypes.length === 0) {
+      return [{ value: formState.type, label: formState.type }];
+    }
+    return templateTypes.map((templateType) => ({
+      value: templateType.key.toUpperCase(),
+      label: templateType.label,
+    }));
+  }, [formState.type, templateTypes]);
+
+  const templateTypeLabelMap = useMemo(() => {
+    const labels = new Map<string, string>();
+    templateTypes.forEach((templateType) => {
+      labels.set(templateType.key, templateType.label);
+      labels.set(templateType.key.toUpperCase(), templateType.label);
+    });
+    return labels;
+  }, [templateTypes]);
+
+  const templateTypeLabel = (type: string) => templateTypeLabelMap.get(type) ?? type;
 
   const handleEdit = (template: Template) => {
     setEditingTemplateId(template.id);
@@ -134,7 +160,7 @@ const TemplatesPage: React.FC = () => {
                     onChange={(event) => setFormState((prev) => ({ ...prev, type: event.target.value }))}
                     required
                   >
-                    {TEMPLATE_TYPES.map((option) => (
+                    {templateTypeOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -225,9 +251,9 @@ const TemplatesPage: React.FC = () => {
                   onChange={(event) => setTypeFilter(event.target.value)}
                 >
                   <option value="">All types</option>
-                  {TEMPLATE_TYPES.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
+                  {templateTypes.map((templateType) => (
+                    <option key={templateType.key} value={templateType.key.toUpperCase()}>
+                      {templateType.label}
                     </option>
                   ))}
                 </select>
@@ -259,7 +285,7 @@ const TemplatesPage: React.FC = () => {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="font-semibold text-slate-700">{template.name}</p>
-                        <p className="text-xs text-slate-500">{template.type}</p>
+                        <p className="text-xs text-slate-500">{templateTypeLabel(template.type)}</p>
                       </div>
                       <button
                         type="button"
@@ -301,6 +327,16 @@ const TemplatesPage: React.FC = () => {
                 <p className="mt-1 text-xs text-slate-500">Sample: {tag.sample}</p>
               </div>
             ))}
+          </div>
+
+          <div className="mt-6 space-y-2">
+            <h3 className="text-lg font-semibold text-slate-700">Template Definitions</h3>
+            <p className="text-sm text-slate-500">Reference when selecting the best category for a message.</p>
+            <TemplateDefinitionsTable
+              templateTypes={templateTypes}
+              isLoading={templateTypesQuery.isLoading}
+              isError={templateTypesQuery.isError}
+            />
           </div>
         </aside>
       </section>

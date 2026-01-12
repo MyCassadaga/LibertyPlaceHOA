@@ -8,6 +8,7 @@ export const queryKeys = {
   broadcastSegments: ['communications', 'broadcast-segments'] as const,
   templates: ['templates'] as const,
   templateMergeTags: ['templates', 'merge-tags'] as const,
+  templateTypes: ['templates', 'types'] as const,
   roles: ['admin', 'roles'] as const,
   adminUsers: ['admin', 'users'] as const,
   loginBackground: ['admin', 'login-background'] as const,
