@@ -12,10 +12,16 @@ const Layout: React.FC = () => {
   const handleNavToggle = () => setIsNavOpen((prev) => !prev);
   const closeNav = () => setIsNavOpen(false);
 
-  const renderLink = (to: string, label: string, index: number) => (
+  const renderLink = (
+    to: string,
+    label: string,
+    index: number,
+    options?: { end?: boolean },
+  ) => (
     <NavLink
       key={`${to}-${index}`}
       to={to}
+      end={options?.end ?? true}
       className={({ isActive }) =>
         `block rounded px-3 py-2 text-sm font-medium ${
           isActive ? 'bg-primary-600 text-white' : 'text-slate-600 hover:bg-primary-50'
@@ -73,6 +79,11 @@ const Layout: React.FC = () => {
   const canViewAuditLog = userHasAnyRole(user, ['SYSADMIN', 'AUDITOR']);
   const canViewTemplates = userHasAnyRole(user, ['SYSADMIN']);
   const canViewLegal = userHasAnyRole(user, ['LEGAL', 'SYSADMIN']);
+  const adminNavItems = [
+    { label: 'Audit Log', to: '/audit-log', isVisible: canViewAuditLog },
+    { label: 'Templates', to: '/templates', isVisible: canViewTemplates },
+    { label: 'Workflows', to: '/admin/workflows', isVisible: canViewAdminPortal },
+  ];
   const boardNavItems = (() => {
     const items = [...boardLinks];
 
@@ -154,10 +165,9 @@ const Layout: React.FC = () => {
               <div>
                 <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Admin</p>
                 <div className="mt-1 space-y-1">
-                  {canViewAdminPortal && renderLink('/admin', 'Admin', 999)}
-                  {canViewAdminPortal && renderLink('/admin/workflows', 'Workflows', 1002)}
-                  {canViewAuditLog && renderLink('/audit-log', 'Audit Log', 1000)}
-                  {canViewTemplates && renderLink('/templates', 'Templates', 1001)}
+                  {adminNavItems
+                    .filter((item) => item.isVisible)
+                    .map((item, index) => renderLink(item.to, item.label, index))}
                 </div>
               </div>
             )}
