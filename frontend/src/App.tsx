@@ -14,6 +14,7 @@ const ContractsPage = lazy(() => import('./pages/ContractsPage'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AdminPage = lazy(() => import('./pages/AdminPage'));
+const AdminWorkflowsPage = lazy(() => import('./pages/AdminWorkflowsPage'));
 const OwnerProfilePage = lazy(() => import('./pages/OwnerProfilePage'));
 const OwnersPage = lazy(() => import('./pages/OwnersPage'));
 const ViolationsPage = lazy(() => import('./pages/ViolationsPage'));
@@ -160,6 +161,14 @@ const App: React.FC = () => {
           element={
             <RequireRole allowed={["SYSADMIN"]}>
               <AdminPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="admin/workflows"
+          element={
+            <RequireRole allowed={["SYSADMIN"]}>
+              <AdminWorkflowsPage />
             </RequireRole>
           }
         />
