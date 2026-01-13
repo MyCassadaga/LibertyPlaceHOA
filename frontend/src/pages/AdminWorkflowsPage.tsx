@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import Badge from '../components/Badge';
@@ -116,22 +116,22 @@ const AdminWorkflowsPage: React.FC = () => {
     [selectedKey, workflows],
   );
 
-  useEffect(() => {
-    if (!selectedWorkflow) return;
+  const handleSelectWorkflow = (workflow: WorkflowAdminView) => {
+    setSelectedKey(workflow.workflow_key);
     setDrafts((prev) => {
-      if (prev[selectedWorkflow.workflow_key]) {
+      if (prev[workflow.workflow_key]) {
         return prev;
       }
       return {
         ...prev,
-        [selectedWorkflow.workflow_key]: normalizeOverrides(selectedWorkflow.overrides),
+        [workflow.workflow_key]: normalizeOverrides(workflow.overrides),
       };
     });
     setActiveTab('statuses');
     setStatusMessage(null);
     setErrorMessage(null);
     setFormErrors({ statuses: null, transitions: null, notifications: null });
-  }, [selectedWorkflow]);
+  };
 
   const updateMutation = useMutation({
     mutationFn: ({ workflowKey, overrides }: { workflowKey: string; overrides: WorkflowOverrides }) =>
@@ -598,7 +598,7 @@ const AdminWorkflowsPage: React.FC = () => {
                   <button
                     type="button"
                     className="rounded border border-primary-200 px-3 py-1 text-xs font-semibold text-primary-700 hover:bg-primary-50"
-                    onClick={() => setSelectedKey(workflow.workflow_key)}
+                    onClick={() => handleSelectWorkflow(workflow)}
                   >
                     {selectedKey === workflow.workflow_key ? 'Editing' : 'Edit'}
                   </button>
