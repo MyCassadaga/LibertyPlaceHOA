@@ -155,6 +155,7 @@ const Layout: React.FC = () => {
                 <p className="px-3 text-xs font-semibold uppercase tracking-wide text-slate-400">Admin</p>
                 <div className="mt-1 space-y-1">
                   {canViewAdminPortal && renderLink('/admin', 'Admin', 999)}
+                  {canViewAdminPortal && renderLink('/admin/workflows', 'Workflows', 1002)}
                   {canViewAuditLog && renderLink('/audit-log', 'Audit Log', 1000)}
                   {canViewTemplates && renderLink('/templates', 'Templates', 1001)}
                 </div>
