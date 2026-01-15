@@ -117,7 +117,7 @@ def _send_via_sendgrid(
 
     try:
         from sendgrid import SendGridAPIClient
-        from sendgrid.helpers.mail import Email, Mail
+        from sendgrid.helpers.mail import Email, Mail, MailSettings, SandBoxMode
     except ImportError as exc:  # pragma: no cover - runtime guard
         raise RuntimeError("SendGrid backend requires the sendgrid package.") from exc
 
@@ -132,6 +132,8 @@ def _send_via_sendgrid(
     )
     if reply_to_email:
         message.reply_to = reply_to_email
+    if settings.sendgrid_sandbox_mode:
+        message.mail_settings = MailSettings(sandbox_mode=SandBoxMode(enable=True))
     client = SendGridAPIClient(settings.sendgrid_api_key)
     try:
         response = client.send(message)
@@ -235,15 +237,14 @@ def send_announcement(subject: str, body: str, recipients: Iterable[str]) -> Lis
     _log_send_attempt(backend, subject, from_address, recipient_list, reply_to)
 
     try:
-        if backend == "local":
+        if backend in {"local", "file", "console"}:
             _write_local_email(subject, body, recipient_list)
         elif backend == "sendgrid":
             _send_via_sendgrid(subject, body, recipient_list)
         elif backend in {"smtp", "sendgrid_smtp"}:
             _send_via_smtp(subject, body, recipient_list)
         else:
-            logger.warning("Unknown EMAIL_BACKEND '%s'. Defaulting to local stub.", backend)
-            _write_local_email(subject, body, recipient_list)
+            raise RuntimeError(f"Unsupported EMAIL_BACKEND '{backend}'.")
     except Exception:
         logger.exception("Email dispatch failed for backend=%s.", backend)
         raise
@@ -271,15 +272,14 @@ def send_custom_email(
         raise RuntimeError("Email backend requires a sender address.")
     _log_send_attempt(backend, subject, effective_from, recipient_list, reply_to_address)
 
-    if backend == "local":
+    if backend in {"local", "file", "console"}:
         _write_local_email(subject, body, recipient_list)
     elif backend == "sendgrid":
         _send_via_sendgrid(subject, body, recipient_list, effective_from, reply_to_address)
     elif backend in {"smtp", "sendgrid_smtp"}:
         _send_via_smtp(subject, body, recipient_list, effective_from, reply_to_address)
     else:
-        logger.warning("Unknown EMAIL_BACKEND '%s'. Defaulting to local stub.", backend)
-        _write_local_email(subject, body, recipient_list)
+        raise RuntimeError(f"Unsupported EMAIL_BACKEND '{backend}'.")
 
     return recipient_list
 
@@ -296,7 +296,7 @@ def send_announcement_with_result(subject: str, body: str, recipients: Iterable[
         return SendResult(backend=backend, status_code=None, request_id=None, error="No recipients provided.")
 
     try:
-        if backend == "local":
+        if backend in {"local", "file", "console"}:
             _write_local_email(subject, body, recipient_list)
             return SendResult(backend="local", status_code=200, request_id=None, error=None)
         if backend == "sendgrid":
@@ -304,9 +304,7 @@ def send_announcement_with_result(subject: str, body: str, recipients: Iterable[
         if backend in {"smtp", "sendgrid_smtp"}:
             return _send_via_smtp(subject, body, recipient_list)
 
-        logger.warning("Unknown EMAIL_BACKEND '%s'. Defaulting to local stub.", backend)
-        _write_local_email(subject, body, recipient_list)
-        return SendResult(backend="local", status_code=200, request_id=None, error=None)
+        raise RuntimeError(f"Unsupported EMAIL_BACKEND '{backend}'.")
     except Exception as exc:
         logger.exception("Email dispatch failed for backend=%s.", backend)
         return SendResult(backend=backend, status_code=None, request_id=None, error=str(exc))

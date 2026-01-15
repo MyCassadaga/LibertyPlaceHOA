@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     # --- Email / Providers ---
     # Note: keep SMTP + SendGrid knobs here so env overrides are consistent across hosts.
     email_backend: str = Field("local", env="EMAIL_BACKEND")
-    sendgrid_api_key: Optional[str] = Field(None, env="SENDGRID_API_KEY")
+    sendgrid_api_key: Optional[str] = Field(None, env=["SENDGRID_API_KEY", "EMAIL_SENDGRID_API_KEY"])
+    sendgrid_sandbox_mode: bool = Field(False, env="SENDGRID_SANDBOX_MODE")
     email_host: Optional[str] = Field(None, env="EMAIL_HOST")
     email_port: int = Field(587, env="EMAIL_PORT")
     email_host_user: Optional[str] = Field(None, env="EMAIL_HOST_USER")
@@ -106,6 +107,13 @@ class Settings(BaseSettings):
             normalized = normalized[1:-1].strip()
         normalized = normalized.strip("'\"")
         return normalized
+
+    @validator("sendgrid_api_key", always=True)
+    def validate_sendgrid_api_key(cls, value: Optional[str], values: dict) -> Optional[str]:
+        backend = (values.get("email_backend") or "").strip().strip("'\"").lower()
+        if backend == "sendgrid" and not value:
+            raise ValueError("SENDGRID_API_KEY must be set when EMAIL_BACKEND=sendgrid.")
+        return value
 
     @property
     def cors_allow_origins(self) -> List[str]:
@@ -201,8 +209,9 @@ if settings.database_url.startswith("sqlite"):
 pdf_output_path = Path(settings.pdf_output_dir)
 pdf_output_path.mkdir(parents=True, exist_ok=True)
 
-email_output_path = Path(settings.email_output_dir)
-email_output_path.mkdir(parents=True, exist_ok=True)
+if (settings.email_backend or "").strip().strip("'\"").lower() in {"local", "file", "console"}:
+    email_output_path = Path(settings.email_output_dir)
+    email_output_path.mkdir(parents=True, exist_ok=True)
 
 # --- SQLAlchemy setup ---
 engine = create_engine(
