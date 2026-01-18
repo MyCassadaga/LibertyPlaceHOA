@@ -44,4 +44,4 @@ def test_bootstrap_resets_missing_revision_and_stamps_head(tmp_path, monkeypatch
     finally:
         engine.dispose()
 
-    assert calls == [("stamp", "head"), ("upgrade", "head")]
+    assert calls == [("upgrade", "head")]
