@@ -179,7 +179,6 @@ def reset_missing_revision(
             f"dropped={dropped}.",
             flush=True,
         )
-        run_alembic("stamp", "head")
         run_alembic("upgrade", "head")
         return True
 
