@@ -4,8 +4,12 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlsplit
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from pydantic import AnyHttpUrl, BaseSettings, EmailStr, Field, validator
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import declarative_base, sessionmaker
 from .constants import CORS_ALLOW_ORIGINS
 
@@ -199,7 +203,66 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def build_settings() -> Settings:
+    return Settings()
+
+
+def resolve_database_url(database_url: str) -> str:
+    if not database_url:
+        return database_url
+    url = make_url(database_url)
+    if url.drivername.startswith("sqlite"):
+        if not url.database or url.database == ":memory:":
+            return database_url
+        db_path = Path(url.database)
+        if not db_path.is_absolute():
+            repo_root = Path(__file__).resolve().parents[1]
+            db_path = (repo_root / db_path).resolve()
+        url = url.set(database=str(db_path))
+    return url.render_as_string(hide_password=False)
+
+
+def get_database_url(settings_obj: Settings | None = None) -> str:
+    settings_obj = settings_obj or get_settings()
+    return resolve_database_url(settings_obj.database_url)
+
+
+def get_database_url_fingerprint(
+    database_url: str | None = None,
+    settings_obj: Settings | None = None,
+) -> str:
+    database_url = database_url or get_database_url(settings_obj=settings_obj)
+    url = make_url(database_url)
+    if url.drivername.startswith("sqlite"):
+        db_name = url.database or ""
+        return f"sqlite:///{db_name}"
+    host = url.host or "local"
+    port = f":{url.port}" if url.port else ""
+    db_name = url.database or ""
+    return f"{url.drivername}://{host}{port}/{db_name}"
+
+
+def get_alembic_head_revision() -> str:
+    config = Config("backend/alembic.ini")
+    script_directory = ScriptDirectory.from_config(config)
+    head = script_directory.get_current_head()
+    if not head:
+        raise RuntimeError("Alembic head revision not found.")
+    return head
+
+
+def get_current_alembic_revision(engine: Engine) -> str | None:
+    with engine.connect() as connection:
+        inspector = inspect(connection)
+        if not inspector.has_table("alembic_version"):
+            return None
+        result = connection.execute(text("SELECT version_num FROM alembic_version"))
+        row = result.first()
+        return row[0] if row else None
+
+
 settings = get_settings()
+settings.database_url = get_database_url(settings_obj=settings)
 
 # Ensure path directory exists (for SQLite/local artifacts)
 if settings.database_url.startswith("sqlite"):

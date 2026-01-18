@@ -37,7 +37,15 @@ from .api import (
     templates,
     violations,
 )
-from .config import Base, SessionLocal, engine, settings
+from .config import (
+    Base,
+    SessionLocal,
+    engine,
+    get_alembic_head_revision,
+    get_current_alembic_revision,
+    get_database_url_fingerprint,
+    settings,
+)
 from decimal import Decimal
 
 from .constants import DEFAULT_LATE_FEE_POLICY, DEFAULT_ROLES
@@ -103,23 +111,36 @@ def ensure_homeowner_owner_records(session: Session) -> None:
             session.commit()
 
 
-def log_alembic_revision(session: Session) -> None:
-    try:
-        revisions = session.execute(text("SELECT version_num FROM alembic_version")).scalars().all()
-    except Exception as exc:
-        logger.warning("Unable to read alembic revision.", exc_info=exc)
-        return
-    if not revisions:
-        logger.warning("No alembic revisions found in alembic_version table.")
-        return
-    logger.info("Current alembic revision(s): %s", ", ".join(revisions))
+def log_alembic_revision_status() -> None:
+    db_fingerprint = get_database_url_fingerprint()
+    head_revision = get_alembic_head_revision()
+    current_revision = get_current_alembic_revision(engine)
+    if not current_revision:
+        message = (
+            "Database is behind migrations; run scripts/bootstrap_migrations.py reconcile "
+            f"(db={db_fingerprint}, head={head_revision})."
+        )
+        logger.error(message)
+        raise RuntimeError(message)
+    if current_revision != head_revision:
+        message = (
+            "Database is behind migrations; run scripts/bootstrap_migrations.py reconcile "
+            f"(db={db_fingerprint}, current={current_revision}, head={head_revision})."
+        )
+        logger.error(message)
+        raise RuntimeError(message)
+    logger.info(
+        "Database schema is up to date (db=%s, revision=%s).",
+        db_fingerprint,
+        current_revision,
+    )
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: ensure schema and seed data
+    log_alembic_revision_status()
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
-        log_alembic_revision(session)
         ensure_default_roles(session)
         ensure_user_role_links(session)
         ensure_billing_policy(session)

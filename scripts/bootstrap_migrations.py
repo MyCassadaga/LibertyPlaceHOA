@@ -1,6 +1,6 @@
-import os
 import subprocess
 
+from backend import config as app_config
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
@@ -77,10 +77,9 @@ def log_connection_target(url: URL) -> None:
 
 
 def get_database_url() -> str:
-    raw = os.environ.get("DATABASE_URL")
-    if not raw:
-        raise SystemExit("BOOTSTRAP: DATABASE_URL is required")
-    sanitized = sanitize_database_url(raw)
+    settings = app_config.build_settings()
+    database_url = app_config.get_database_url(settings_obj=settings)
+    sanitized = sanitize_database_url(database_url)
     if sanitized.startswith("psql "):
         raise SystemExit("BOOTSTRAP: DATABASE_URL must be a SQLAlchemy URL, not a psql wrapper")
     url = validate_database_url(sanitized)
@@ -109,6 +108,9 @@ def enforce_empty_or_tracked_schema(database_url: str) -> None:
 def get_database_revision(database_url: str) -> str | None:
     engine = create_engine(database_url)
     try:
+        inspector = inspect(engine)
+        if not inspector.has_table("alembic_version"):
+            return None
         with engine.connect() as connection:
             result = connection.execute(text("SELECT version_num FROM alembic_version"))
             row = result.first()
@@ -187,13 +189,26 @@ def reset_missing_revision(
 
 def main() -> None:
     database_url = get_database_url()
+    db_fingerprint = app_config.get_database_url_fingerprint(database_url=database_url)
+    print(f"BOOTSTRAP: database fingerprint = {db_fingerprint}", flush=True)
     tables = get_tables(database_url)
     known_revisions = get_known_revisions()
     repo_head = get_repo_head_revision()
+    current_revision = get_database_revision(database_url)
+    print(
+        f"BOOTSTRAP: current revision before upgrade = {current_revision or 'missing'}",
+        flush=True,
+    )
+    print(f"BOOTSTRAP: repo head revision = {repo_head}", flush=True)
     reset_done = reset_missing_revision(database_url, repo_head, known_revisions, tables)
     if not reset_done:
         enforce_empty_or_tracked_schema(database_url)
         run_alembic("upgrade", "head")
+    upgraded_revision = get_database_revision(database_url)
+    print(
+        f"BOOTSTRAP: current revision after upgrade = {upgraded_revision or 'missing'}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":
