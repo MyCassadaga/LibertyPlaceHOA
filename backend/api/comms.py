@@ -1,9 +1,10 @@
 import logging
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from ..api.dependencies import get_db
 from ..auth.jwt import require_roles
@@ -35,6 +36,116 @@ def _queue_email(background: BackgroundTasks, subject: str, body: str, recipient
             raise
 
     logger.info("Queueing announcement email for %d recipients.", len(recipients))
+    background.add_task(_send)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _summarize_error(error: str, limit: int = 500) -> str:
+    compacted = " ".join(str(error).split())
+    return compacted[:limit]
+
+
+def _queue_message_email(
+    background: BackgroundTasks,
+    db: Session,
+    message_id: int,
+    subject: str,
+    body: str,
+    recipients: List[str],
+    actor_id: int,
+) -> None:
+    session_factory = sessionmaker(bind=db.get_bind(), autocommit=False, autoflush=False)
+    logger.info("Queueing communication message email for %d recipients.", len(recipients))
+
+    def _send() -> None:
+        with session_factory() as session:
+            message = (
+                session.query(CommunicationMessage)
+                .filter(CommunicationMessage.id == message_id)
+                .first()
+            )
+            if not message:
+                logger.error("Communication message %s not found for email dispatch.", message_id)
+                return
+
+            message.email_send_attempted_at = _utcnow()
+            session.add(message)
+            session.commit()
+
+            audit_log(
+                db_session=session,
+                actor_user_id=actor_id,
+                action="communications.email.send_attempted",
+                target_entity_type="CommunicationMessage",
+                target_entity_id=str(message_id),
+                after={"recipient_count": len(recipients)},
+            )
+
+            try:
+                result = email.send_announcement_with_result(subject, body, recipients)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.exception(
+                    "Communication message %s email dispatch crashed.",
+                    message_id,
+                )
+                message.email_failed_at = _utcnow()
+                message.email_last_error = _summarize_error(exc)
+                session.add(message)
+                session.commit()
+
+                audit_log(
+                    db_session=session,
+                    actor_user_id=actor_id,
+                    action="communications.email.send_failed",
+                    target_entity_type="CommunicationMessage",
+                    target_entity_id=str(message_id),
+                    after={
+                        "recipient_count": len(recipients),
+                        "error": message.email_last_error,
+                    },
+                )
+                return
+            if result.error:
+                message.email_failed_at = _utcnow()
+                message.email_last_error = _summarize_error(result.error)
+                message.email_provider_message_id = result.request_id
+                session.add(message)
+                session.commit()
+
+                audit_log(
+                    db_session=session,
+                    actor_user_id=actor_id,
+                    action="communications.email.send_failed",
+                    target_entity_type="CommunicationMessage",
+                    target_entity_id=str(message_id),
+                    after={
+                        "recipient_count": len(recipients),
+                        "error": message.email_last_error,
+                    },
+                )
+                return
+
+            message.email_sent_at = _utcnow()
+            message.email_last_error = None
+            message.email_provider_message_id = result.request_id
+            session.add(message)
+            session.commit()
+
+            audit_log(
+                db_session=session,
+                actor_user_id=actor_id,
+                action="communications.email.sent",
+                target_entity_type="CommunicationMessage",
+                target_entity_id=str(message_id),
+                after={
+                    "recipient_count": len(recipients),
+                    "provider_message_id": result.request_id,
+                },
+            )
+
     background.add_task(_send)
 
 
@@ -279,6 +390,7 @@ def create_communication_message(
     pdf_path = None
     segment_value = None
     delivery_methods: List[str] = []
+    recipient_emails: List[str] = []
 
     if payload.message_type == "BROADCAST":
         try:
@@ -297,6 +409,7 @@ def create_communication_message(
         segment_value = segment.value
         recipient_count = len(recipient_snapshot)
         delivery_methods = ["email"]
+        recipient_emails = [recipient["email"] for recipient in recipient_snapshot if recipient.get("email")]
     else:
         delivery_methods = [method.lower() for method in (payload.delivery_methods or ["email"])]
         if not delivery_methods:
@@ -315,8 +428,6 @@ def create_communication_message(
         recipient_count = len(recipient_snapshot)
         if "print" in delivery_methods:
             pdf_path = generate_announcement_packet(subject, body)
-        if "email" in delivery_methods:
-            _queue_email(background, subject, body, recipient_emails)
 
     message = CommunicationMessage(
         message_type=payload.message_type,
@@ -332,6 +443,48 @@ def create_communication_message(
     db.add(message)
     db.commit()
     db.refresh(message)
+
+    if "email" in delivery_methods:
+        if not recipient_emails:
+            message.email_failed_at = _utcnow()
+            message.email_last_error = "No email recipients resolved for message."
+            db.add(message)
+            db.commit()
+
+            audit_log(
+                db_session=db,
+                actor_user_id=actor.id,
+                action="communications.email.send_failed",
+                target_entity_type="CommunicationMessage",
+                target_entity_id=str(message.id),
+                after={
+                    "recipient_count": 0,
+                    "error": message.email_last_error,
+                },
+            )
+        else:
+            message.email_queued_at = _utcnow()
+            db.add(message)
+            db.commit()
+
+            audit_log(
+                db_session=db,
+                actor_user_id=actor.id,
+                action="communications.email.queued",
+                target_entity_type="CommunicationMessage",
+                target_entity_id=str(message.id),
+                after={"recipient_count": len(recipient_emails)},
+            )
+
+            _queue_message_email(
+                background,
+                db,
+                message.id,
+                subject,
+                body,
+                recipient_emails,
+                actor.id,
+            )
 
     audit_log(
         db_session=db,

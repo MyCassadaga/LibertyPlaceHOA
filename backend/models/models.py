@@ -433,6 +433,12 @@ class CommunicationMessage(Base):
     recipient_snapshot = Column(JSON, nullable=False, default=list)
     recipient_count = Column(Integer, nullable=False, default=0)
     pdf_path = Column(String, nullable=True)
+    email_queued_at = Column(DateTime, nullable=True)
+    email_send_attempted_at = Column(DateTime, nullable=True)
+    email_sent_at = Column(DateTime, nullable=True)
+    email_failed_at = Column(DateTime, nullable=True)
+    email_last_error = Column(Text, nullable=True)
+    email_provider_message_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
 

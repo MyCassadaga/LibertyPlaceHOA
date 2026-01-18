@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from backend.api.dependencies import get_db
 from backend.auth.jwt import get_current_user
 from backend.main import app
-from backend.models.models import NoticeType
+from backend.models.models import AuditLog, CommunicationMessage, NoticeType
 from backend.services import email as email_service
 
 
@@ -191,3 +191,98 @@ def test_sendgrid_notice_trigger_does_not_write_local_email(
     assert message.subject
     assert message.plain_text_content
     assert not output_dir.exists()
+
+
+def test_communication_message_email_tracks_success(
+    db_session,
+    create_owner,
+    create_user,
+    monkeypatch,
+    tmp_path,
+):
+    board_user = create_user(email="boardmessage@example.com", role_name="BOARD")
+    create_owner(email="message-owner@example.com")
+
+    output_dir = tmp_path / "emails"
+    monkeypatch.setattr(email_service.settings, "email_backend", "local")
+    monkeypatch.setattr(email_service.settings, "email_output_dir", str(output_dir))
+
+    client = TestClient(app)
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(board_user)
+    try:
+        response = client.post(
+            "/communications/messages",
+            json={
+                "message_type": "ANNOUNCEMENT",
+                "subject": "Update",
+                "body": "Email body",
+                "delivery_methods": ["email"],
+            },
+        )
+        assert response.status_code == 201
+    finally:
+        app.dependency_overrides.clear()
+        client.close()
+
+    db_session.expire_all()
+    message = db_session.query(CommunicationMessage).first()
+    assert message is not None
+    assert message.email_queued_at is not None
+    assert message.email_send_attempted_at is not None
+    assert message.email_sent_at is not None
+    assert message.email_failed_at is None
+    assert message.email_last_error is None
+
+    audits = db_session.query(AuditLog).filter_by(action="communications.email.sent").all()
+    assert audits
+
+
+def test_communication_message_email_records_failure(
+    db_session,
+    create_owner,
+    create_user,
+    monkeypatch,
+):
+    board_user = create_user(email="boardmessagefail@example.com", role_name="BOARD")
+    create_owner(email="message-fail-owner@example.com")
+
+    def _fake_send(*_args, **_kwargs):
+        return email_service.SendResult(
+            backend="test",
+            status_code=None,
+            request_id=None,
+            error="Provider error",
+        )
+
+    monkeypatch.setattr(email_service, "send_announcement_with_result", _fake_send)
+
+    client = TestClient(app)
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(board_user)
+    try:
+        response = client.post(
+            "/communications/messages",
+            json={
+                "message_type": "ANNOUNCEMENT",
+                "subject": "Update",
+                "body": "Email body",
+                "delivery_methods": ["email"],
+            },
+        )
+        assert response.status_code == 201
+    finally:
+        app.dependency_overrides.clear()
+        client.close()
+
+    db_session.expire_all()
+    message = db_session.query(CommunicationMessage).first()
+    assert message is not None
+    assert message.email_queued_at is not None
+    assert message.email_send_attempted_at is not None
+    assert message.email_sent_at is None
+    assert message.email_failed_at is not None
+    assert message.email_last_error == "Provider error"
+
+    audits = db_session.query(AuditLog).filter_by(action="communications.email.send_failed").all()
+    assert audits

@@ -831,6 +831,12 @@ class CommunicationMessageRead(BaseModel):
     recipients: List[EmailBroadcastRecipient] = Field(alias="recipient_snapshot")
     recipient_count: int
     pdf_path: Optional[str]
+    email_queued_at: Optional[datetime]
+    email_send_attempted_at: Optional[datetime]
+    email_sent_at: Optional[datetime]
+    email_failed_at: Optional[datetime]
+    email_last_error: Optional[str]
+    email_provider_message_id: Optional[str]
     created_at: datetime
     created_by_user_id: int
 
