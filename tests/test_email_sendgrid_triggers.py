@@ -2,9 +2,11 @@ import sys
 from types import ModuleType
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import sessionmaker
 
 from backend.api.dependencies import get_db
 from backend.auth.jwt import get_current_user
+from backend.api import comms as comms_api
 from backend.main import app
 from backend.models.models import AuditLog, CommunicationMessage, NoticeType
 from backend.services import email as email_service
@@ -228,11 +230,13 @@ def test_communication_message_email_tracks_success(
     db_session.expire_all()
     message = db_session.query(CommunicationMessage).first()
     assert message is not None
+    assert message.email_delivery_status == "SENT"
     assert message.email_queued_at is not None
     assert message.email_send_attempted_at is not None
     assert message.email_sent_at is not None
     assert message.email_failed_at is None
     assert message.email_last_error is None
+    assert message.email_provider_status_code == 200
 
     audits = db_session.query(AuditLog).filter_by(action="communications.email.sent").all()
     assert audits
@@ -250,7 +254,7 @@ def test_communication_message_email_records_failure(
     def _fake_send(*_args, **_kwargs):
         return email_service.SendResult(
             backend="test",
-            status_code=None,
+            status_code=503,
             request_id=None,
             error="Provider error",
         )
@@ -278,11 +282,94 @@ def test_communication_message_email_records_failure(
     db_session.expire_all()
     message = db_session.query(CommunicationMessage).first()
     assert message is not None
+    assert message.email_delivery_status == "FAILED"
     assert message.email_queued_at is not None
     assert message.email_send_attempted_at is not None
     assert message.email_sent_at is None
     assert message.email_failed_at is not None
     assert message.email_last_error == "Provider error"
+    assert message.email_provider_status_code == 503
 
-    audits = db_session.query(AuditLog).filter_by(action="communications.email.send_failed").all()
+    audits = db_session.query(AuditLog).filter_by(action="communications.email.failed").all()
     assert audits
+
+
+def test_communication_message_email_background_task_transitions_attempted(
+    db_session,
+    create_user,
+    monkeypatch,
+):
+    board_user = create_user(email="boarddirect@example.com", role_name="BOARD")
+
+    message = CommunicationMessage(
+        message_type="ANNOUNCEMENT",
+        subject="Direct",
+        body="Direct body",
+        delivery_methods=["email"],
+        recipient_snapshot=[],
+        recipient_count=1,
+        created_by_user_id=board_user.id,
+    )
+    message.email_delivery_status = "QUEUED"
+    db_session.add(message)
+    db_session.commit()
+
+    monkeypatch.setattr(email_service.settings, "email_backend", "local")
+
+    session_factory = sessionmaker(bind=db_session.get_bind(), autocommit=False, autoflush=False)
+    comms_api._send_message_email(
+        session_factory,
+        message.id,
+        "Direct",
+        "Direct body",
+        ["owner@example.com"],
+        board_user.id,
+        "test-request-id",
+    )
+
+    db_session.expire_all()
+    updated = db_session.query(CommunicationMessage).filter_by(id=message.id).first()
+    assert updated.email_delivery_status == "SENT"
+    assert updated.email_send_attempted_at is not None
+    assert updated.email_sent_at is not None
+    assert updated.email_failed_at is None
+    assert updated.email_last_error is None
+
+
+def test_communication_message_email_missing_sendgrid_key_marks_failed(
+    db_session,
+    create_owner,
+    create_user,
+    monkeypatch,
+):
+    board_user = create_user(email="boardmissing@example.com", role_name="BOARD")
+    create_owner(email="missing-owner@example.com")
+
+    monkeypatch.setattr(email_service.settings, "email_backend", "sendgrid")
+    monkeypatch.setattr(email_service.settings, "sendgrid_api_key", None)
+    monkeypatch.setattr(email_service.settings, "email_from_address", "no-reply@example.com")
+
+    client = TestClient(app)
+    app.dependency_overrides[get_db] = _override_get_db(db_session)
+    app.dependency_overrides[get_current_user] = _override_user(board_user)
+    try:
+        response = client.post(
+            "/communications/messages",
+            json={
+                "message_type": "ANNOUNCEMENT",
+                "subject": "Missing Key",
+                "body": "Email body",
+                "delivery_methods": ["email"],
+            },
+        )
+        assert response.status_code == 201
+    finally:
+        app.dependency_overrides.clear()
+        client.close()
+
+    db_session.expire_all()
+    message = db_session.query(CommunicationMessage).first()
+    assert message.email_delivery_status == "FAILED"
+    assert message.email_failed_at is not None
+    assert message.email_last_error
+    assert "SENDGRID_API_KEY" in message.email_last_error
