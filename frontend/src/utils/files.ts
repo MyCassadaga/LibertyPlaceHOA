@@ -1,4 +1,6 @@
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+import { API_BASE_URL } from '../lib/api/client';
+
+const API_BASE = API_BASE_URL;
 
 const inferMimeFromName = (name: string): string => {
   const extension = name.split('.').pop()?.toLowerCase() ?? '';

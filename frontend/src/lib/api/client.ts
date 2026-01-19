@@ -1,6 +1,20 @@
 import axios, { AxiosError } from 'axios';
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
+const DEFAULT_API_BASE = 'http://localhost:8000';
+
+const normalizeApiBase = (value: string | undefined): string => {
+  if (!value) return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  return trimmed.replace(/\/+$/, '');
+};
+
+export const getApiBase = (): string => {
+  const normalized = normalizeApiBase(import.meta.env.VITE_API_BASE as string | undefined);
+  return normalized || DEFAULT_API_BASE;
+};
+
+export const API_BASE_URL = getApiBase();
 
 export type ApiErrorPayload = {
   detail?: string;
