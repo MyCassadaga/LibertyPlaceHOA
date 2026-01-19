@@ -21,20 +21,40 @@ PREVIOUS_LENGTH = 32
 
 
 def upgrade() -> None:
-    op.alter_column(
-        "alembic_version",
-        "version_num",
-        type_=sa.String(TARGET_LENGTH),
-        existing_type=sa.String(PREVIOUS_LENGTH),
-        existing_nullable=False,
-    )
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        with op.batch_alter_table("alembic_version") as batch_op:
+            batch_op.alter_column(
+                "version_num",
+                type_=sa.String(TARGET_LENGTH),
+                existing_type=sa.String(PREVIOUS_LENGTH),
+                existing_nullable=False,
+            )
+    else:
+        op.alter_column(
+            "alembic_version",
+            "version_num",
+            type_=sa.String(TARGET_LENGTH),
+            existing_type=sa.String(PREVIOUS_LENGTH),
+            existing_nullable=False,
+        )
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "alembic_version",
-        "version_num",
-        type_=sa.String(PREVIOUS_LENGTH),
-        existing_type=sa.String(TARGET_LENGTH),
-        existing_nullable=False,
-    )
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        with op.batch_alter_table("alembic_version") as batch_op:
+            batch_op.alter_column(
+                "version_num",
+                type_=sa.String(PREVIOUS_LENGTH),
+                existing_type=sa.String(TARGET_LENGTH),
+                existing_nullable=False,
+            )
+    else:
+        op.alter_column(
+            "alembic_version",
+            "version_num",
+            type_=sa.String(PREVIOUS_LENGTH),
+            existing_type=sa.String(TARGET_LENGTH),
+            existing_nullable=False,
+        )
