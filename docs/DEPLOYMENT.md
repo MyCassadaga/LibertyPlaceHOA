@@ -15,14 +15,14 @@ does not regress any hosting quirks.
 - Redirect Rule: `http.host eq "www.libertyplacehoa.com"` → `https://app.libertyplacehoa.com/$1`
 - `api.libertyplacehoa.com` must stay DNS-only so Render’s TLS certificate works.
 
-## Vercel (frontend)
+## Render (frontend static site)
 
-- Project root: `frontend/`
-- Build command: `npm run build`
-- Output directory: `frontend/dist`
-- SPA routing handled via `frontend/vercel.json` (`/(.*)` → `/index.html`).
-- Environment variable `VITE_API_URL` must match `https://api.libertyplacehoa.com`.
-- After repository renames, verify Vercel is pointed at the current Git repo; a stale pointer previously served old code.
+- Service type: Static Site
+- Root directory: `frontend/`
+- Build command: `npm install && npm run build`
+- Publish directory: `dist`
+- Environment variable: `VITE_API_URL=https://api.libertyplacehoa.com`
+- SPA routing: add a rewrite in Render or keep `frontend/vercel.json` if reusing the same config (rewrite `/*` → `/index.html`).
 
 ## Render (backend)
 
@@ -31,17 +31,17 @@ does not regress any hosting quirks.
 - Build command: `pip install -r requirements.txt`
 - Start command:
   ```bash
-  alembic -c backend/alembic.ini upgrade head &&
-  uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+  bash -lc "python scripts/bootstrap_migrations.py reconcile && uvicorn backend.main:app --host 0.0.0.0 --port $PORT"
   ```
-- Important env vars:
-  - `DATABASE_URL` (managed PostgreSQL)
+- Database:
+  - `DATABASE_URL` must be set in the Render dashboard (Neon is the source of truth; no Render-managed database resource).
+- Required env vars (backend + cron):
   - `FRONTEND_URL=https://app.libertyplacehoa.com`
   - `API_BASE=https://api.libertyplacehoa.com`
   - `ADDITIONAL_TRUSTED_HOSTS=libertyplacehoa.onrender.com,api.libertyplacehoa.com` (keeps both Render and custom domains valid for host checks)
-  - SMTP (Google Workspace): `EMAIL_BACKEND=smtp`, `SMTP_HOST=smtp.gmail.com`,
-    `SMTP_PORT=587`, `SMTP_USERNAME=<workspace user>`, `SMTP_PASSWORD=<app password>`,
-    `SMTP_USE_TLS=true`, `EMAIL_FROM=admin@libertyplacehoa.com`
+  - SMTP (Google Workspace): `EMAIL_BACKEND=smtp`, `EMAIL_HOST=smtp.gmail.com`,
+    `EMAIL_PORT=587`, `EMAIL_HOST_USER=<workspace user>`, `EMAIL_HOST_PASSWORD=<app password>`,
+    `EMAIL_USE_TLS=true`, `EMAIL_FROM_ADDRESS=admin@libertyplacehoa.com`, `EMAIL_FROM_NAME=Liberty Place HOA`
   - Storage: `FILE_STORAGE_BACKEND=local` (Cloudflare serves `/uploads`)
 
 **Cold start**: Render’s free dyno sleeps after ~15 min. Expect the first request to
