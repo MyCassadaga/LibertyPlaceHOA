@@ -14,6 +14,26 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from .constants import CORS_ALLOW_ORIGINS
 
 
+EMAIL_BACKEND_OPTIONS = {"smtp", "console", "file", "local"}
+
+
+def resolve_email_backend(raw_backend: Optional[str], app_env: str) -> str:
+    normalized_env = (app_env or "").strip().lower()
+    backend_value = (raw_backend or "").strip().strip("'\"")
+    if not backend_value:
+        backend_value = "smtp" if normalized_env == "prod" else "console"
+    normalized_backend = backend_value.lower()
+    if normalized_backend in {"sendgrid", "sendgrid_smtp"}:
+        raise ValueError(
+            "SendGrid backend is deprecated/removed; use EMAIL_BACKEND=smtp|console|file|local"
+        )
+    if normalized_backend not in EMAIL_BACKEND_OPTIONS:
+        raise ValueError(
+            f"Unsupported EMAIL_BACKEND '{backend_value}'. Use EMAIL_BACKEND=smtp|console|file|local."
+        )
+    return normalized_backend
+
+
 class Settings(BaseSettings):
     # --- Database ---
     # Always use the file that actually has your tables: backend/hoa_dev.db
@@ -30,7 +50,8 @@ class Settings(BaseSettings):
 
     # --- Email / Providers ---
     # Note: keep SMTP + SendGrid knobs here so env overrides are consistent across hosts.
-    email_backend: str = Field("smtp", env="EMAIL_BACKEND")
+    app_env: str = Field("dev", env=["APP_ENV", "ENV"])
+    email_backend: Optional[str] = Field(None, env="EMAIL_BACKEND")
     sendgrid_api_key: Optional[str] = Field(None, env=["SENDGRID_API_KEY", "EMAIL_SENDGRID_API_KEY"])
     sendgrid_sandbox_mode: bool = Field(False, env="SENDGRID_SANDBOX_MODE")
     email_host: Optional[str] = Field("smtp.gmail.com", env=["EMAIL_HOST", "SMTP_HOST"])
@@ -99,6 +120,11 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+
+    @validator("email_backend", pre=True, always=True)
+    def normalize_email_backend(cls, value: Optional[str], values: dict) -> str:
+        app_env = values.get("app_env", "")
+        return resolve_email_backend(value, app_env)
 
     @validator("database_url", pre=True)
     def normalize_database_url(cls, value: str) -> str:
