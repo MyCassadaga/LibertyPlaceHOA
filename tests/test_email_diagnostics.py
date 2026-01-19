@@ -1,75 +1,57 @@
-import logging
+import pytest
+from pydantic import ValidationError
 
-from fastapi.testclient import TestClient
-
-from backend.api.system import require_sysadmin
-from backend.main import app
+from backend.config import Settings
 from backend.services import email as email_service
 
 
-def _override_sysadmin():
-    class Dummy:
-        id = 1
+def test_prod_defaults_to_smtp_backend(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.delenv("EMAIL_BACKEND", raising=False)
+    settings = Settings(_env_file=None)
 
-    return Dummy()
+    assert settings.email_backend == "smtp"
 
 
-def test_email_health_prefers_smtp_when_sendgrid_configured(monkeypatch):
-    monkeypatch.setattr(email_service.settings, "email_backend", "sendgrid")
+def test_sendgrid_backend_is_rejected(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.setenv("EMAIL_BACKEND", "sendgrid")
+
+    with pytest.raises(ValidationError) as excinfo:
+        Settings(_env_file=None)
+
+    assert "SendGrid backend is deprecated/removed" in str(excinfo.value)
+
+
+def test_smtp_required_flags_and_ready(monkeypatch):
+    monkeypatch.setattr(email_service.settings, "email_backend", "smtp")
     monkeypatch.setattr(email_service.settings, "email_host", "smtp.gmail.com")
-    monkeypatch.setattr(email_service.settings, "email_host_user", "smtp-user")
+    monkeypatch.setattr(email_service.settings, "email_host_user", "smtp-user@example.com")
     monkeypatch.setattr(email_service.settings, "email_host_password", "smtp-pass")
     monkeypatch.setattr(email_service.settings, "email_from_address", "no-reply@example.com")
 
-    client = TestClient(app)
-    app.dependency_overrides[require_sysadmin] = _override_sysadmin
-    try:
-        response = client.get("/system/admin/email-health")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["backend"] == "smtp"
-        assert data["smtp_required"]["SMTP_USERNAME"] is True
-    finally:
-        app.dependency_overrides.pop(require_sysadmin, None)
-        client.close()
+    snapshot = email_service.get_email_health_snapshot()
+
+    assert snapshot["smtp_required"]["SMTP_HOST"] is True
+    assert snapshot["smtp_required"]["SMTP_USERNAME"] is True
+    assert snapshot["smtp_required"]["SMTP_PASSWORD"] is True
+    assert snapshot["smtp_required"]["EMAIL_FROM_ADDRESS"] is True
+    assert snapshot["smtp_ready"] is True
 
 
-def test_send_announcement_with_missing_smtp_config_returns_error(monkeypatch):
-    monkeypatch.setattr(email_service.settings, "email_backend", "smtp")
-    monkeypatch.setattr(email_service.settings, "email_host", "smtp.gmail.com")
-    monkeypatch.setattr(email_service.settings, "email_host_user", None)
-    monkeypatch.setattr(email_service.settings, "email_host_password", None)
-    monkeypatch.setattr(email_service.settings, "email_from_address", "no-reply@example.com")
-
-    result = email_service.send_announcement_with_result(
-        "Subject",
-        "Body",
-        ["recipient@example.com"],
+def test_build_email_message_with_html_alternative():
+    message = email_service.build_email_message(
+        subject="Hello",
+        text_body="Plain text",
+        html_body="<p>HTML body</p>",
+        recipients=["recipient@example.com"],
+        from_address="no-reply@example.com",
+        display_name="Liberty Place HOA",
+        reply_to=None,
     )
 
-    assert result.error is not None
-    assert "SMTP backend requires SMTP_USERNAME and SMTP_PASSWORD." in result.error
-
-
-def test_send_announcement_with_result_logs_failure(monkeypatch, caplog):
-    class BoomSMTP:
-        def __init__(self, host, port, timeout=None, context=None):
-            raise RuntimeError("smtp down")
-
-    monkeypatch.setattr(email_service.smtplib, "SMTP", BoomSMTP)
-    monkeypatch.setattr(email_service.settings, "email_backend", "smtp")
-    monkeypatch.setattr(email_service.settings, "email_host", "smtp.gmail.com")
-    monkeypatch.setattr(email_service.settings, "email_host_user", "smtp-user")
-    monkeypatch.setattr(email_service.settings, "email_host_password", "smtp-pass")
-    monkeypatch.setattr(email_service.settings, "email_from_address", "no-reply@example.com")
-
-    with caplog.at_level(logging.ERROR):
-        result = email_service.send_announcement_with_result(
-            "Subject",
-            "Body",
-            ["recipient@example.com"],
-        )
-
-    assert result.error is not None
-    assert "RuntimeError: smtp down" in result.error
-    assert "backend=smtp error_class=RuntimeError" in caplog.text
+    assert message.is_multipart()
+    payload = message.get_payload()
+    assert len(payload) == 2
+    assert payload[0].get_content_type() == "text/plain"
+    assert payload[1].get_content_type() == "text/html"

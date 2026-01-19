@@ -174,7 +174,11 @@ def test_smtp_notice_trigger_does_not_write_local_email(
     assert message["To"] == "notice-owner@example.com"
     assert message["Reply-To"] == "reply@example.com"
     assert message["Subject"]
-    assert "Pay now" in message.get_payload()
+    assert message.is_multipart()
+    payload = message.get_payload()
+    assert payload[0].get_content_type() == "text/plain"
+    assert payload[1].get_content_type() == "text/html"
+    assert "Pay now" in payload[1].get_payload()
     assert not output_dir.exists()
 
 
