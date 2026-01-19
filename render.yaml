@@ -1,7 +1,3 @@
-databases:
-  - name: hoa-db
-    plan: free
-
 services:
   - type: web
     name: hoa-backend
@@ -11,18 +7,28 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: bash -lc "python scripts/bootstrap_migrations.py reconcile && uvicorn backend.main:app --host 0.0.0.0 --port $PORT"
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: hoa-db
-          property: connectionString
       - key: FRONTEND_URL
         value: https://app.libertyplacehoa.com
       - key: API_BASE
         value: https://api.libertyplacehoa.com
       - key: ADDITIONAL_TRUSTED_HOSTS
         value: libertyplacehoa.onrender.com,api.libertyplacehoa.com
-      - key: SENDGRID_API_KEY
+      - key: EMAIL_BACKEND
+        value: smtp
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_HOST_USER
         value: ""
+      - key: EMAIL_HOST_PASSWORD
+        value: ""
+      - key: EMAIL_USE_TLS
+        value: "true"
+      - key: EMAIL_FROM_ADDRESS
+        value: admin@libertyplacehoa.com
+      - key: EMAIL_FROM_NAME
+        value: Liberty Place HOA
       - key: STRIPE_API_KEY
         value: ""
       - key: FILE_STORAGE_BACKEND
@@ -36,18 +42,28 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python scripts/run_autopay.py
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: hoa-db
-          property: connectionString
       - key: FRONTEND_URL
         value: https://app.libertyplacehoa.com
       - key: API_BASE
         value: https://api.libertyplacehoa.com
       - key: ADDITIONAL_TRUSTED_HOSTS
         value: libertyplacehoa.onrender.com,api.libertyplacehoa.com
-      - key: SENDGRID_API_KEY
+      - key: EMAIL_BACKEND
+        value: smtp
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_HOST_USER
         value: ""
+      - key: EMAIL_HOST_PASSWORD
+        value: ""
+      - key: EMAIL_USE_TLS
+        value: "true"
+      - key: EMAIL_FROM_ADDRESS
+        value: admin@libertyplacehoa.com
+      - key: EMAIL_FROM_NAME
+        value: Liberty Place HOA
       - key: STRIPE_API_KEY
         value: ""
       - key: FILE_STORAGE_BACKEND
