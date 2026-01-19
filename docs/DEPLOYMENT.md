@@ -39,9 +39,9 @@ does not regress any hosting quirks.
   - `FRONTEND_URL=https://app.libertyplacehoa.com`
   - `API_BASE=https://api.libertyplacehoa.com`
   - `ADDITIONAL_TRUSTED_HOSTS=libertyplacehoa.onrender.com,api.libertyplacehoa.com` (keeps both Render and custom domains valid for host checks)
-  - SMTP: `EMAIL_BACKEND=smtp`, `EMAIL_HOST=smtp.sendgrid.net`, `EMAIL_PORT=587`,
-    `EMAIL_HOST_USER=apikey`, `EMAIL_HOST_PASSWORD=<SendGrid key>`,
-    `EMAIL_USE_TLS=true`, `EMAIL_FROM_ADDRESS=admin@libertyplacehoa.com`
+  - SMTP (Google Workspace): `EMAIL_BACKEND=smtp`, `SMTP_HOST=smtp.gmail.com`,
+    `SMTP_PORT=587`, `SMTP_USERNAME=<workspace user>`, `SMTP_PASSWORD=<app password>`,
+    `SMTP_USE_TLS=true`, `EMAIL_FROM=admin@libertyplacehoa.com`
   - Storage: `FILE_STORAGE_BACKEND=local` (Cloudflare serves `/uploads`)
 
 **Cold start**: Render’s free dyno sleeps after ~15 min. Expect the first request to

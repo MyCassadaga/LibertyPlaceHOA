@@ -1,5 +1,3 @@
-import pytest
-
 from backend.config import Settings
 
 
@@ -15,6 +13,11 @@ def test_trusted_hosts_include_apex_wildcard_for_default_domains():
     assert "*.libertyplacehoa.com" in hosts
 
 
-def test_sendgrid_requires_api_key_when_backend_enabled():
-    with pytest.raises(ValueError, match="SENDGRID_API_KEY"):
-        Settings(email_backend="sendgrid", sendgrid_api_key=None)
+def test_defaults_use_smtp_backend(monkeypatch):
+    monkeypatch.delenv("EMAIL_BACKEND", raising=False)
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.delenv("EMAIL_HOST", raising=False)
+    settings = Settings(_env_file=None)
+
+    assert settings.email_backend == "smtp"
+    assert settings.email_host == "smtp.gmail.com"

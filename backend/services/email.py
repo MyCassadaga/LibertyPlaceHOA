@@ -47,13 +47,13 @@ def _mask_subject(subject: str) -> str:
 def log_email_configuration() -> None:
     backend = (settings.email_backend or "local").strip().strip("'\"").lower()
     logger.info(
-        "Email configuration: backend=%s sendgrid_api_key=%s email_host=%s email_host_user=%s "
-        "email_host_password=%s email_from_address=%s email_reply_to=%s",
+        "Email configuration: backend=%s email_host=%s email_host_user=%s email_use_tls=%s "
+        "email_use_ssl=%s email_from_address=%s email_reply_to=%s",
         backend,
-        bool(settings.sendgrid_api_key),
         bool(settings.email_host),
         bool(settings.email_host_user),
-        bool(settings.email_host_password),
+        bool(settings.email_use_tls),
+        bool(getattr(settings, "email_use_ssl", False)),
         bool(settings.email_from_address),
         bool(settings.email_reply_to),
     )
@@ -172,9 +172,9 @@ def _send_via_smtp(
     reply_to_override: Optional[str] = None,
 ) -> SendResult:
     if not settings.email_host:
-        raise RuntimeError("SMTP backend requires EMAIL_HOST.")
+        raise RuntimeError("SMTP backend requires SMTP_HOST (or EMAIL_HOST).")
     if not settings.email_host_user or not settings.email_host_password:
-        raise RuntimeError("SMTP backend requires EMAIL_HOST_USER and EMAIL_HOST_PASSWORD.")
+        raise RuntimeError("SMTP backend requires SMTP_USERNAME and SMTP_PASSWORD.")
     from_address, display_name = _resolve_sender()
     if from_address_override:
         from_address = from_address_override
@@ -192,10 +192,16 @@ def _send_via_smtp(
 
     port = settings.email_port or 587
     use_tls = getattr(settings, "email_use_tls", True)
+    use_ssl = getattr(settings, "email_use_ssl", False)
     context = ssl.create_default_context()
-    with smtplib.SMTP(settings.email_host, port) as connection:
+    timeout = 20
+    if use_ssl:
+        connection = smtplib.SMTP_SSL(settings.email_host, port, timeout=timeout, context=context)
+    else:
+        connection = smtplib.SMTP(settings.email_host, port, timeout=timeout)
+    with connection:
         connection.ehlo()
-        if use_tls:
+        if use_tls and not use_ssl:
             connection.starttls(context=context)
             connection.ehlo()
         connection.login(settings.email_host_user, settings.email_host_password)
@@ -240,7 +246,7 @@ def send_announcement(subject: str, body: str, recipients: Iterable[str]) -> Lis
         if backend in {"local", "file", "console"}:
             _write_local_email(subject, body, recipient_list)
         elif backend == "sendgrid":
-            _send_via_sendgrid(subject, body, recipient_list)
+            raise RuntimeError("SendGrid backend is no longer supported. Use SMTP.")
         elif backend in {"smtp", "sendgrid_smtp"}:
             _send_via_smtp(subject, body, recipient_list)
         else:
@@ -275,7 +281,7 @@ def send_custom_email(
     if backend in {"local", "file", "console"}:
         _write_local_email(subject, body, recipient_list)
     elif backend == "sendgrid":
-        _send_via_sendgrid(subject, body, recipient_list, effective_from, reply_to_address)
+        raise RuntimeError("SendGrid backend is no longer supported. Use SMTP.")
     elif backend in {"smtp", "sendgrid_smtp"}:
         _send_via_smtp(subject, body, recipient_list, effective_from, reply_to_address)
     else:
@@ -300,7 +306,7 @@ def send_announcement_with_result(subject: str, body: str, recipients: Iterable[
             _write_local_email(subject, body, recipient_list)
             return SendResult(backend="local", status_code=200, request_id=None, error=None)
         if backend == "sendgrid":
-            return _send_via_sendgrid(subject, body, recipient_list)
+            raise RuntimeError("SendGrid backend is no longer supported. Use SMTP.")
         if backend in {"smtp", "sendgrid_smtp"}:
             return _send_via_smtp(subject, body, recipient_list)
 

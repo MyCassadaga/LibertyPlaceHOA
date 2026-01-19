@@ -1,6 +1,3 @@
-import sys
-from types import ModuleType
-
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
@@ -29,59 +26,40 @@ def _override_user(user):
     return _inner
 
 
-def _install_fake_sendgrid(monkeypatch, sent_messages):
-    sendgrid_module = ModuleType("sendgrid")
-    helpers_module = ModuleType("sendgrid.helpers")
-    mail_module = ModuleType("sendgrid.helpers.mail")
+def _install_fake_smtp(monkeypatch, sent_messages):
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            self.host = host
+            self.port = port
+            self.timeout = timeout
+            self.logged_in = None
+            self.started_tls = False
 
-    class Email:
-        def __init__(self, email, name=None):
-            self.email = email
-            self.name = name
+        def __enter__(self):
+            return self
 
-    class SandBoxMode:
-        def __init__(self, enable=False):
-            self.enable = enable
+        def __exit__(self, exc_type, exc, tb):
+            return False
 
-    class MailSettings:
-        def __init__(self, sandbox_mode=None):
-            self.sandbox_mode = sandbox_mode
+        def ehlo(self):
+            return None
 
-    class Mail:
-        def __init__(self, from_email, to_emails, subject, plain_text_content):
-            self.from_email = from_email
-            self.to_emails = to_emails
-            self.subject = subject
-            self.plain_text_content = plain_text_content
-            self.reply_to = None
-            self.mail_settings = None
+        def starttls(self, context=None):
+            self.started_tls = True
+            return None
 
-    class SendGridAPIClient:
-        def __init__(self, api_key):
-            self.api_key = api_key
+        def login(self, username, password):
+            self.logged_in = (username, password)
+            return None
 
-        def send(self, message):
+        def send_message(self, message):
             sent_messages.append(message)
+            return {}
 
-            class Response:
-                status_code = 202
-                headers = {"X-Message-Id": "test-message-id"}
-
-            return Response()
-
-    sendgrid_module.SendGridAPIClient = SendGridAPIClient
-    mail_module.Email = Email
-    mail_module.Mail = Mail
-    mail_module.MailSettings = MailSettings
-    mail_module.SandBoxMode = SandBoxMode
-    sendgrid_module.helpers = helpers_module
-
-    monkeypatch.setitem(sys.modules, "sendgrid", sendgrid_module)
-    monkeypatch.setitem(sys.modules, "sendgrid.helpers", helpers_module)
-    monkeypatch.setitem(sys.modules, "sendgrid.helpers.mail", mail_module)
+    monkeypatch.setattr(email_service.smtplib, "SMTP", FakeSMTP)
 
 
-def test_sendgrid_announcement_trigger_does_not_write_local_email(
+def test_smtp_announcement_trigger_does_not_write_local_email(
     db_session,
     create_owner,
     create_user,
@@ -92,15 +70,18 @@ def test_sendgrid_announcement_trigger_does_not_write_local_email(
     create_owner(email="announce-owner@example.com")
 
     sent_messages = []
-    _install_fake_sendgrid(monkeypatch, sent_messages)
+    _install_fake_smtp(monkeypatch, sent_messages)
 
     output_dir = tmp_path / "emails"
-    monkeypatch.setattr(email_service.settings, "email_backend", "sendgrid")
-    monkeypatch.setattr(email_service.settings, "sendgrid_api_key", "test-api-key")
+    monkeypatch.setattr(email_service.settings, "email_backend", "smtp")
+    monkeypatch.setattr(email_service.settings, "email_host", "smtp.gmail.com")
+    monkeypatch.setattr(email_service.settings, "email_host_user", "smtp-user")
+    monkeypatch.setattr(email_service.settings, "email_host_password", "smtp-pass")
+    monkeypatch.setattr(email_service.settings, "email_use_tls", True)
+    monkeypatch.setattr(email_service.settings, "email_use_ssl", False)
     monkeypatch.setattr(email_service.settings, "email_from_address", "no-reply@example.com")
     monkeypatch.setattr(email_service.settings, "email_from_name", "Liberty Place HOA")
     monkeypatch.setattr(email_service.settings, "email_reply_to", "reply@example.com")
-    monkeypatch.setattr(email_service.settings, "sendgrid_sandbox_mode", True)
     monkeypatch.setattr(email_service.settings, "email_output_dir", str(output_dir))
 
     client = TestClient(app)
@@ -122,16 +103,15 @@ def test_sendgrid_announcement_trigger_does_not_write_local_email(
 
     assert len(sent_messages) == 1
     message = sent_messages[0]
-    assert message.from_email.email == "no-reply@example.com"
-    assert message.from_email.name == "Liberty Place HOA"
-    assert message.reply_to.email == "reply@example.com"
-    assert message.subject
-    assert message.plain_text_content
-    assert message.mail_settings.sandbox_mode.enable is True
+    assert message["From"] == "Liberty Place HOA <no-reply@example.com>"
+    assert message["To"] == "announce-owner@example.com"
+    assert message["Reply-To"] == "reply@example.com"
+    assert message["Subject"]
+    assert "Hello owners" in message.get_payload()
     assert not output_dir.exists()
 
 
-def test_sendgrid_notice_trigger_does_not_write_local_email(
+def test_smtp_notice_trigger_does_not_write_local_email(
     db_session,
     create_owner,
     create_user,
@@ -156,15 +136,18 @@ def test_sendgrid_notice_trigger_does_not_write_local_email(
         db_session.commit()
 
     sent_messages = []
-    _install_fake_sendgrid(monkeypatch, sent_messages)
+    _install_fake_smtp(monkeypatch, sent_messages)
 
     output_dir = tmp_path / "emails"
-    monkeypatch.setattr(email_service.settings, "email_backend", "sendgrid")
-    monkeypatch.setattr(email_service.settings, "sendgrid_api_key", "test-api-key")
+    monkeypatch.setattr(email_service.settings, "email_backend", "smtp")
+    monkeypatch.setattr(email_service.settings, "email_host", "smtp.gmail.com")
+    monkeypatch.setattr(email_service.settings, "email_host_user", "smtp-user")
+    monkeypatch.setattr(email_service.settings, "email_host_password", "smtp-pass")
+    monkeypatch.setattr(email_service.settings, "email_use_tls", True)
+    monkeypatch.setattr(email_service.settings, "email_use_ssl", False)
     monkeypatch.setattr(email_service.settings, "email_from_address", "no-reply@example.com")
     monkeypatch.setattr(email_service.settings, "email_from_name", "Liberty Place HOA")
     monkeypatch.setattr(email_service.settings, "email_reply_to", "reply@example.com")
-    monkeypatch.setattr(email_service.settings, "sendgrid_sandbox_mode", False)
     monkeypatch.setattr(email_service.settings, "email_output_dir", str(output_dir))
 
     client = TestClient(app)
@@ -187,11 +170,11 @@ def test_sendgrid_notice_trigger_does_not_write_local_email(
 
     assert len(sent_messages) == 1
     message = sent_messages[0]
-    assert message.from_email.email == "no-reply@example.com"
-    assert message.from_email.name == "Liberty Place HOA"
-    assert message.reply_to.email == "reply@example.com"
-    assert message.subject
-    assert message.plain_text_content
+    assert message["From"] == "Liberty Place HOA <no-reply@example.com>"
+    assert message["To"] == "notice-owner@example.com"
+    assert message["Reply-To"] == "reply@example.com"
+    assert message["Subject"]
+    assert "Pay now" in message.get_payload()
     assert not output_dir.exists()
 
 
@@ -336,7 +319,7 @@ def test_communication_message_email_background_task_transitions_attempted(
     assert updated.email_last_error is None
 
 
-def test_communication_message_email_missing_sendgrid_key_marks_failed(
+def test_communication_message_email_missing_smtp_credentials_marks_failed(
     db_session,
     create_owner,
     create_user,
@@ -345,8 +328,9 @@ def test_communication_message_email_missing_sendgrid_key_marks_failed(
     board_user = create_user(email="boardmissing@example.com", role_name="BOARD")
     create_owner(email="missing-owner@example.com")
 
-    monkeypatch.setattr(email_service.settings, "email_backend", "sendgrid")
-    monkeypatch.setattr(email_service.settings, "sendgrid_api_key", None)
+    monkeypatch.setattr(email_service.settings, "email_backend", "smtp")
+    monkeypatch.setattr(email_service.settings, "email_host_user", None)
+    monkeypatch.setattr(email_service.settings, "email_host_password", None)
     monkeypatch.setattr(email_service.settings, "email_from_address", "no-reply@example.com")
 
     client = TestClient(app)
@@ -372,4 +356,4 @@ def test_communication_message_email_missing_sendgrid_key_marks_failed(
     assert message.email_delivery_status == "FAILED"
     assert message.email_failed_at is not None
     assert message.email_last_error
-    assert "SENDGRID_API_KEY" in message.email_last_error
+    assert "SMTP_USERNAME" in message.email_last_error
