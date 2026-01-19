@@ -65,6 +65,12 @@ def get_runtime_diagnostics() -> Dict[str, Any]:
     }
 
 
+@router.get("/admin/email-health", dependencies=[Depends(require_sysadmin)])
+def get_email_health() -> Dict[str, Any]:
+    """Expose non-sensitive email configuration diagnostics for debugging."""
+    return email_service.get_email_health_snapshot()
+
+
 @router.post("/admin/test-email", response_model=TestEmailResponse)
 def send_test_email(
     payload: TestEmailRequest,
