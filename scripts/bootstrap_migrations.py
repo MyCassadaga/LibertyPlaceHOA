@@ -50,6 +50,55 @@ def get_known_revisions() -> set[str]:
     return {revision.revision for revision in script_directory.walk_revisions()}
 
 
+def get_max_revision_length(known_revisions: set[str]) -> int:
+    if not known_revisions:
+        return 0
+    return max(len(revision) for revision in known_revisions)
+
+
+def ensure_alembic_version_capacity(database_url: str, required_length: int) -> None:
+    if required_length <= 0:
+        return
+    engine = create_engine(database_url)
+    try:
+        inspector = inspect(engine)
+        if not inspector.has_table("alembic_version"):
+            return
+        columns = inspector.get_columns("alembic_version")
+        version_column = next(
+            (column for column in columns if column.get("name") == "version_num"),
+            None,
+        )
+        if not version_column:
+            return
+        column_type = version_column.get("type")
+        current_length = getattr(column_type, "length", None)
+        if current_length is None or current_length >= required_length:
+            return
+        if engine.dialect.name != "postgresql":
+            print(
+                "BOOTSTRAP: alembic_version.version_num length is too short, "
+                "but auto-widening is only supported for PostgreSQL.",
+                flush=True,
+            )
+            return
+        target_length = max(255, required_length)
+        print(
+            "BOOTSTRAP: widening alembic_version.version_num from "
+            f"{current_length} to {target_length} characters.",
+            flush=True,
+        )
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE alembic_version "
+                    f"ALTER COLUMN version_num TYPE VARCHAR({target_length})"
+                )
+            )
+    finally:
+        engine.dispose()
+
+
 def sanitize_database_url(value: str) -> str:
     if not isinstance(value, str):
         return value
@@ -199,6 +248,7 @@ def main() -> None:
     print(f"BOOTSTRAP: database fingerprint = {db_fingerprint}", flush=True)
     tables = get_tables(database_url)
     known_revisions = get_known_revisions()
+    max_revision_length = get_max_revision_length(known_revisions)
     repo_head = get_repo_head_revision()
     current_revision = get_database_revision(database_url)
     print(
@@ -209,6 +259,7 @@ def main() -> None:
     reset_done = reset_missing_revision(database_url, repo_head, known_revisions, tables)
     if not reset_done:
         enforce_empty_or_tracked_schema(database_url)
+        ensure_alembic_version_capacity(database_url, max_revision_length)
         run_alembic("upgrade", "head")
     upgraded_revision = get_database_revision(database_url)
     print(
