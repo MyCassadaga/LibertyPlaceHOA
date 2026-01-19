@@ -17,11 +17,27 @@ MAX_SUBJECT_PREVIEW = 12
 
 
 @dataclass
+class EmailSendError:
+    backend: str
+    error_class: str
+    message: str
+    occurred_at: datetime
+
+    def summary(self) -> str:
+        timestamp = self.occurred_at.isoformat()
+        detail = f"{self.error_class}: {self.message}" if self.message else self.error_class
+        return f"{timestamp} backend={self.backend} {detail}"
+
+
+@dataclass
 class SendResult:
     backend: str
     status_code: Optional[int]
     request_id: Optional[str]
     error: Optional[str]
+
+
+_last_send_error: Optional[EmailSendError] = None
 
 
 def _mask_email(value: str) -> str:
@@ -44,8 +60,68 @@ def _mask_subject(subject: str) -> str:
     return f"{preview}… (len={len(subject)})"
 
 
+def _smtp_required_fields() -> dict[str, bool]:
+    return {
+        "SMTP_HOST": bool(settings.email_host),
+        "SMTP_USERNAME": bool(settings.email_host_user),
+        "SMTP_PASSWORD": bool(settings.email_host_password),
+        "EMAIL_FROM_ADDRESS": bool(settings.email_from_address),
+    }
+
+
+def _select_backend() -> Tuple[str, str]:
+    raw_backend = (settings.email_backend or "local").strip().strip("'\"")
+    normalized = raw_backend.lower() or "local"
+    reason = f"EMAIL_BACKEND={raw_backend or 'local'}"
+    smtp_ready = all(_smtp_required_fields().values())
+
+    if normalized == "sendgrid":
+        if smtp_ready:
+            return "smtp", "EMAIL_BACKEND=sendgrid overridden to smtp because SMTP config is complete"
+        return "sendgrid", "EMAIL_BACKEND=sendgrid (deprecated; SMTP config incomplete)"
+    if normalized in {"local", "file", "console"}:
+        return normalized, f"{reason} (local stub backend)"
+    if normalized not in {"smtp", "sendgrid_smtp"}:
+        return normalized, f"{reason} (unsupported backend)"
+    if settings.sendgrid_api_key:
+        return normalized, f"{reason} (SENDGRID_API_KEY set but ignored)"
+    return normalized, reason
+
+
+def _record_send_error(backend: str, exc: Exception) -> None:
+    global _last_send_error
+    _last_send_error = EmailSendError(
+        backend=backend,
+        error_class=exc.__class__.__name__,
+        message=str(exc),
+        occurred_at=datetime.now(timezone.utc),
+    )
+
+
+def clear_last_send_error() -> None:
+    global _last_send_error
+    _last_send_error = None
+
+
+def get_email_health_snapshot() -> dict[str, object]:
+    backend, reason = _select_backend()
+    smtp_required = _smtp_required_fields()
+    last_error = _last_send_error.summary() if _last_send_error else None
+    return {
+        "backend": backend,
+        "backend_reason": reason,
+        "smtp_required": smtp_required,
+        "sendgrid_api_key_present": bool(settings.sendgrid_api_key),
+        "last_error": last_error,
+    }
+
+
 def log_email_configuration() -> None:
-    backend = (settings.email_backend or "local").strip().strip("'\"").lower()
+    backend, reason = _select_backend()
+    smtp_required = _smtp_required_fields()
+    from_domain = None
+    if settings.email_from_address and "@" in settings.email_from_address:
+        from_domain = settings.email_from_address.split("@", 1)[1]
     logger.info(
         "Email configuration: backend=%s email_host=%s email_host_user=%s email_use_tls=%s "
         "email_use_ssl=%s email_from_address=%s email_reply_to=%s",
@@ -57,6 +133,19 @@ def log_email_configuration() -> None:
         bool(settings.email_from_address),
         bool(settings.email_reply_to),
     )
+    logger.info(
+        "Email provider selection: backend=%s reason=%s smtp_required=%s sendgrid_key_set=%s "
+        "from_domain=%s",
+        backend,
+        reason,
+        smtp_required,
+        bool(settings.sendgrid_api_key),
+        from_domain,
+    )
+    if backend in {"smtp", "sendgrid_smtp"}:
+        missing = [key for key, present in smtp_required.items() if not present]
+        if missing:
+            logger.error("SMTP configuration incomplete; missing=%s", missing)
 
 
 def _normalize_recipients(recipients: Iterable[str]) -> List[str]:
@@ -237,10 +326,11 @@ def send_announcement(subject: str, body: str, recipients: Iterable[str]) -> Lis
         logger.info("Email dispatch skipped: no recipients (subject=%s).", _mask_subject(subject))
         return []
 
-    backend = (settings.email_backend or "local").strip().strip("'\"").lower()
+    backend, reason = _select_backend()
     from_address, _ = _resolve_sender()
     reply_to = settings.email_reply_to or from_address
     _log_send_attempt(backend, subject, from_address, recipient_list, reply_to)
+    logger.info("Email backend resolved: backend=%s reason=%s", backend, reason)
 
     try:
         if backend in {"local", "file", "console"}:
@@ -251,8 +341,14 @@ def send_announcement(subject: str, body: str, recipients: Iterable[str]) -> Lis
             _send_via_smtp(subject, body, recipient_list)
         else:
             raise RuntimeError(f"Unsupported EMAIL_BACKEND '{backend}'.")
-    except Exception:
-        logger.exception("Email dispatch failed for backend=%s.", backend)
+    except Exception as exc:
+        logger.exception(
+            "Email dispatch failed for backend=%s error_class=%s message=%s.",
+            backend,
+            exc.__class__.__name__,
+            exc,
+        )
+        _record_send_error(backend, exc)
         raise
 
     return recipient_list
@@ -270,32 +366,44 @@ def send_custom_email(
         logger.info("Email dispatch skipped: no recipients (subject=%s).", _mask_subject(subject))
         return []
 
-    backend = (settings.email_backend or "local").strip().strip("'\"").lower()
+    backend, reason = _select_backend()
     fallback_from, _ = _resolve_sender()
     effective_from = from_address or fallback_from
     reply_to_address = reply_to or settings.email_reply_to or effective_from
     if not effective_from:
         raise RuntimeError("Email backend requires a sender address.")
     _log_send_attempt(backend, subject, effective_from, recipient_list, reply_to_address)
+    logger.info("Email backend resolved: backend=%s reason=%s", backend, reason)
 
-    if backend in {"local", "file", "console"}:
-        _write_local_email(subject, body, recipient_list)
-    elif backend == "sendgrid":
-        raise RuntimeError("SendGrid backend is no longer supported. Use SMTP.")
-    elif backend in {"smtp", "sendgrid_smtp"}:
-        _send_via_smtp(subject, body, recipient_list, effective_from, reply_to_address)
-    else:
-        raise RuntimeError(f"Unsupported EMAIL_BACKEND '{backend}'.")
+    try:
+        if backend in {"local", "file", "console"}:
+            _write_local_email(subject, body, recipient_list)
+        elif backend == "sendgrid":
+            raise RuntimeError("SendGrid backend is no longer supported. Use SMTP.")
+        elif backend in {"smtp", "sendgrid_smtp"}:
+            _send_via_smtp(subject, body, recipient_list, effective_from, reply_to_address)
+        else:
+            raise RuntimeError(f"Unsupported EMAIL_BACKEND '{backend}'.")
+    except Exception as exc:
+        logger.exception(
+            "Email dispatch failed for backend=%s error_class=%s message=%s.",
+            backend,
+            exc.__class__.__name__,
+            exc,
+        )
+        _record_send_error(backend, exc)
+        raise
 
     return recipient_list
 
 
 def send_announcement_with_result(subject: str, body: str, recipients: Iterable[str]) -> SendResult:
     recipient_list = _normalize_recipients(recipients)
-    backend = (settings.email_backend or "local").strip().strip("'\"").lower()
+    backend, reason = _select_backend()
     from_address, _ = _resolve_sender()
     reply_to = settings.email_reply_to or from_address
     _log_send_attempt(backend, subject, from_address, recipient_list, reply_to)
+    logger.info("Email backend resolved: backend=%s reason=%s", backend, reason)
 
     if not recipient_list:
         logger.info("Email dispatch skipped: no recipients (subject=%s).", _mask_subject(subject))
@@ -312,8 +420,19 @@ def send_announcement_with_result(subject: str, body: str, recipients: Iterable[
 
         raise RuntimeError(f"Unsupported EMAIL_BACKEND '{backend}'.")
     except Exception as exc:
-        logger.exception("Email dispatch failed for backend=%s.", backend)
-        return SendResult(backend=backend, status_code=None, request_id=None, error=str(exc))
+        logger.exception(
+            "Email dispatch failed for backend=%s error_class=%s message=%s.",
+            backend,
+            exc.__class__.__name__,
+            exc,
+        )
+        _record_send_error(backend, exc)
+        return SendResult(
+            backend=backend,
+            status_code=None,
+            request_id=None,
+            error=f"{exc.__class__.__name__}: {exc}",
+        )
 
 
 def send_notice_email(recipient: str, subject: str, body_html: str) -> None:
