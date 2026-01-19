@@ -13,21 +13,19 @@ services:
         value: https://api.libertyplacehoa.com
       - key: ADDITIONAL_TRUSTED_HOSTS
         value: libertyplacehoa.onrender.com,api.libertyplacehoa.com
-      - key: EMAIL_BACKEND
-        value: smtp
-      - key: EMAIL_HOST
+      - key: SMTP_HOST
         value: smtp.gmail.com
-      - key: EMAIL_PORT
+      - key: SMTP_PORT
         value: "587"
-      - key: EMAIL_HOST_USER
+      - key: SMTP_USERNAME
         value: ""
-      - key: EMAIL_HOST_PASSWORD
+      - key: SMTP_PASSWORD
         value: ""
-      - key: EMAIL_USE_TLS
+      - key: SMTP_USE_TLS
         value: "true"
-      - key: EMAIL_FROM_ADDRESS
+      - key: SMTP_FROM_EMAIL
         value: admin@libertyplacehoa.com
-      - key: EMAIL_FROM_NAME
+      - key: SMTP_FROM_NAME
         value: Liberty Place HOA
       - key: STRIPE_API_KEY
         value: ""
@@ -48,21 +46,19 @@ services:
         value: https://api.libertyplacehoa.com
       - key: ADDITIONAL_TRUSTED_HOSTS
         value: libertyplacehoa.onrender.com,api.libertyplacehoa.com
-      - key: EMAIL_BACKEND
-        value: smtp
-      - key: EMAIL_HOST
+      - key: SMTP_HOST
         value: smtp.gmail.com
-      - key: EMAIL_PORT
+      - key: SMTP_PORT
         value: "587"
-      - key: EMAIL_HOST_USER
+      - key: SMTP_USERNAME
         value: ""
-      - key: EMAIL_HOST_PASSWORD
+      - key: SMTP_PASSWORD
         value: ""
-      - key: EMAIL_USE_TLS
+      - key: SMTP_USE_TLS
         value: "true"
-      - key: EMAIL_FROM_ADDRESS
+      - key: SMTP_FROM_EMAIL
         value: admin@libertyplacehoa.com
-      - key: EMAIL_FROM_NAME
+      - key: SMTP_FROM_NAME
         value: Liberty Place HOA
       - key: STRIPE_API_KEY
         value: ""
@@ -70,3 +66,14 @@ services:
         value: local
       - key: APP_ENV
         value: prod
+  - type: static
+    name: hoa-frontend
+    env: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://api.libertyplacehoa.com
+      - key: VITE_STRIPE_PUBLISHABLE_KEY
+        value: ""
